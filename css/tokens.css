@@ -1,1 +1,44 @@
+/* ============================================================================
+   css/tokens.css — Raiz Gestão
+   Paleta do Módulo de Gestão. Mesmos NOMES de variável do app de Imóveis
+   (ver DESIGN_SYSTEM_RAIZ_PATRIMONIO.md, seção 1.1) — só o valor hex muda.
+   Isso permite copiar qualquer componente do app de Imóveis pra cá sem
+   editar nenhuma classe: só este arquivo muda.
+   ============================================================================ */
 
+:root {
+    /* Ardósia — cor primária (equivalente ao --pine do app de Imóveis) */
+    --pine: #1e3245;
+    --pine-deep: #142430;
+    --pine-light: #2d4a63;
+
+    /* Cobre — cor de acento (equivalente ao --brass do app de Imóveis) */
+    --brass: #b3572e;
+    --brass-deep: #8f4322;
+    --brass-light: #e8ab7c;
+
+    /* Secundário / texto de apoio */
+    --sage: #6b7c85;
+
+    /* Neutros — IDÊNTICOS ao app de Imóveis (base compartilhada) */
+    --ink: #17211e;
+    --paper: #faf9f5;
+    --line: #e6e3da;
+
+    /* Semânticos — success e danger são universais, não mudam por produto.
+       warning segue o acento (cobre); info ganha tom próprio (verde-azulado)
+       pra não se confundir com a cor primária, que agora também é azulada. */
+    --success: #2f8b57;
+    --success-bg: #e8f5ed;
+    --warning: #b3572e;
+    --warning-bg: #fbeee6;
+    --danger: #c1463a;
+    --danger-bg: #fbebe9;
+    --info: #3d7c8c;
+    --info-bg: #e8f2f3;
+}
+
+h1, h2, h3, h4 {
+    font-family: "Bricolage Grotesque", sans-serif;
+    letter-spacing: -.02em;
+}
