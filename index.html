@@ -1,0 +1,90 @@
+<!--
+
+==================================================================
+
+   RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
+   (painel interno/master, separado do app de Imóveis)
+
+   VERSÃO: v0.1.0
+   LINHAS: 90
+   DATA: 2026-08-15
+   NOVIDADES (v0.1.0):
+     - Esqueleto inicial: login (mesma conta Supabase do app de Imóveis),
+       verificação de licença do módulo 'gestao' via banco (sem nada
+       fixo no código), shell da área logada.
+     - Tela de Parâmetros Master ainda não implementada — entra depois
+       que comercial_fase1_v1.sql estiver rodado em produção.
+
+==================================================================
+
+-->
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Raiz Gestão</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="css/tokens.css">
+
+<style>
+    body { font-family: "Inter", system-ui, sans-serif; background: var(--paper); color: var(--ink); }
+    .hidden { display: none !important; }
+</style>
+</head>
+<body class="min-h-screen">
+
+    <!-- ===================== ÁREA DE LOGIN ===================== -->
+    <div id="area-login" class="min-h-screen flex items-center justify-center p-4">
+        <div class="w-full max-w-sm rounded-2xl p-8 shadow-xl" style="background:var(--pine-deep)">
+            <h1 class="text-2xl font-bold text-white mb-1">Raiz Gestão</h1>
+            <p class="text-sm mb-6" style="color:var(--brass-light)">Painel interno · Raízes Tech</p>
+
+            <div class="space-y-3">
+                <input type="email" id="login-email" placeholder="E-mail" autocomplete="username"
+                    class="w-full p-4 rounded-xl text-white text-base"
+                    style="background:var(--pine);border:1px solid var(--pine-light)">
+                <input type="password" id="login-senha" placeholder="Senha" autocomplete="current-password"
+                    onkeydown="if(event.key==='Enter') fazerLoginGestao();"
+                    class="w-full p-4 rounded-xl text-white text-base"
+                    style="background:var(--pine);border:1px solid var(--pine-light)">
+                <button onclick="fazerLoginGestao()"
+                    class="w-full text-white font-bold py-3.5 rounded-xl shadow transition active:scale-95"
+                    style="background:var(--brass)">
+                    Entrar
+                </button>
+                <p id="login-status" class="text-xs text-center min-h-[1rem]" style="color:var(--brass-light)"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================== ÁREA LOGADA ===================== -->
+    <div id="area-app" class="hidden min-h-screen">
+        <header class="flex items-center justify-between px-5 py-4 shadow" style="background:var(--pine)">
+            <h1 class="text-lg font-bold text-white">🧭 Raiz Gestão</h1>
+            <div class="flex items-center gap-3">
+                <span class="text-sm text-white/80" id="nome-pessoa-logada"></span>
+                <button onclick="fazerLogoutGestao()" class="text-xs font-bold px-3 py-1.5 rounded-lg text-white" style="background:var(--pine-light)">Sair</button>
+            </div>
+        </header>
+
+        <main class="p-5" id="area-conteudo">
+            <p class="text-sm" style="color:var(--sage)">Carregando Parâmetros Master...</p>
+        </main>
+    </div>
+
+    <script src="js/supabase-client.js"></script>
+    <script>
+        window.addEventListener('load', function () { if (window.lucide) lucide.createIcons(); });
+    </script>
+
+</body>
+</html>
