@@ -5,9 +5,27 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
-   VERSÃO: v0.1.0
-   LINHAS: 90
-   DATA: 2026-08-15
+   VERSÃO: v0.3.0
+   LINHAS: 196
+   DATA: 2026-08-16
+   NOVIDADES (v0.3.0):
+     - PWA: manifest.json, sw.js e ícones (icon-192/icon-512/
+       icon-512-maskable) — instalável no Android e iPhone.
+     - Parâmetros Master ganhou 2 sub-abas: Pagamento (formas de
+       pagamento + opções de preço/parcelas) e Campanhas (ofertas com
+       vigência: trial, cortesia, promoção sazonal).
+
+   NOVIDADES (v0.2.0):
+     - Tela de Parâmetros Master ligada (js/telas/parametros-master.js):
+       Módulos, Funcionalidades e Planos (+ vínculo plano×funcionalidade
+       com limite/limite_aviso). Campanhas e formas de pagamento ficam
+       pra próxima fase.
+     - Tailwind @theme adicionado (emerald→ardósia, amber→cobre,
+       slate/gray com o mesmo neutro do app de Imóveis) — sem isso as
+       classes bg-slate-50/border-slate-300 usadas na tela renderizavam
+       cores erradas (cinza padrão do Tailwind, não a paleta da marca).
+     - CSS do padrão liga/desliga (seção 2 do design system) adicionado.
+
    NOVIDADES (v0.1.0):
      - Esqueleto inicial: login (mesma conta Supabase do app de Imóveis),
        verificação de licença do módulo 'gestao' via banco (sem nada
@@ -25,6 +43,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Raiz Gestão</title>
 
+<!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#142430">
+
+<!-- Android/Chrome -->
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+
+<!-- iPhone/Safari (o iOS ignora o manifest.json pro ícone; precisa destas tags) -->
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Raiz Gestão">
+
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+
 <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
@@ -33,11 +67,71 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
+<style type="text/tailwindcss">
+    @theme {
+      /* emerald → ardósia (equivalente à cor primária --pine deste app) */
+      --color-emerald-50: #eef2f5;   --color-emerald-100: #dfe6ea;
+      --color-emerald-200: #c0ccd6;  --color-emerald-300: #9aacba;
+      --color-emerald-400: #66889f;  --color-emerald-500: #3f6483;
+      --color-emerald-600: #2d4a63;  --color-emerald-700: #253d52;
+      --color-emerald-800: #1c3140;  --color-emerald-900: #1e3245;
+      --color-emerald-950: #142430;
+
+      /* slate + gray → neutro, mesma base do app de Imóveis (só o 600
+         (equivalente ao --sage) muda de tom, de verde pra azulado) */
+      --color-slate-50: #faf9f5;     --color-slate-100: #ecefee;
+      --color-slate-200: #e6e3da;    --color-slate-300: #bbc7c2;
+      --color-slate-400: #97aaa2;    --color-slate-500: #7a9187;
+      --color-slate-600: #6b7c85;    --color-slate-700: #52675e;
+      --color-slate-800: #3d4e47;    --color-slate-900: #283530;
+      --color-slate-950: #1e2925;
+      --color-gray-50: #faf9f5;      --color-gray-100: #ecefee;
+      --color-gray-200: #e6e3da;     --color-gray-300: #bbc7c2;
+      --color-gray-400: #97aaa2;     --color-gray-500: #7a9187;
+      --color-gray-600: #6b7c85;     --color-gray-700: #52675e;
+      --color-gray-800: #3d4e47;     --color-gray-900: #283530;
+      --color-gray-950: #1e2925;
+
+      /* red → danger (universal, idêntico ao app de Imóveis) */
+      --color-red-50: #fbebe9;   --color-red-100: #f7e7e5;
+      --color-red-200: #eecbc8;  --color-red-300: #e2aaa4;
+      --color-red-400: #d47e75;  --color-red-500: #c7584e;
+      --color-red-600: #c1463a;  --color-red-700: #99382d;
+      --color-red-800: #782c22;  --color-red-900: #572018;
+      --color-red-950: #481a12;
+
+      /* amber → cobre (equivalente ao acento --brass deste app) */
+      --color-amber-50: #fbeee6;   --color-amber-100: #f7e4d6;
+      --color-amber-200: #eeccb2;  --color-amber-300: #e3ac85;
+      --color-amber-400: #cf8355;  --color-amber-500: #b3572e;
+      --color-amber-600: #8f4322;  --color-amber-700: #7c3a1e;
+      --color-amber-800: #5f2d18;  --color-amber-900: #432012;
+      --color-amber-950: #33180d;
+
+      /* green → success (universal, idêntico ao app de Imóveis) */
+      --color-green-50: #e8f5ed;   --color-green-100: #e4f0e9;
+      --color-green-200: #c5dfd0;  --color-green-300: #9fcab2;
+      --color-green-400: #6dae89;  --color-green-500: #449768;
+      --color-green-600: #2f8b57;  --color-green-700: #256f45;
+      --color-green-800: #1c5837;  --color-green-900: #144128;
+      --color-green-950: #103521;
+
+      --font-sans: "Inter", system-ui, sans-serif;
+    }
+</style>
+
 <link rel="stylesheet" href="css/tokens.css">
 
 <style>
     body { font-family: "Inter", system-ui, sans-serif; background: var(--paper); color: var(--ink); }
     .hidden { display: none !important; }
+
+    /* Padrão liga/desliga — DESIGN_SYSTEM_RAIZ_PATRIMONIO.md, seção 2 */
+    .raiz-btn-toggle.ativo { background: var(--pine) !important; color: #fff !important; border-color: var(--pine) !important; }
+    .raiz-btn-toggle svg.raiz-icone-toggle { width: 20px; height: 20px; }
+
+    /* Indicador de validação inline — seção 5 */
+    .raiz-indicador-inline:empty { height: 0; margin-top: 0; }
 </style>
 </head>
 <body class="min-h-screen">
@@ -82,8 +176,20 @@
     </div>
 
     <script src="js/supabase-client.js"></script>
+    <script src="js/telas/parametros-master.js"></script>
     <script>
-        window.addEventListener('load', function () { if (window.lucide) lucide.createIcons(); });
+        window.addEventListener('load', function () {
+            if (window.lucide) lucide.createIcons();
+
+            // Registra o Service Worker — necessário em algumas versões do
+            // Chrome/Android pra instalar de verdade (ícone próprio, tela
+            // cheia), senão o Android cai no atalho genérico do navegador.
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('sw.js').catch(function (err) {
+                    console.warn('Falha ao registrar service worker:', err.message);
+                });
+            }
+        });
     </script>
 
 </body>
