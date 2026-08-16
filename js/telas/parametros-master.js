@@ -33,8 +33,8 @@ async function telaParametrosMasterInit() {
         </div>
         <div id="pm-conteudo-subaba"></div>
     `;
-    await pmCarregarTudo();
-    pmMudarSubaba('modulos');
+    const ok = await pmCarregarTudo();
+    if (ok) pmMudarSubaba('modulos');
 }
 
 async function pmCarregarTudo() {
@@ -50,12 +50,12 @@ async function pmCarregarTudo() {
         dbAuth.schema('comercial').from('plano_campanhas').select('*').order('nome')
     ]);
 
-    if (e1) { pmErro('Módulos: ' + e1.message); return; }
-    if (e2) { pmErro('Funcionalidades: ' + e2.message); return; }
-    if (e3) { pmErro('Planos: ' + e3.message); return; }
-    if (e4) { pmErro('Formas de pagamento: ' + e4.message); return; }
-    if (e5) { pmErro('Pagamentos de plano: ' + e5.message); return; }
-    if (e6) { pmErro('Campanhas: ' + e6.message); return; }
+    if (e1) { pmErro('Módulos: ' + e1.message); return false; }
+    if (e2) { pmErro('Funcionalidades: ' + e2.message); return false; }
+    if (e3) { pmErro('Planos: ' + e3.message); return false; }
+    if (e4) { pmErro('Formas de pagamento: ' + e4.message); return false; }
+    if (e5) { pmErro('Pagamentos de plano: ' + e5.message); return false; }
+    if (e6) { pmErro('Campanhas: ' + e6.message); return false; }
 
     pmModulos = modulos || [];
     pmFuncionalidades = func || [];
@@ -63,6 +63,7 @@ async function pmCarregarTudo() {
     pmFormasPagamento = formasPgto || [];
     pmPlanoPagamentos = planoPgtos || [];
     pmCampanhas = campanhas || [];
+    return true;
 }
 
 function pmErro(msg) {
