@@ -5,6 +5,23 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
+   VERSÃO: v0.4.0
+   LINHAS: 224
+   DATA: 2026-08-16
+   NOVIDADES (v0.4.0):
+     - Versão do app agora aparece na tela (login e área interna), via
+       constante única APP_VERSAO — mesma ideia do app de Imóveis.
+     - CORREÇÃO (grant faltando): tabelas novas do schema comercial
+       criadas via SQL Editor não herdam GRANT automático pro papel
+       "authenticated" — causava "permission denied for table
+       tipo_modulos". Resolvido em comercial_fase1_grants_v1.sql.
+     - CORREÇÃO (bug real, js/telas/parametros-master.js): quando o
+       carregamento de dados falhava, a tela tentava trocar de aba
+       mesmo assim, tentando estilizar um botão que não existia mais
+       (a caixa de erro tinha substituído as abas) — TypeError "Cannot
+       read properties of null". pmCarregarTudo() agora avisa se deu
+       certo antes de continuar.
+
    VERSÃO: v0.3.0
    LINHAS: 196
    DATA: 2026-08-16
@@ -42,6 +59,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Raiz Gestão</title>
+
+<script>
+    // Fonte única da versão exibida na tela — mantida em sincronia com o
+    // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
+    const APP_VERSAO = 'v0.4.0';
+</script>
 
 <!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->
 <link rel="manifest" href="manifest.json">
@@ -140,7 +163,8 @@
     <div id="area-login" class="min-h-screen flex items-center justify-center p-4">
         <div class="w-full max-w-sm rounded-2xl p-8 shadow-xl" style="background:var(--pine-deep)">
             <h1 class="text-2xl font-bold text-white mb-1">Raiz Gestão</h1>
-            <p class="text-sm mb-6" style="color:var(--brass-light)">Painel interno · Raízes Tech</p>
+            <p class="text-sm mb-1" style="color:var(--brass-light)">Painel interno · Raízes Tech</p>
+            <p class="text-[10px] mb-6" style="color:var(--pine-light)" id="badge-versao-login"></p>
 
             <div class="space-y-3">
                 <input type="email" id="login-email" placeholder="E-mail" autocomplete="username"
@@ -166,6 +190,7 @@
             <h1 class="text-lg font-bold text-white">🧭 Raiz Gestão</h1>
             <div class="flex items-center gap-3">
                 <span class="text-sm text-white/80" id="nome-pessoa-logada"></span>
+                <span class="text-[10px] text-white/50" id="badge-versao-app"></span>
                 <button onclick="fazerLogoutGestao()" class="text-xs font-bold px-3 py-1.5 rounded-lg text-white" style="background:var(--pine-light)">Sair</button>
             </div>
         </header>
@@ -180,6 +205,9 @@
     <script>
         window.addEventListener('load', function () {
             if (window.lucide) lucide.createIcons();
+
+            document.getElementById('badge-versao-login').textContent = APP_VERSAO;
+            document.getElementById('badge-versao-app').textContent = APP_VERSAO;
 
             // Registra o Service Worker — necessário em algumas versões do
             // Chrome/Android pra instalar de verdade (ícone próprio, tela
