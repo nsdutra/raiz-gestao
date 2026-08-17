@@ -5,6 +5,34 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
+   VERSÃO: v0.5.0
+   LINHAS: 252
+   DATA: 2026-08-16
+   NOVIDADES (v0.5.0):
+     - Edição adicionada em TODAS as sub-abas de Parâmetros Master
+       (antes só dava pra criar, não editar).
+     - Cartão de débito adicionado como forma de pagamento.
+     - Ajuste de forma de pagamento agora usa um seletor Acréscimo/
+       Desconto + número positivo — corrige o teclado numérico do
+       Android não ter tecla de "-" pra digitar desconto direto.
+     - Campo "Módulo" saiu do formulário de Planos (o plano não precisa
+       mais escolher módulo — o agrupamento por módulo agora vive na
+       Funcionalidade, que ganhou esse campo). Lista de Funcionalidades
+       passou a agrupar por módulo em vez de pelo texto livre "área".
+     - Campanhas agora aceitam MAIS DE UMA opção de pagamento (checkbox
+       múltiplo) — precisou de tabela nova
+       (comercial.plano_campanhas_pagamentos, ver
+       comercial_campanhas_pagamentos_v1.sql).
+     - Nova sub-aba: Categorias (comercial.categoria_licenca).
+     - CORREÇÃO (grants faltando): "permission denied" ao criar plano ou
+       vincular funcionalidade — public.funcionalidades/planos/
+       plano_funcionalidade não tinham GRANT de escrita pro papel
+       authenticated. Resolvido em public_catalogo_grants_v1.sql.
+     - Lista de vínculo plano×funcionalidade reformatada: layout
+       empilhado (nome numa linha, limite/aviso na linha de baixo) em
+       vez de tudo espremido numa linha só — corrige o desalinhamento
+       em tela de celular.
+
    VERSÃO: v0.4.0
    LINHAS: 224
    DATA: 2026-08-16
@@ -63,7 +91,7 @@
 <script>
     // Fonte única da versão exibida na tela — mantida em sincronia com o
     // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
-    const APP_VERSAO = 'v0.4.0';
+    const APP_VERSAO = 'v0.5.0';
 </script>
 
 <!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->
