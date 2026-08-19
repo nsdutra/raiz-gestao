@@ -5,6 +5,34 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
+   VERSÃO: v0.6.0
+   LINHAS: 296
+   DATA: 2026-08-18
+   NOVIDADES (v0.6.0) — CONVERSA C: EVOLUÇÃO PARA COCKPIT:
+     - Home deixou de ser Parâmetros Master direto e passou a ser o
+       Cockpit (decisão de produto, Prompt 03) — fila de atenção
+       unificada, indicadores rápidos de empresas/financeiro.
+     - Barra de navegação nova entre módulo (área logada): Cockpit,
+       Empresas, Financeiro, Saúde, Comercial, Suporte, Parâmetros —
+       reaproveitando o padrão visual de abas que já existia dentro de
+       Parâmetros Master (pm-subaba), agora um nível acima.
+     - 4 arquivos JS novos: js/nav.js (shell de navegação),
+       js/telas/cockpit.js, js/telas/empresas.js, js/telas/financeiro.js,
+       js/telas/saude.js. Nenhum arquivo existente foi reescrito — só
+       entrarNaGestao() (js/supabase-client.js) mudou 1 chamada, pra abrir
+       o Cockpit em vez de ir direto pra Parâmetros Master.
+     - Comercial e Suporte ainda SEM fonte de dado real no banco (não há
+       tabela de pipeline/funil nem de tickets) — telas mostram aviso
+       explícito de "ainda não disponível" em vez de dado fictício,
+       conforme regra do Prompt 03. Mesma lógica pra infraestrutura
+       (Storage/Edge Functions/uptime) dentro de Saúde.
+     - Requer gestao_fase1_cockpit_v1.sql rodado em produção (schema
+       "gestao" com funções SECURITY DEFINER cross-tenant) — ver
+       changelog do próprio SQL para detalhe de segurança.
+     - Parâmetros Master (js/telas/parametros-master.js) preservado sem
+       nenhuma alteração — só passou a ser aberto pela nova barra de
+       navegação em vez de direto no login.
+
    VERSÃO: v0.5.0
    LINHAS: 252
    DATA: 2026-08-16
@@ -183,6 +211,14 @@
 
     /* Indicador de validação inline — seção 5 */
     .raiz-indicador-inline:empty { height: 0; margin-top: 0; }
+
+    /* v0.6.0 — barra de navegação entre telas do módulo (Cockpit/Empresas/
+       Financeiro/Saúde/Comercial/Suporte/Parâmetros). Mesmo princípio
+       visual das sub-abas de Parâmetros Master (pm-subaba), um nível
+       acima: texto --sage, vira --pine com borda --brass quando ativa. */
+    #gestao-nav { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--line); padding: 0 20px; background: #fff; }
+    .gestao-nav-item { color: var(--sage); border-bottom: 3px solid transparent; }
+    .gestao-nav-item.ativo { color: var(--pine); border-bottom-color: var(--brass); font-weight: 800; }
 </style>
 </head>
 <body class="min-h-screen">
@@ -223,12 +259,20 @@
             </div>
         </header>
 
+        <!-- v0.6.0 — barra de navegação entre telas, montada por gestaoNavInit() (js/nav.js) -->
+        <nav id="gestao-nav"></nav>
+
         <main class="p-5" id="area-conteudo">
-            <p class="text-sm" style="color:var(--sage)">Carregando Parâmetros Master...</p>
+            <p class="text-sm" style="color:var(--sage)">Carregando...</p>
         </main>
     </div>
 
     <script src="js/supabase-client.js"></script>
+    <script src="js/nav.js"></script>
+    <script src="js/telas/cockpit.js"></script>
+    <script src="js/telas/empresas.js"></script>
+    <script src="js/telas/financeiro.js"></script>
+    <script src="js/telas/saude.js"></script>
     <script src="js/telas/parametros-master.js"></script>
     <script>
         window.addEventListener('load', function () {
