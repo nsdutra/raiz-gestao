@@ -1,11 +1,13 @@
 // ============================================================================
 // js/telas/financeiro.js — Raiz Gestão
 //
+// v0.7.0: ícones de informação explicando a origem de cada número.
+//
 // v0.6.0 (novo): resumo financeiro real, a partir de
 // comercial.plano_contratado_item_pagamentos (parcelas com status
-// pago/pendente já existentes no schema). Custos operacionais (Supabase,
-// IA, WhatsApp/Meta, e-mail) NÃO têm fonte de dado no banco — não são
-// lançados aqui como número fictício; a seção fica marcada como pendente.
+// pago/pendente já existentes no schema). Custos operacionais NÃO têm
+// fonte de dado no banco — não são lançados aqui como número fictício; a
+// seção fica marcada como pendente.
 // ============================================================================
 
 async function telaFinanceiroInit() {
@@ -20,12 +22,15 @@ async function telaFinanceiroInit() {
 
     document.getElementById('area-conteudo').innerHTML = `
         <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
-            ${gestaoCardMetrica('Recebido no mês', gestaoFormatarMoedaBR(r.recebido_mes_atual), 'green')}
-            ${gestaoCardMetrica('A receber (futuro)', gestaoFormatarMoedaBR(r.a_receber_futuro))}
-            ${gestaoCardMetrica('Inadimplente (' + r.qtd_parcelas_inadimplentes + ' parcelas)', gestaoFormatarMoedaBR(r.inadimplente), r.inadimplente > 0 ? 'red' : 'green')}
+            ${gestaoCardMetrica('Recebido no mês', gestaoFormatarMoedaBR(r.recebido_mes_atual), 'green', 'Soma de comercial.plano_contratado_item_pagamentos com status=pago e data_pgto dentro do mês atual, dividido pelas parcelas do contrato.')}
+            ${gestaoCardMetrica('A receber (futuro)', gestaoFormatarMoedaBR(r.a_receber_futuro), null, 'Parcelas com status=pendente cujo período ainda não venceu.')}
+            ${gestaoCardMetrica('Inadimplente (' + r.qtd_parcelas_inadimplentes + ' parcelas)', gestaoFormatarMoedaBR(r.inadimplente), r.inadimplente > 0 ? 'red' : 'green', 'Parcelas com status=pendente cujo período_fim já passou.')}
         </div>
 
-        <h2 class="text-sm font-extrabold mb-3" style="color:var(--ink)">Receita do mês por plano</h2>
+        <h2 class="text-sm font-extrabold mb-3 flex items-center" style="color:var(--ink)">
+            Receita do mês por plano
+            ${gestaoInfoIcone('Mesma base de "Recebido no mês", agrupada por plano_codigo do contrato.')}
+        </h2>
         <div class="space-y-2 mb-6">
             ${(porPlano || []).map(p => `
                 <div>
