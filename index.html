@@ -5,6 +5,34 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
+   VERSÃO: v0.7.0
+   LINHAS: 375
+   DATA: 2026-08-19
+   NOVIDADES (v0.7.0) — UI fiel ao protótipo + Uso&Consumo + Comercial real:
+     - Navegação trocou de barra de abas única pra shell sidebar (desktop,
+       ≥900px) + barra inferior (mobile) — mais fiel ao protótipo aprovado
+       (RAIZ_GESTAO_COCKPIT_PROTOTIPO_UI_v0_6_0.html). Mesma lista de
+       telas (GESTAO_TELAS, js/nav.js), sem duplicar lógica de cada tela.
+     - Ícone informativo "ⓘ" (clicável, funciona em toque) explicando a
+       origem de cada métrica — Cockpit, Empresas (ficha), Financeiro,
+       Saúde, Comercial.
+     - Empresas → ficha ganhou seção "Uso & Consumo": imóveis/contratos
+       usados vs. limite (único par com contador real hoje — mesma regra
+       de fn_verificar_limite), ações mais usadas no app e no bot pela
+       empresa, nos últimos 30 dias.
+     - Saúde ganhou "Funções mais usadas" (app + bot, todas as empresas) —
+       frequência de log real, não consumo-vs-limite.
+     - Comercial deixou de ser placeholder: funil simplificado (visitas à
+       landing → trials iniciados → convertidos, only o que tem fonte
+       real hoje — não é funil de CRM completo), trials em andamento
+       (dimensionamento, uso app/bot durante o trial, dias restantes),
+       páginas mais navegadas e origem do tráfego da landing
+       (comercial.eventos_landing).
+     - Parâmetros Master ganhou EXCLUSÃO em todas as 6 sub-abas (só tinha
+       criar/editar) — confirmação obrigatória + erro de FK (Postgres
+       23503) convertido em mensagem amigável.
+     - Requer gestao_fase2_uso_comercial_v1.sql rodado, além da fase 1.
+
    VERSÃO: v0.6.0
    LINHAS: 296
    DATA: 2026-08-18
@@ -119,7 +147,7 @@
 <script>
     // Fonte única da versão exibida na tela — mantida em sincronia com o
     // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
-    const APP_VERSAO = 'v0.5.0';
+    const APP_VERSAO = 'v0.7.0';
 </script>
 
 <!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->
@@ -212,13 +240,56 @@
     /* Indicador de validação inline — seção 5 */
     .raiz-indicador-inline:empty { height: 0; margin-top: 0; }
 
-    /* v0.6.0 — barra de navegação entre telas do módulo (Cockpit/Empresas/
-       Financeiro/Saúde/Comercial/Suporte/Parâmetros). Mesmo princípio
-       visual das sub-abas de Parâmetros Master (pm-subaba), um nível
-       acima: texto --sage, vira --pine com borda --brass quando ativa. */
-    #gestao-nav { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--line); padding: 0 20px; background: #fff; }
-    .gestao-nav-item { color: var(--sage); border-bottom: 3px solid transparent; }
-    .gestao-nav-item.ativo { color: var(--pine); border-bottom-color: var(--brass); font-weight: 800; }
+    /* v0.7.0 — shell sidebar (desktop, ≥900px) / bottom-nav (mobile),
+       mais fiel ao protótipo aprovado. Sidebar fica escondida no mobile;
+       bottom-nav fica escondida no desktop. Mesma lista de telas
+       (GESTAO_TELAS, js/nav.js) alimenta as duas. */
+    .gestao-shell { display: block; }
+    .gestao-sidebar { display: none; }
+    .gestao-mobile-nav {
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+        display: flex; overflow-x: auto; background: #fff;
+        border-top: 1px solid var(--line);
+        padding-bottom: env(safe-area-inset-bottom, 0);
+    }
+    .gestao-main { padding-bottom: 84px; } /* espaço pra bottom-nav não cobrir conteúdo */
+
+    @media (min-width: 900px) {
+        .gestao-shell { display: grid; grid-template-columns: 220px 1fr; align-items: start; }
+        .gestao-sidebar {
+            display: block; position: sticky; top: 0; height: 100vh;
+            background: var(--pine-deep); padding: 20px 12px; overflow-y: auto;
+        }
+        .gestao-mobile-nav { display: none; }
+        .gestao-main { padding-bottom: 20px; }
+    }
+
+    .gestao-nav-item {
+        display: flex; align-items: center; gap: 10px;
+        padding: 10px 12px; border-radius: 10px; font-size: 13px; font-weight: 700;
+        color: var(--sage); white-space: nowrap; flex: none; width: 100%;
+        text-align: left;
+    }
+    .gestao-sidebar .gestao-nav-item { color: rgba(255,255,255,.65); margin-bottom: 2px; }
+    .gestao-sidebar .gestao-nav-item.ativo { background: var(--pine-light); color: #fff; }
+    .gestao-mobile-nav .gestao-nav-item {
+        flex-direction: column; gap: 2px; padding: 8px 14px; width: auto;
+        font-size: 10px; text-align: center;
+    }
+    .gestao-mobile-nav .gestao-nav-item.ativo { color: var(--brass); }
+    .gestao-nav-icone { font-size: 16px; line-height: 1; }
+
+    /* Ícone informativo (tooltip clicável) — Saúde/Financeiro/Comercial/Empresas */
+    .gestao-info-icone {
+        color: var(--sage); font-size: 12px; line-height: 1; cursor: pointer;
+        border: none; background: none; padding: 0;
+    }
+    .gestao-info-popover {
+        position: absolute; z-index: 30; top: 20px; left: 0; width: 240px;
+        background: var(--ink); color: #fff; font-size: 11px; font-weight: 400;
+        text-transform: none; letter-spacing: normal; padding: 10px 12px;
+        border-radius: 10px; line-height: 1.4; box-shadow: 0 8px 24px rgba(0,0,0,.25);
+    }
 </style>
 </head>
 <body class="min-h-screen">
@@ -259,18 +330,26 @@
             </div>
         </header>
 
-        <!-- v0.6.0 — barra de navegação entre telas, montada por gestaoNavInit() (js/nav.js) -->
-        <nav id="gestao-nav"></nav>
+        <!-- v0.7.0 — shell sidebar (desktop) / bottom-nav (mobile), mais fiel ao
+             protótipo aprovado. Ambas as navs são montadas por gestaoNavInit()
+             (js/nav.js) a partir da mesma lista GESTAO_TELAS. -->
+        <div class="gestao-shell">
+            <aside class="gestao-sidebar">
+                <nav id="gestao-sidebar-nav"></nav>
+            </aside>
+            <main class="p-5 gestao-main" id="area-conteudo">
+                <p class="text-sm" style="color:var(--sage)">Carregando...</p>
+            </main>
+        </div>
 
-        <main class="p-5" id="area-conteudo">
-            <p class="text-sm" style="color:var(--sage)">Carregando...</p>
-        </main>
+        <nav id="gestao-mobile-nav" class="gestao-mobile-nav"></nav>
     </div>
 
     <script src="js/supabase-client.js"></script>
     <script src="js/nav.js"></script>
     <script src="js/telas/cockpit.js"></script>
     <script src="js/telas/empresas.js"></script>
+    <script src="js/telas/comercial.js"></script>
     <script src="js/telas/financeiro.js"></script>
     <script src="js/telas/saude.js"></script>
     <script src="js/telas/parametros-master.js"></script>
