@@ -1,6 +1,11 @@
 // ============================================================================
 // js/supabase-client.js — Raiz Gestão
 //
+// v0.6.0 — entrarNaGestao() passou a abrir o shell de navegação
+// (gestaoNavInit(), js/nav.js) em vez de ir direto pra Parâmetros Master.
+// Único trecho alterado nesta versão; resto do arquivo é v0.5.0, sem
+// mudança de comportamento de login/licença.
+//
 // Mesmo projeto Supabase, mesma "anon key" e mesmo mecanismo de login do
 // app de Imóveis (Supabase Auth). Não é um login novo — é a MESMA conta.
 // O que muda é o que a pessoa vê depois de logar, e isso vem do catálogo
@@ -105,7 +110,11 @@ function entrarNaGestao() {
     document.getElementById('area-login').classList.add('hidden');
     document.getElementById('area-app').classList.remove('hidden');
     document.getElementById('nome-pessoa-logada').textContent = pessoaLogada.nome;
-    if (typeof telaParametrosMasterInit === 'function') telaParametrosMasterInit();
+    // v0.6.0 — home deixou de ser Parâmetros Master direto e passou a ser
+    // o Cockpit, via shell de navegação (js/nav.js). gestaoNavInit() monta
+    // as abas e abre 'cockpit' por padrão (decisão de produto, Prompt 03).
+    if (typeof gestaoNavInit === 'function') gestaoNavInit();
+    else if (typeof telaParametrosMasterInit === 'function') telaParametrosMasterInit(); // rede de segurança caso nav.js não carregue
 }
 
 async function fazerLogoutGestao() {
