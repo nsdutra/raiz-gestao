@@ -1,6 +1,8 @@
 // ============================================================================
 // js/telas/cockpit.js — Raiz Gestão
 //
+// v0.7.0: ícones de informação nos cartões/seções.
+//
 // v0.6.0 (novo): home do módulo. Fila de atenção unificada + indicadores
 // rápidos, todos vindos de gestao.fn_cockpit_atencao() e
 // gestao.fn_financeiro_resumo() (dados reais — ver changelog do SQL).
@@ -28,12 +30,15 @@ async function telaCockpitInit() {
     area.innerHTML = `
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
             ${gestaoCardMetrica('Empresas ativas', `${empresasAtivas} / ${totalEmpresas}`)}
-            ${gestaoCardMetrica('Recebido no mês', gestaoFormatarMoedaBR(finResumo.recebido_mes_atual), 'green')}
+            ${gestaoCardMetrica('Recebido no mês', gestaoFormatarMoedaBR(finResumo.recebido_mes_atual), 'green', 'Parcelas pagas (comercial.plano_contratado_item_pagamentos) dentro do mês atual. Detalhe em Financeiro.')}
             ${gestaoCardMetrica('A receber', gestaoFormatarMoedaBR(finResumo.a_receber_futuro))}
             ${gestaoCardMetrica('Inadimplente', gestaoFormatarMoedaBR(finResumo.inadimplente), finResumo.inadimplente > 0 ? 'red' : 'green')}
         </div>
 
-        <h2 class="text-sm font-extrabold mb-3" style="color:var(--ink)">Fila de atenção</h2>
+        <h2 class="text-sm font-extrabold mb-3 flex items-center" style="color:var(--ink)">
+            Fila de atenção
+            ${gestaoInfoIcone('Só sinais com fonte real: licença vencendo/vencida, empresa sem acesso há 14+ dias, parcela vencida e feedback com nota baixa. Nada aqui é estimado.')}
+        </h2>
         <div id="cockpit-atencao" class="space-y-2"></div>
     `;
 
