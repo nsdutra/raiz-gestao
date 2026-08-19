@@ -1,7 +1,12 @@
 // ============================================================================
 // js/telas/empresas.js — Raiz Gestão
 //
-// v0.6.0 (novo): lista de empresas (gestao.fn_lista_empresas()) com busca
+// v0.7.0: ficha ganhou seção "Uso & Consumo" (gestao.fn_uso_empresa_resumo/
+// _top_app/_top_bot) — consumo real de imóveis/contratos vs. limite, ações
+// mais usadas no app e no bot, com ícone de informação explicando que só
+// imóveis/contratos têm contador de uso implementado hoje.
+//
+// v0.6.0: lista de empresas (gestao.fn_lista_empresas()) com busca
 // client-side e ficha executiva (gestao.fn_ficha_empresa()) num modal
 // simples. "Entrar nesta empresa" fica marcado como pendente — depende de
 // decisão ainda em aberto na arquitetura (mecanismo de troca de empresa
@@ -54,10 +59,17 @@ function empresasRenderLista() {
 }
 
 async function empresasAbrirFicha(clienteId) {
-    const { data, error } = await dbAuth.schema('gestao').rpc('fn_ficha_empresa', { p_cliente_id: clienteId });
+    const [{ data: fichaData, error }, { data: uso, error: eUso }, { data: topApp }, { data: topBot }] = await Promise.all([
+        dbAuth.schema('gestao').rpc('fn_ficha_empresa', { p_cliente_id: clienteId }),
+        dbAuth.schema('gestao').rpc('fn_uso_empresa_resumo', { p_cliente_id: clienteId }),
+        dbAuth.schema('gestao').rpc('fn_uso_empresa_top_app', { p_cliente_id: clienteId }),
+        dbAuth.schema('gestao').rpc('fn_uso_empresa_top_bot', { p_cliente_id: clienteId })
+    ]);
     if (error) { alert('Erro ao carregar ficha: ' + error.message); return; }
-    const f = (data && data[0]);
+    const f = (fichaData && fichaData[0]);
     if (!f) { alert('Empresa não encontrada.'); return; }
+    const u = (uso && uso[0]) || {};
+    if (eUso) console.warn('Uso & Consumo indisponível:', eUso.message);
 
     const modal = document.getElementById('empresas-modal');
     modal.classList.remove('hidden');
@@ -78,6 +90,36 @@ async function empresasAbrirFicha(clienteId) {
                     <div class="p-3 rounded-xl" style="background:var(--paper)"><p class="text-[10px]" style="color:var(--sage)">Nota média feedback (180d)</p><p class="text-sm font-bold">${f.nota_media_feedback ?? 'sem feedback'}</p></div>
                 </div>
                 <p class="text-xs" style="color:var(--sage)">Cliente desde ${f.cliente_desde ? new Date(f.cliente_desde).toLocaleDateString('pt-BR') : '—'} · licença expira em ${f.data_expiracao ? new Date(f.data_expiracao).toLocaleDateString('pt-BR') : 'sem data'}</p>
+
+                <div class="mt-5 pt-4 border-t" style="border-color:var(--line)">
+                    <h4 class="text-sm font-extrabold mb-3 flex items-center" style="color:var(--ink)">
+                        Uso &amp; Consumo
+                        ${gestaoInfoIcone('Consumo vs. limite só existe de verdade hoje para Imóveis e Contratos (é o que o sistema já checa antes de deixar criar um novo). As demais funcionalidades têm limite definido no plano, mas ainda sem contador de uso implementado.')}
+                    </h4>
+                    <div class="space-y-2 mb-3">
+                        ${gestaoBarra('Imóveis', u.imoveis_usado ?? 0, u.imoveis_limite || Math.max(1, u.imoveis_usado || 1), (v) => `${v} / ${u.imoveis_limite ?? '∞'}`)}
+                        ${gestaoBarra('Contratos', u.contratos_usado ?? 0, u.contratos_limite || Math.max(1, u.contratos_usado || 1), (v) => `${v} / ${u.contratos_limite ?? '∞'}`)}
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 mb-3">
+                        <div class="p-2.5 rounded-xl" style="background:var(--paper)"><p class="text-[10px]" style="color:var(--sage)">Ações no app (30d)</p><p class="text-sm font-bold">${u.total_acoes_app_30d ?? 0}</p></div>
+                        <div class="p-2.5 rounded-xl" style="background:var(--paper)"><p class="text-[10px]" style="color:var(--sage)">Eventos no bot (30d)</p><p class="text-sm font-bold">${u.total_eventos_bot_30d ?? 0}</p></div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <p class="text-[10px] font-bold uppercase mb-1" style="color:var(--sage)">Mais usado — app</p>
+                            <div class="space-y-1">
+                                ${(topApp || []).slice(0, 5).map(a => `<div class="flex justify-between text-xs"><span class="truncate pr-2" style="color:var(--ink)">${a.acao}</span><b>${a.qtd}</b></div>`).join('') || `<p class="text-xs" style="color:var(--sage)">Sem ações no período.</p>`}
+                            </div>
+                        </div>
+                        <div>
+                            <p class="text-[10px] font-bold uppercase mb-1" style="color:var(--sage)">Mais usado — bot</p>
+                            <div class="space-y-1">
+                                ${(topBot || []).slice(0, 5).map(b => `<div class="flex justify-between text-xs"><span class="truncate pr-2" style="color:var(--ink)">${b.funcionalidade}</span><b>${b.qtd}</b></div>`).join('') || `<p class="text-xs" style="color:var(--sage)">Sem eventos no período.</p>`}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <p class="text-[11px] mt-4 p-3 rounded-xl" style="background:var(--info-bg);color:var(--info)">
                     "Entrar nesta empresa" e "gerenciar licença" ficam pendentes de decisão de arquitetura (mecanismo de troca de empresa do master) — ver MODULO_GESTAO_ESTRATEGIA_ARQUITETURA.md, seção 8.
                 </p>
