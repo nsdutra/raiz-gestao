@@ -5,6 +5,18 @@
 // pagamento, campanhas e categorias de licença. Segue o padrão liga/desliga
 // do design system e a borda escura de bloco.
 //
+// v0.6.0: EXCLUSÃO adicionada em TODAS as sub-abas (só existia criar/
+// editar até aqui). Padrão: confirm() nomeando o registro antes de
+// excluir (operação destrutiva exige confirmação explícita), e erro de
+// violação de chave estrangeira (Postgres 23503) vira mensagem amigável
+// em vez do erro cru — "está em uso em outro cadastro, remova o vínculo
+// primeiro" — porque excluir um módulo/plano/funcionalidade ainda
+// referenciado por outra tabela deve ser bloqueado, não silenciosamente
+// ignorado. Campanha é o único caso com exclusão em cascata própria (as
+// linhas de plano_campanhas_pagamentos pertencem exclusivamente à
+// campanha, mesmo padrão que pmSalvarCampanha() já usa pra substituir o
+// vínculo). Nenhuma lógica de criar/editar existente foi alterada.
+//
 // v0.5.0: edição em todas as sub-abas (não só criação), débito como forma
 // de pagamento, ajuste de pagamento sem depender de digitar "-" (bug de
 // teclado numérico no Android), campo Módulo saiu do form de Planos e
@@ -132,7 +144,10 @@ function pmRenderModulos() {
                         <p class="text-sm font-bold" style="color:var(--ink)">${m.nome}</p>
                         <p class="text-xs" style="color:var(--sage)">código: ${m.codigo}</p>
                     </div>
-                    ${pmIconeEditar()}
+                    <div class="flex items-center gap-2">
+                        ${pmIconeEditar()}
+                        <button onclick="event.stopPropagation();pmExcluirModulo('${m.codigo}','${pmEsc(m.nome)}')" title="Excluir">${pmIconeExcluir()}</button>
+                    </div>
                 </div>
             `).join('') || pmVazio('Nenhum módulo cadastrado ainda.')}
         </div>
@@ -227,6 +242,7 @@ function pmRenderFuncionalidades() {
                         <div class="flex items-center gap-2 flex-none">
                             <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background:${f.ativo ? 'var(--success-bg)' : 'var(--danger-bg)'};color:${f.ativo ? 'var(--success)' : 'var(--danger)'}">${f.ativo ? 'ativo' : 'inativo'}</span>
                             ${pmIconeEditar()}
+                            <button onclick="event.stopPropagation();pmExcluirFuncionalidade('${f.codigo}','${pmEsc(f.codigo)}')" title="Excluir">${pmIconeExcluir()}</button>
                         </div>
                     </div>
                 `).join('')}
@@ -338,6 +354,7 @@ function pmRenderPlanos() {
                         <div class="flex items-center gap-2 flex-none">
                             <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background:${p.ativo ? 'var(--success-bg)' : 'var(--danger-bg)'};color:${p.ativo ? 'var(--success)' : 'var(--danger)'}">${p.ativo ? 'ativo' : 'inativo'}</span>
                             <button onclick="event.stopPropagation();pmAbrirEdicaoPlano('${p.codigo}')">${pmIconeEditar()}</button>
+                            <button onclick="event.stopPropagation();pmExcluirPlano('${p.codigo}','${pmEsc(p.descricao)}')" title="Excluir">${pmIconeExcluir()}</button>
                         </div>
                     </div>
                     <div id="pm-detalhe-plano-${p.codigo}" class="hidden border-t px-3 py-3" style="border-color:var(--line)"></div>
@@ -499,6 +516,7 @@ function pmRenderPagamento() {
                     <div class="flex items-center gap-2">
                         <span class="text-xs" style="color:var(--sage)">${pmFormatAjuste(f.ajuste)}</span>
                         ${pmIconeEditar()}
+                        <button onclick="event.stopPropagation();pmExcluirForma('${f.id}','${pmEsc(pmLabelFormaPgto(f.tipo_forma_pgto))}')" title="Excluir">${pmIconeExcluir()}</button>
                     </div>
                 </div>
             `).join('') || pmVazio('Nenhuma forma de pagamento cadastrada.')}
@@ -517,7 +535,10 @@ function pmRenderPagamento() {
                         <p class="text-sm font-medium" style="color:var(--ink)">${p.nome}</p>
                         <p class="text-xs" style="color:var(--sage)">R$ ${Number(p.preco).toFixed(2)} · ${p.parcelas}x</p>
                     </div>
-                    ${pmIconeEditar()}
+                    <div class="flex items-center gap-2">
+                        ${pmIconeEditar()}
+                        <button onclick="event.stopPropagation();pmExcluirPlanoPagamento('${p.id}','${pmEsc(p.nome)}')" title="Excluir">${pmIconeExcluir()}</button>
+                    </div>
                 </div>
             `).join('') || pmVazio('Nenhuma opção de pagamento cadastrada.')}
         </div>
@@ -695,6 +716,7 @@ function pmRenderCampanhas() {
                         <div class="flex items-center gap-2">
                             <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background:var(--brass-light);color:var(--brass-deep)">${cp.categoria}</span>
                             ${pmIconeEditar()}
+                            <button onclick="event.stopPropagation();pmExcluirCampanha('${cp.id}','${pmEsc(cp.nome)}')" title="Excluir">${pmIconeExcluir()}</button>
                         </div>
                     </div>
                     <p class="text-xs mt-1" style="color:var(--sage)">
@@ -877,7 +899,10 @@ function pmRenderCategorias() {
                         <p class="text-sm font-medium" style="color:var(--ink)">${cat.nome}</p>
                         <p class="text-xs" style="color:var(--sage)">${cat.item} · reseta: ${cat.tipo_reset}</p>
                     </div>
-                    ${pmIconeEditar()}
+                    <div class="flex items-center gap-2">
+                        ${pmIconeEditar()}
+                        <button onclick="event.stopPropagation();pmExcluirCategoria('${cat.id_categoria_licenca}','${pmEsc(cat.nome)}')" title="Excluir">${pmIconeExcluir()}</button>
+                    </div>
                 </div>
             `).join('') || pmVazio('Nenhuma categoria cadastrada ainda.')}
         </div>
@@ -978,4 +1003,92 @@ function pmIconeEditar() {
 
 function pmVazio(msg) {
     return `<p class="text-sm text-center py-6" style="color:var(--sage)">${msg}</p>`;
+}
+
+// Escapa aspas simples/duplas pra poder colocar o nome do registro com
+// segurança dentro de um atributo onclick="...('${nome}')" inline.
+function pmEsc(s) {
+    return String(s == null ? '' : s).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+function pmIconeExcluir() {
+    return `
+        <svg class="w-4 h-4 flex-none" style="color:var(--danger)" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+        </svg>
+    `;
+}
+
+// ============================================================================
+// Exclusão — 1 helper genérico + 1 wrapper fino por entidade.
+// Operação destrutiva (regra do Prompt 03): sempre confirm() nomeando o
+// registro, e violação de FK (23503) vira mensagem amigável em vez do
+// erro cru do Postgres.
+// ============================================================================
+
+async function pmExcluir({ schema, tabela, coluna, valor, nome, onSucesso }) {
+    if (!confirm(`Excluir "${nome}"?\n\nEssa ação não pode ser desfeita.`)) return;
+
+    const query = schema ? dbAuth.schema(schema).from(tabela) : dbAuth.from(tabela);
+    const { error } = await query.delete().eq(coluna, valor);
+
+    if (error) {
+        const msg = error.code === '23503'
+            ? `Não é possível excluir "${nome}": ainda está em uso em outro cadastro (funcionalidade, plano, licença ou campanha vinculada). Remova o vínculo primeiro.`
+            : `Erro ao excluir "${nome}": ${error.message}`;
+        alert(msg);
+        return;
+    }
+
+    await pmCarregarTudo();
+    onSucesso();
+}
+
+function pmExcluirModulo(codigo, nome) {
+    pmExcluir({ schema: 'comercial', tabela: 'tipo_modulos', coluna: 'codigo', valor: codigo, nome, onSucesso: pmRenderModulos });
+}
+
+function pmExcluirFuncionalidade(codigo, nome) {
+    pmExcluir({ tabela: 'funcionalidades', coluna: 'codigo', valor: codigo, nome, onSucesso: pmRenderFuncionalidades });
+}
+
+function pmExcluirPlano(codigo, nome) {
+    pmExcluir({ tabela: 'planos', coluna: 'codigo', valor: codigo, nome, onSucesso: pmRenderPlanos });
+}
+
+function pmExcluirForma(id, nome) {
+    pmExcluir({ schema: 'comercial', tabela: 'forma_pagamento', coluna: 'id', valor: id, nome, onSucesso: pmRenderPagamento });
+}
+
+function pmExcluirPlanoPagamento(id, nome) {
+    pmExcluir({ schema: 'comercial', tabela: 'plano_pagamentos', coluna: 'id', valor: id, nome, onSucesso: pmRenderPagamento });
+}
+
+// Campanha é a única com exclusão em cascata própria: as linhas de
+// plano_campanhas_pagamentos pertencem só a ela (mesmo raciocínio de
+// pmSalvarCampanha(), que já substitui esse vínculo por completo a cada
+// salvamento) — não é uma FK de "outro cadastro" que deva bloquear.
+async function pmExcluirCampanha(id, nome) {
+    if (!confirm(`Excluir a campanha "${nome}"?\n\nEssa ação não pode ser desfeita.`)) return;
+
+    const { error: errVinculo } = await dbAuth.schema('comercial').from('plano_campanhas_pagamentos').delete().eq('id_campanha', id);
+    if (errVinculo) { alert(`Erro ao excluir vínculos de pagamento da campanha: ${errVinculo.message}`); return; }
+
+    const { error } = await dbAuth.schema('comercial').from('plano_campanhas').delete().eq('id', id);
+    if (error) {
+        const msg = error.code === '23503'
+            ? `Não é possível excluir "${nome}": ainda está em uso (ex.: licença criada a partir desta campanha). Remova o vínculo primeiro.`
+            : `Erro ao excluir "${nome}": ${error.message}`;
+        alert(msg);
+        return;
+    }
+
+    await pmCarregarTudo();
+    pmRenderCampanhas();
+}
+
+function pmExcluirCategoria(id, nome) {
+    pmExcluir({ schema: 'comercial', tabela: 'categoria_licenca', coluna: 'id_categoria_licenca', valor: id, nome, onSucesso: pmRenderCategorias });
 }
