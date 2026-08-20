@@ -2,7 +2,7 @@
 // js/telas/parametros-campanhas.js — Raiz Gestão
 //
 // v0.8.2 — regras de negócio da fase atual (definidas 19/08/2026):
-//   - Só 1 campanha ativa por vez (checklist da etapa 5 avisa; o bloqueio
+//   - Só 1 campanha ativa por vez (checklist da etapa 5 avisa; o bloquei
 //     de verdade é no banco, gestao.fn_publicar_campanha()).
 //   - Categoria trial/cortesia é a única publicável (sem compra direta
 //     sem trial ainda) — aviso na etapa 1, bloqueio no banco.
