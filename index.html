@@ -5,6 +5,45 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
+   VERSÃO: v0.8.2
+   LINHAS: 417
+   DATA: 2026-08-19
+   NOVIDADES (v0.8.2) — regras de negócio da fase atual (sem HTML novo,
+   só os .js carregados por este arquivo mudaram — ver changelog deles):
+     - Só 1 campanha ativa por vez (bloqueado no banco).
+     - Só campanha trial/cortesia pode publicar (sem compra direta sem
+       trial ainda).
+     - Trial precisa da opção de pagamento grátis (R$ 0) marcada.
+     - Público desta fase é só "prospect".
+     - Perfis & Acessos: sem alteração — fica disponível, mas não é
+       prioridade de configuração agora (decisão do Nicola).
+     - Requer gestao_fase3b_regras_negocio_v1.sql rodado, além das fases
+       1, 2 e 3.
+
+   VERSÃO: v0.8.1
+   LINHAS: 402
+   DATA: 2026-08-19
+   NOVIDADES (v0.8.1) — pacote Campanhas&Landing/Planos/Perfis + Pessoas:
+     - Parâmetros Master virou roteador de 4 áreas (Campanhas & Landing,
+       Planos & Limites, Perfis & Acessos, Catálogos Base), substituindo
+       as 6 sub-abas soltas da v0.7.0. 3 arquivos novos: js/telas/
+       parametros-campanhas.js (wizard de 5 etapas), parametros-planos.js
+       (matriz plano×funcionalidade), parametros-perfis.js (matriz
+       perfil×funcionalidade). Catálogos Base preserva Módulos/
+       Funcionalidades/Pagamento/Categorias 1:1 + Público de oferta novo.
+     - Campanha ganhou status (rascunho/publicada/pausada/encerrada) e
+       conteúdo público de landing (comercial.campanha_landing) —
+       publicar/pausar é atômico via gestao.fn_publicar_campanha().
+     - Comercial ganhou "Desempenho por campanha": funil próprio (view→
+       CTA→trial→pago), origem, trials atribuídos, receita atribuída.
+       Funil global e trials/landing da v0.7.0 preservados sem alteração.
+     - Empresas → ficha ganhou "Pessoas & Usuários": lista de pessoas com
+       perfil/e-mail/último acesso/adoção individual (app 30d/bot 30d),
+       clicável pra ver ações mais usadas por pessoa.
+     - Requer gestao_fase3_campanhas_landing_v1.sql rodado, além das
+       fases 1 e 2. Landing (index.html do domínio público) evoluiu
+       separadamente para v3.1.0 — ver changelog próprio.
+
    VERSÃO: v0.7.0
    LINHAS: 375
    DATA: 2026-08-19
@@ -147,7 +186,7 @@
 <script>
     // Fonte única da versão exibida na tela — mantida em sincronia com o
     // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
-    const APP_VERSAO = 'v0.7.0';
+    const APP_VERSAO = 'v0.8.2';
 </script>
 
 <!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->
@@ -353,6 +392,9 @@
     <script src="js/telas/financeiro.js"></script>
     <script src="js/telas/saude.js"></script>
     <script src="js/telas/parametros-master.js"></script>
+    <script src="js/telas/parametros-campanhas.js"></script>
+    <script src="js/telas/parametros-planos.js"></script>
+    <script src="js/telas/parametros-perfis.js"></script>
     <script>
         window.addEventListener('load', function () {
             if (window.lucide) lucide.createIcons();
