@@ -72,10 +72,9 @@ const PM_TIPO_CLIENTE_SUGERIDOS = ['prospect', 'cliente_existente', 'todos'];
 // Entrada da tela — router das 4 áreas
 // ----------------------------------------------------------------------------
 const PM_AREAS = [
-    { id: 'campanhas', label: 'Campanhas & Landing', init: () => parametrosCampanhasInit() },
+    { id: 'comercial', label: 'Comercial', init: () => parametrosComercialInit() },
     { id: 'planos', label: 'Planos & Limites', init: () => parametrosPlanosInit() },
-    { id: 'perfis', label: 'Perfis & Acessos', init: () => parametrosPerfisInit() },
-    { id: 'catalogos', label: 'Catálogos Base', init: () => pmRenderCatalogos() }
+    { id: 'catalogos', label: 'Catálogo & Acessos', init: () => pmRenderCatalogos() }
 ];
 
 async function telaParametrosMasterInit() {
@@ -87,7 +86,7 @@ async function telaParametrosMasterInit() {
         <div id="pm-conteudo-area"></div>
     `;
     const ok = await pmCarregarTudo();
-    if (ok) pmAbrirArea('campanhas');
+    if (ok) pmAbrirArea('comercial');
 }
 
 function pmAbrirArea(nome) {
@@ -171,7 +170,8 @@ const PM_CATALOGOS = [
     { id: 'funcionalidades', label: 'Funcionalidades', init: () => pmRenderFuncionalidades() },
     { id: 'pagamento', label: 'Pagamento', init: () => pmRenderPagamento() },
     { id: 'categorias', label: 'Categorias', init: () => pmRenderCategorias() },
-    { id: 'publico', label: 'Público de oferta', init: () => pmRenderPublico() }
+    { id: 'publico', label: 'Público de oferta', init: () => pmRenderPublico() },
+    { id: 'perfis', label: 'Perfis & Acessos', init: () => parametrosPerfisInit() }
 ];
 
 function pmRenderCatalogos() {
