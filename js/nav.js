@@ -1,6 +1,12 @@
 // ============================================================================
 // js/nav.js — Raiz Gestão
 //
+// v0.8.4 — Comercial saiu do menu principal e virou aba dentro de
+// Parâmetros (junto com Campanhas, que passou a incluir o Desempenho
+// embutido — sem mais pular de tela pra ver o desempenho de uma
+// campanha). Menu principal: 6 itens em vez de 7. Nenhuma outra mudança
+// neste arquivo.
+//
 // v0.7.0: layout mais fiel ao protótipo aprovado
 // (RAIZ_GESTAO_COCKPIT_PROTOTIPO_UI_v0_6_0.html) — sidebar vertical no
 // desktop (≥900px) e barra inferior no mobile, em vez da barra de abas
@@ -19,7 +25,6 @@
 const GESTAO_TELAS = [
     { id: 'cockpit', label: 'Cockpit', icone: '📊', init: () => telaCockpitInit() },
     { id: 'empresas', label: 'Empresas', icone: '🏢', init: () => telaEmpresasInit() },
-    { id: 'comercial', label: 'Comercial', icone: '🤝', init: () => telaComercialInit() },
     { id: 'financeiro', label: 'Financeiro', icone: '💰', init: () => telaFinanceiroInit() },
     { id: 'saude', label: 'Saúde', icone: '⚡', init: () => telaSaudeInit() },
     { id: 'suporte', label: 'Suporte', icone: '🎧', init: () => telaEmConstrucaoInit('Suporte', 'Existe feedback (nota + comentário) real no banco — usado hoje na ficha da empresa e no Cockpit (alerta de nota baixa) — mas ainda não existe um sistema de tickets com prioridade/SLA. Fica para a fase seguinte.') },
