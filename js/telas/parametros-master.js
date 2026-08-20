@@ -1,29 +1,36 @@
 // ============================================================================
 // js/telas/parametros-master.js — Raiz Gestão
 //
-// Tela "Parâmetros Master": catálogo de módulos, funcionalidades, planos,
-// pagamento, campanhas e categorias de licença. Segue o padrão liga/desliga
-// do design system e a borda escura de bloco.
+// v0.8.1 — ROUTER. Deixou de ser um conjunto de 6 sub-abas soltas e virou
+// o roteador de 4 áreas (pacote de parametrização do prompt v0.8.1):
+//   Campanhas & Landing → js/telas/parametros-campanhas.js (wizard)
+//   Planos & Limites     → js/telas/parametros-planos.js (matriz)
+//   Perfis & Acessos     → js/telas/parametros-perfis.js (matriz)
+//   Catálogos Base       → aqui mesmo (Módulos/Funcionalidades/Pagamento/
+//                           Categorias/Público de oferta — CRUDs simples,
+//                           lógica idêntica à v0.7.0, só reorganizados sob
+//                           uma segunda barra de abas)
 //
-// v0.6.0: EXCLUSÃO adicionada em TODAS as sub-abas (só existia criar/
-// editar até aqui). Padrão: confirm() nomeando o registro antes de
-// excluir (operação destrutiva exige confirmação explícita), e erro de
-// violação de chave estrangeira (Postgres 23503) vira mensagem amigável
-// em vez do erro cru — "está em uso em outro cadastro, remova o vínculo
-// primeiro" — porque excluir um módulo/plano/funcionalidade ainda
-// referenciado por outra tabela deve ser bloqueado, não silenciosamente
-// ignorado. Campanha é o único caso com exclusão em cascata própria (as
-// linhas de plano_campanhas_pagamentos pertencem exclusivamente à
-// campanha, mesmo padrão que pmSalvarCampanha() já usa pra substituir o
-// vínculo). Nenhuma lógica de criar/editar existente foi alterada.
+// Estado (pmModulos, pmFuncionalidades, ...) e os helpers compartilhados
+// (pmExcluir*, pmIconeEditar, pmEsc...) continuam TODOS aqui — os 3
+// arquivos novos leem essas variáveis globais e chamam esses helpers, sem
+// duplicar nada. pmCarregarTudo() cresceu pra também trazer perfis,
+// perfil_funcionalidade, publico_oferta e campanha_landing.
 //
-// v0.5.0: edição em todas as sub-abas (não só criação), débito como forma
-// de pagamento, ajuste de pagamento sem depender de digitar "-" (bug de
-// teclado numérico no Android), campo Módulo saiu do form de Planos e
-// entrou no de Funcionalidades (agrupamento agora é por módulo, não por
-// texto livre de área), campanha com N formas de pagamento, lista de
-// vínculo plano×funcionalidade reformatada pra não estourar a tela, nova
-// sub-aba Categorias.
+// O QUE SAIU DAQUI (não foi apagado, foi PARA os arquivos novos):
+//   - Planos deixou de ser lista com "abrir detalhe" — virou matriz em
+//     parametros-planos.js. pmToggleVinculo/pmAtualizarLimite (v0.7.0)
+//     foram adaptados pra lá (mesma lógica de insert/update/delete em
+//     plano_funcionalidade, agora acionada por célula da matriz).
+//   - Campanhas deixou de ser CRUD isolado — virou wizard de 5 etapas em
+//     parametros-campanhas.js. pmSalvarCampanha (v0.7.0) foi adaptado
+//     pra lá (mesmo padrão de upsert + substituir N pagamentos por
+//     completo), com as etapas novas (público, landing, publicar).
+//
+// O QUE FICOU/ENTROU em Catálogos Base:
+//   Módulos, Funcionalidades, Pagamento, Categorias — sem NENHUMA mudança
+//   de lógica (copiados 1:1 da v0.7.0). Público de oferta é NOVO (não
+//   existia CRUD nenhum pra comercial.publico_oferta até aqui).
 // ============================================================================
 
 let pmModulos = [];
@@ -34,6 +41,11 @@ let pmPlanoPagamentos = [];
 let pmCampanhas = [];
 let pmCampanhaPagamentos = [];   // linhas da tabela de junção comercial.plano_campanhas_pagamentos
 let pmCategorias = [];
+let pmPublicoOferta = [];        // NOVO v0.8.1 — comercial.publico_oferta
+let pmPerfis = [];                // NOVO v0.8.1 — public.perfis
+let pmPerfilFuncionalidade = []; // NOVO v0.8.1 — public.perfil_funcionalidade
+let pmCampanhaLanding = [];      // NOVO v0.8.1 — comercial.campanha_landing
+let pmPlanoFuncionalidade = [];  // NOVO v0.8.1 — public.plano_funcionalidade (linha completa, pra matriz)
 
 // Estado de edição (null = criando um novo; preenchido = editando o
 // registro com essa chave). Um por sub-aba, pra formulários independentes.
@@ -42,36 +54,62 @@ let pmFuncEditCodigo = null;
 let pmPlanoEditCodigo = null;
 let pmFormaEditId = null;
 let pmPlanoPgtoEditId = null;
-let pmCampEditId = null;
 let pmCategoriaEditId = null;
+let pmPublicoEditId = null; // NOVO v0.8.1
 
 const PM_FORMAS_PGTO = { pix: 'Pix', cc: 'Cartão de crédito', debito: 'Cartão de débito', boleto: 'Boleto' };
 
+// Valores de tipo_cliente sugeridos pro select de Público. Regra desta
+// fase (definida em 19/08/2026): só existe "prospect" (empresa ainda não
+// é cliente) — é o único caso possível hoje porque a base ainda não tem
+// clientes pagantes. Campanhas voltadas a cliente existente (upsell,
+// expansão) ficam pra quando existir identificação de cliente no fluxo —
+// por isso os outros valores ficam só como sugestão futura, não como
+// padrão.
+const PM_TIPO_CLIENTE_SUGERIDOS = ['prospect', 'cliente_existente', 'todos'];
+
 // ----------------------------------------------------------------------------
-// Entrada da tela
+// Entrada da tela — router das 4 áreas
 // ----------------------------------------------------------------------------
+const PM_AREAS = [
+    { id: 'campanhas', label: 'Campanhas & Landing', init: () => parametrosCampanhasInit() },
+    { id: 'planos', label: 'Planos & Limites', init: () => parametrosPlanosInit() },
+    { id: 'perfis', label: 'Perfis & Acessos', init: () => parametrosPerfisInit() },
+    { id: 'catalogos', label: 'Catálogos Base', init: () => pmRenderCatalogos() }
+];
+
 async function telaParametrosMasterInit() {
     const area = document.getElementById('area-conteudo');
     area.innerHTML = `
         <div class="flex gap-2 mb-5 border-b overflow-x-auto" style="border-color:var(--line)">
-            <button onclick="pmMudarSubaba('modulos')" id="pm-tab-modulos" class="pm-subaba px-4 py-2.5 text-sm font-bold whitespace-nowrap">Módulos</button>
-            <button onclick="pmMudarSubaba('funcionalidades')" id="pm-tab-funcionalidades" class="pm-subaba px-4 py-2.5 text-sm font-bold whitespace-nowrap">Funcionalidades</button>
-            <button onclick="pmMudarSubaba('planos')" id="pm-tab-planos" class="pm-subaba px-4 py-2.5 text-sm font-bold whitespace-nowrap">Planos</button>
-            <button onclick="pmMudarSubaba('pagamento')" id="pm-tab-pagamento" class="pm-subaba px-4 py-2.5 text-sm font-bold whitespace-nowrap">Pagamento</button>
-            <button onclick="pmMudarSubaba('campanhas')" id="pm-tab-campanhas" class="pm-subaba px-4 py-2.5 text-sm font-bold whitespace-nowrap">Campanhas</button>
-            <button onclick="pmMudarSubaba('categorias')" id="pm-tab-categorias" class="pm-subaba px-4 py-2.5 text-sm font-bold whitespace-nowrap">Categorias</button>
+            ${PM_AREAS.map(a => `<button onclick="pmAbrirArea('${a.id}')" id="pm-area-${a.id}" class="pm-subaba px-4 py-2.5 text-sm font-bold whitespace-nowrap">${a.label}</button>`).join('')}
         </div>
-        <div id="pm-conteudo-subaba"></div>
+        <div id="pm-conteudo-area"></div>
     `;
     const ok = await pmCarregarTudo();
-    if (ok) pmMudarSubaba('modulos');
+    if (ok) pmAbrirArea('campanhas');
+}
+
+function pmAbrirArea(nome) {
+    document.querySelectorAll('.pm-subaba').forEach(b => {
+        b.style.color = 'var(--sage)';
+        b.style.borderBottom = 'none';
+    });
+    const ativa = document.getElementById('pm-area-' + nome);
+    ativa.style.color = 'var(--pine)';
+    ativa.style.borderBottom = '3px solid var(--brass)';
+
+    const area = PM_AREAS.find(a => a.id === nome);
+    if (area) area.init();
 }
 
 async function pmCarregarTudo() {
     const [
         { data: modulos, error: e1 }, { data: func, error: e2 }, { data: planos, error: e3 },
         { data: formasPgto, error: e4 }, { data: planoPgtos, error: e5 }, { data: campanhas, error: e6 },
-        { data: campPgtos, error: e7 }, { data: categorias, error: e8 }
+        { data: campPgtos, error: e7 }, { data: categorias, error: e8 },
+        { data: publico, error: e9 }, { data: perfis, error: e10 }, { data: perfilFunc, error: e11 },
+        { data: campLanding, error: e12 }, { data: planoFunc, error: e13 }
     ] = await Promise.all([
         dbAuth.schema('comercial').from('tipo_modulos').select('*').order('nome'),
         dbAuth.from('funcionalidades').select('*').order('area').order('codigo'),
@@ -80,10 +118,20 @@ async function pmCarregarTudo() {
         dbAuth.schema('comercial').from('plano_pagamentos').select('*').order('nome'),
         dbAuth.schema('comercial').from('plano_campanhas').select('*').order('nome'),
         dbAuth.schema('comercial').from('plano_campanhas_pagamentos').select('*'),
-        dbAuth.schema('comercial').from('categoria_licenca').select('*').order('nome')
+        dbAuth.schema('comercial').from('categoria_licenca').select('*').order('nome'),
+        dbAuth.schema('comercial').from('publico_oferta').select('*'),
+        dbAuth.from('perfis').select('*').order('codigo'),
+        dbAuth.from('perfil_funcionalidade').select('*'),
+        dbAuth.schema('comercial').from('campanha_landing').select('*'),
+        dbAuth.from('plano_funcionalidade').select('*')
     ]);
 
-    const erros = { 'Módulos': e1, 'Funcionalidades': e2, 'Planos': e3, 'Formas de pagamento': e4, 'Pagamentos de plano': e5, 'Campanhas': e6, 'Vínculo campanha×pagamento': e7, 'Categorias': e8 };
+    const erros = {
+        'Módulos': e1, 'Funcionalidades': e2, 'Planos': e3, 'Formas de pagamento': e4,
+        'Pagamentos de plano': e5, 'Campanhas': e6, 'Vínculo campanha×pagamento': e7, 'Categorias': e8,
+        'Público de oferta': e9, 'Perfis': e10, 'Perfil×funcionalidade': e11, 'Landing de campanha': e12,
+        'Plano×funcionalidade': e13
+    };
     for (const [nome, err] of Object.entries(erros)) {
         if (err) { pmErro(nome + ': ' + err.message); return false; }
     }
@@ -96,6 +144,11 @@ async function pmCarregarTudo() {
     pmCampanhas = campanhas || [];
     pmCampanhaPagamentos = campPgtos || [];
     pmCategorias = categorias || [];
+    pmPublicoOferta = publico || [];
+    pmPerfis = perfis || [];
+    pmPerfilFuncionalidade = perfilFunc || [];
+    pmCampanhaLanding = campLanding || [];
+    pmPlanoFuncionalidade = planoFunc || [];
     return true;
 }
 
@@ -103,29 +156,50 @@ function pmErro(msg) {
     document.getElementById('area-conteudo').innerHTML =
         `<div class="p-4 rounded-xl border-2" style="background:var(--danger-bg);border-color:var(--danger);color:var(--danger)">
             <strong>Não foi possível carregar:</strong> ${msg}
-            <br><span class="text-xs">Confira se comercial_fase1_grants_v1.sql e public_catalogo_grants_v1.sql já foram rodados.</span>
+            <br><span class="text-xs">Confira se gestao_fase3_campanhas_landing_v1.sql já foi rodado (schema/tabela/colunas novas) e se "gestao"/"comercial" estão em Settings → API → Exposed schemas.</span>
         </div>`;
 }
 
-function pmMudarSubaba(nome) {
-    document.querySelectorAll('.pm-subaba').forEach(b => {
+// ============================================================================
+// CATÁLOGOS BASE — segunda barra de abas dentro da área.
+// Módulos/Funcionalidades/Pagamento/Categorias: lógica idêntica à v0.7.0.
+// Público de oferta: NOVO.
+// ============================================================================
+
+const PM_CATALOGOS = [
+    { id: 'modulos', label: 'Módulos', init: () => pmRenderModulos() },
+    { id: 'funcionalidades', label: 'Funcionalidades', init: () => pmRenderFuncionalidades() },
+    { id: 'pagamento', label: 'Pagamento', init: () => pmRenderPagamento() },
+    { id: 'categorias', label: 'Categorias', init: () => pmRenderCategorias() },
+    { id: 'publico', label: 'Público de oferta', init: () => pmRenderPublico() }
+];
+
+function pmRenderCatalogos() {
+    const c = document.getElementById('pm-conteudo-area');
+    c.innerHTML = `
+        <p class="text-xs mb-3" style="color:var(--sage)">Cadastros técnicos que alimentam campanhas, planos e acessos.</p>
+        <div class="flex gap-2 mb-4 border-b overflow-x-auto" style="border-color:var(--line)">
+            ${PM_CATALOGOS.map(cat => `<button onclick="pmMudarCatalogo('${cat.id}')" id="pm-cat-tab-${cat.id}" class="pm-subaba px-3.5 py-2 text-xs font-bold whitespace-nowrap">${cat.label}</button>`).join('')}
+        </div>
+        <div id="pm-conteudo-subaba"></div>
+    `;
+    pmMudarCatalogo('modulos');
+}
+
+function pmMudarCatalogo(nome) {
+    document.querySelectorAll('[id^="pm-cat-tab-"]').forEach(b => {
         b.style.color = 'var(--sage)';
         b.style.borderBottom = 'none';
     });
-    const ativa = document.getElementById('pm-tab-' + nome);
+    const ativa = document.getElementById('pm-cat-tab-' + nome);
     ativa.style.color = 'var(--pine)';
     ativa.style.borderBottom = '3px solid var(--brass)';
-
-    if (nome === 'modulos') pmRenderModulos();
-    if (nome === 'funcionalidades') pmRenderFuncionalidades();
-    if (nome === 'planos') pmRenderPlanos();
-    if (nome === 'pagamento') pmRenderPagamento();
-    if (nome === 'campanhas') pmRenderCampanhas();
-    if (nome === 'categorias') pmRenderCategorias();
+    const cat = PM_CATALOGOS.find(x => x.id === nome);
+    if (cat) cat.init();
 }
 
 // ============================================================================
-// SUB-ABA: MÓDULOS
+// CATÁLOGO: MÓDULOS (idêntico à v0.7.0)
 // ============================================================================
 
 function pmRenderModulos() {
@@ -209,8 +283,9 @@ async function pmSalvarModulo() {
     pmRenderModulos();
 }
 
+
 // ============================================================================
-// SUB-ABA: FUNCIONALIDADES
+// CATÁLOGO: FUNCIONALIDADES (idêntico à v0.7.0)
 // ============================================================================
 
 function pmRenderFuncionalidades() {
@@ -330,171 +405,9 @@ async function pmSalvarFuncionalidade() {
     pmRenderFuncionalidades();
 }
 
-// ============================================================================
-// SUB-ABA: PLANOS  (sem campo de módulo — grava com o default do banco)
-// ============================================================================
-
-function pmRenderPlanos() {
-    const c = document.getElementById('pm-conteudo-subaba');
-    pmPlanoEditCodigo = null;
-    c.innerHTML = `
-        <div class="flex items-center justify-between mb-3">
-            <p class="text-xs" style="color:var(--sage)">Planos concretos (Standard, Plus, Plus+IA...) e seus limites por funcionalidade</p>
-            ${pmBotaoToggle('plano-form', "pmAbrirNovoPlano()")}
-        </div>
-        <div id="form-plano-form-wrapper" class="hidden mb-4">${pmFormPlano()}</div>
-        <div class="space-y-2">
-            ${pmPlanos.map(p => `
-                <div class="bg-slate-50 rounded-xl border-2 border-slate-300 overflow-hidden">
-                    <div class="flex items-center justify-between px-3 py-2.5">
-                        <div class="min-w-0 flex-1 cursor-pointer" onclick="pmAlternarDetalhePlano('${p.codigo}')">
-                            <p class="text-sm font-bold truncate" style="color:var(--ink)">${p.descricao}</p>
-                            <p class="text-xs" style="color:var(--sage)">${p.codigo}</p>
-                        </div>
-                        <div class="flex items-center gap-2 flex-none">
-                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background:${p.ativo ? 'var(--success-bg)' : 'var(--danger-bg)'};color:${p.ativo ? 'var(--success)' : 'var(--danger)'}">${p.ativo ? 'ativo' : 'inativo'}</span>
-                            <button onclick="event.stopPropagation();pmAbrirEdicaoPlano('${p.codigo}')">${pmIconeEditar()}</button>
-                            <button onclick="event.stopPropagation();pmExcluirPlano('${p.codigo}','${pmEsc(p.descricao)}')" title="Excluir">${pmIconeExcluir()}</button>
-                        </div>
-                    </div>
-                    <div id="pm-detalhe-plano-${p.codigo}" class="hidden border-t px-3 py-3" style="border-color:var(--line)"></div>
-                </div>
-            `).join('') || pmVazio('Nenhum plano cadastrado ainda.')}
-        </div>
-    `;
-}
-
-function pmFormPlano() {
-    return `
-        <div class="bg-slate-50 p-4 rounded-xl border-2 border-slate-300 space-y-3">
-            <div>
-                <label class="block text-xs font-bold text-gray-600">Código <span style="color:var(--danger)">*</span></label>
-                <input type="text" id="pm-plano-codigo" required placeholder="ex.: standard" class="w-full p-2 border rounded mt-1 text-sm">
-            </div>
-            <div>
-                <label class="block text-xs font-bold text-gray-600">Nome comercial <span style="color:var(--danger)">*</span></label>
-                <input type="text" id="pm-plano-descricao" required placeholder="ex.: Standard" class="w-full p-2 border rounded mt-1 text-sm">
-            </div>
-            <label class="flex items-center gap-2 text-sm">
-                <input type="checkbox" id="pm-plano-ativo" checked>
-                <span style="color:var(--ink)">Ativo</span>
-            </label>
-            <button onclick="pmSalvarPlano()" id="pm-plano-btn-salvar" class="w-full text-white font-bold py-2.5 rounded-lg text-sm" style="background:var(--pine)">Salvar plano</button>
-            <p id="pm-plano-status" class="raiz-indicador-inline text-[11px]"></p>
-        </div>
-    `;
-}
-
-function pmAbrirNovoPlano() {
-    pmPlanoEditCodigo = null;
-    document.getElementById('form-plano-form-wrapper').classList.remove('hidden');
-    document.getElementById('pm-plano-codigo').disabled = false;
-    document.getElementById('pm-plano-codigo').value = '';
-    document.getElementById('pm-plano-descricao').value = '';
-    document.getElementById('pm-plano-ativo').checked = true;
-    document.getElementById('pm-plano-btn-salvar').textContent = 'Salvar plano';
-}
-
-function pmAbrirEdicaoPlano(codigo) {
-    const p = pmPlanos.find(x => x.codigo === codigo);
-    if (!p) return;
-    pmPlanoEditCodigo = codigo;
-    const wrapper = document.getElementById('form-plano-form-wrapper');
-    wrapper.classList.remove('hidden');
-    document.getElementById('pm-plano-codigo').value = p.codigo;
-    document.getElementById('pm-plano-codigo').disabled = true;
-    document.getElementById('pm-plano-descricao').value = p.descricao;
-    document.getElementById('pm-plano-ativo').checked = !!p.ativo;
-    document.getElementById('pm-plano-btn-salvar').textContent = 'Salvar alterações';
-    wrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
-}
-
-async function pmSalvarPlano() {
-    const codigo = document.getElementById('pm-plano-codigo').value.trim();
-    const descricao = document.getElementById('pm-plano-descricao').value.trim();
-    const ativo = document.getElementById('pm-plano-ativo').checked;
-    const status = document.getElementById('pm-plano-status');
-    if (!codigo || !descricao) { status.textContent = 'Preencha código e nome comercial.'; return; }
-
-    const { error } = pmPlanoEditCodigo
-        ? await dbAuth.from('planos').update({ descricao, ativo }).eq('codigo', pmPlanoEditCodigo)
-        : await dbAuth.from('planos').insert({ codigo, descricao, ativo }); // modulo usa o DEFAULT do banco
-
-    if (error) { status.textContent = 'Erro: ' + error.message; return; }
-    await pmCarregarTudo();
-    pmRenderPlanos();
-}
-
-// --- Detalhe do plano: funcionalidades vinculadas + limite/limite_aviso ---
-// Layout empilhado (2 linhas por item) pra não estourar a largura da tela.
-
-async function pmAlternarDetalhePlano(planoCodigo) {
-    const el = document.getElementById('pm-detalhe-plano-' + planoCodigo);
-    const abrindo = el.classList.contains('hidden');
-    el.classList.toggle('hidden');
-    if (!abrindo) return;
-
-    el.innerHTML = `<p class="text-xs" style="color:var(--sage)">Carregando vínculos...</p>`;
-
-    const { data: vinculos, error } = await dbAuth
-        .from('plano_funcionalidade')
-        .select('funcionalidade_codigo, limite, limite_aviso')
-        .eq('plano_codigo', planoCodigo);
-
-    if (error) { el.innerHTML = `<p class="text-xs" style="color:var(--danger)">Erro: ${error.message}</p>`; return; }
-
-    el.innerHTML = `
-        <div class="divide-y" style="border-color:var(--line)">
-            ${pmFuncionalidades.map(f => {
-                const v = (vinculos || []).find(x => x.funcionalidade_codigo === f.codigo);
-                return `
-                <div class="py-2.5">
-                    <label class="flex items-start gap-2">
-                        <input type="checkbox" class="mt-0.5" id="pm-vinc-${planoCodigo}-${f.codigo}" ${v ? 'checked' : ''}
-                            onchange="pmToggleVinculo('${planoCodigo}','${f.codigo}', this.checked)">
-                        <span class="text-xs leading-snug" style="color:var(--ink)">${f.codigo}</span>
-                    </label>
-                    <div class="flex gap-2 mt-1.5 pl-6">
-                        <input type="number" placeholder="limite" value="${v?.limite ?? ''}"
-                            id="pm-limite-${planoCodigo}-${f.codigo}"
-                            onchange="pmAtualizarLimite('${planoCodigo}','${f.codigo}')"
-                            class="flex-1 min-w-0 p-1.5 border rounded text-xs" ${v ? '' : 'disabled'}>
-                        <input type="number" placeholder="aviso a partir de" value="${v?.limite_aviso ?? ''}"
-                            id="pm-limiteaviso-${planoCodigo}-${f.codigo}"
-                            onchange="pmAtualizarLimite('${planoCodigo}','${f.codigo}')"
-                            class="flex-1 min-w-0 p-1.5 border rounded text-xs" ${v ? '' : 'disabled'}>
-                    </div>
-                </div>`;
-            }).join('')}
-        </div>
-        <p class="text-[10px] mt-2" style="color:var(--sage)">Marque pra liberar a funcionalidade neste plano. Em branco = sem limite.</p>
-    `;
-}
-
-async function pmToggleVinculo(planoCodigo, funcCodigo, marcado) {
-    if (marcado) {
-        const { error } = await dbAuth.from('plano_funcionalidade').insert({ plano_codigo: planoCodigo, funcionalidade_codigo: funcCodigo });
-        if (error) { alert('Erro ao vincular: ' + error.message); return; }
-    } else {
-        const { error } = await dbAuth.from('plano_funcionalidade').delete()
-            .eq('plano_codigo', planoCodigo).eq('funcionalidade_codigo', funcCodigo);
-        if (error) { alert('Erro ao desvincular: ' + error.message); return; }
-    }
-    pmAlternarDetalhePlano(planoCodigo);
-    pmAlternarDetalhePlano(planoCodigo);
-}
-
-async function pmAtualizarLimite(planoCodigo, funcCodigo) {
-    const limite = document.getElementById(`pm-limite-${planoCodigo}-${funcCodigo}`).value;
-    const limiteAviso = document.getElementById(`pm-limiteaviso-${planoCodigo}-${funcCodigo}`).value;
-    const { error } = await dbAuth.from('plano_funcionalidade')
-        .update({ limite: limite === '' ? null : Number(limite), limite_aviso: limiteAviso === '' ? null : Number(limiteAviso) })
-        .eq('plano_codigo', planoCodigo).eq('funcionalidade_codigo', funcCodigo);
-    if (error) alert('Erro ao salvar limite: ' + error.message);
-}
 
 // ============================================================================
-// SUB-ABA: PAGAMENTO
+// CATÁLOGO: PAGAMENTO (idêntico à v0.7.0 — formas + opções de pagamento)
 // ============================================================================
 
 function pmRenderPagamento() {
@@ -691,196 +604,9 @@ async function pmSalvarPlanoPagamento() {
     pmRenderPagamento();
 }
 
-// ============================================================================
-// SUB-ABA: CAMPANHAS (agora com N formas de pagamento por campanha)
-// ============================================================================
-
-function pmRenderCampanhas() {
-    const c = document.getElementById('pm-conteudo-subaba');
-    pmCampEditId = null;
-
-    c.innerHTML = `
-        <div class="flex items-center justify-between mb-3">
-            <p class="text-xs" style="color:var(--sage)">Ofertas com vigência própria (trial, cortesia, promoção sazonal...)</p>
-            ${pmBotaoToggle('campanha-form', "pmAbrirNovaCampanha()")}
-        </div>
-        <div id="form-campanha-form-wrapper" class="hidden mb-4">${pmFormCampanha()}</div>
-        <div class="space-y-2">
-            ${pmCampanhas.map(cp => {
-                const pgtoIds = pmCampanhaPagamentos.filter(cpp => cpp.id_campanha === cp.id).map(cpp => cpp.id_plano_pagamento);
-                const pgtoNomes = pgtoIds.map(id => pmPlanoPagamentos.find(p => p.id === id)?.nome).filter(Boolean);
-                return `
-                <div class="bg-slate-50 p-3 rounded-xl border-2 border-slate-300 cursor-pointer" onclick="pmAbrirEdicaoCampanha('${cp.id}')">
-                    <div class="flex items-center justify-between">
-                        <p class="text-sm font-bold" style="color:var(--ink)">${cp.nome}</p>
-                        <div class="flex items-center gap-2">
-                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background:var(--brass-light);color:var(--brass-deep)">${cp.categoria}</span>
-                            ${pmIconeEditar()}
-                            <button onclick="event.stopPropagation();pmExcluirCampanha('${cp.id}','${pmEsc(cp.nome)}')" title="Excluir">${pmIconeExcluir()}</button>
-                        </div>
-                    </div>
-                    <p class="text-xs mt-1" style="color:var(--sage)">
-                        ${pmLabelDuracao(cp)} · aviso ${cp.tempo_aviso_dias}d antes
-                        ${cp.inicio_vigencia || cp.fim_vigencia ? ` · vigência ${cp.inicio_vigencia || '?'} a ${cp.fim_vigencia || '?'}` : ' · sempre disponível'}
-                    </p>
-                    ${pgtoNomes.length ? `<p class="text-xs mt-1" style="color:var(--pine)">💳 ${pgtoNomes.join(' · ')}</p>` : `<p class="text-xs mt-1" style="color:var(--sage)">sem opção de pagamento (ex.: trial gratuito)</p>`}
-                </div>
-            `}).join('') || pmVazio('Nenhuma campanha cadastrada ainda.')}
-        </div>
-    `;
-}
-
-function pmFormCampanha() {
-    return `
-        <div class="bg-slate-50 p-4 rounded-xl border-2 border-slate-300 space-y-3">
-            <div>
-                <label class="block text-xs font-bold text-gray-600">Nome <span style="color:var(--danger)">*</span></label>
-                <input type="text" id="pm-camp-nome" required placeholder="ex.: Trial 14 dias" class="w-full p-2 border rounded mt-1 text-sm">
-            </div>
-            <div>
-                <label class="block text-xs font-bold text-gray-600">Categoria <span style="color:var(--danger)">*</span></label>
-                <select id="pm-camp-categoria" required class="w-full p-2 border rounded mt-1 text-sm">
-                    <option value="trial">Trial</option>
-                    <option value="cortesia">Cortesia</option>
-                    <option value="item">Item avulso</option>
-                    <option value="padrao">Padrão (venda normal)</option>
-                </select>
-            </div>
-            <div>
-                <label class="block text-xs font-bold text-gray-600">Opções de pagamento aceitas</label>
-                <div class="space-y-1 mt-1 max-h-40 overflow-y-auto border rounded p-2">
-                    ${pmPlanoPagamentos.map(p => `
-                        <label class="flex items-center gap-2 text-xs">
-                            <input type="checkbox" class="pm-camp-pgto-check" value="${p.id}">
-                            <span style="color:var(--ink)">${p.nome} (R$ ${Number(p.preco).toFixed(2)})</span>
-                        </label>
-                    `).join('') || `<p class="text-xs" style="color:var(--sage)">Nenhuma opção de pagamento cadastrada ainda — cadastre na aba Pagamento primeiro.</p>`}
-                </div>
-                <p class="text-[10px] mt-1" style="color:var(--sage)">Deixe tudo desmarcado pra campanhas gratuitas (trial/cortesia).</p>
-            </div>
-            <div class="grid grid-cols-2 gap-3">
-                <div>
-                    <label class="block text-xs font-bold text-gray-600">Duração <span style="color:var(--danger)">*</span></label>
-                    <select id="pm-camp-duracao-tipo" required class="w-full p-2 border rounded mt-1 text-sm">
-                        <option value="dias_fixos">Dias fixos</option>
-                        <option value="fim_do_mes">Até o fim do mês</option>
-                        <option value="fim_do_ano">Até o fim do ano</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-xs font-bold text-gray-600">Qtd. dias (se "dias fixos")</label>
-                    <input type="number" min="0" id="pm-camp-duracao-dias" placeholder="ex.: 14" class="w-full p-2 border rounded mt-1 text-sm">
-                </div>
-            </div>
-            <div>
-                <label class="block text-xs font-bold text-gray-600">Avisar quantos dias antes de vencer</label>
-                <input type="number" min="0" id="pm-camp-aviso-dias" value="3" class="w-full p-2 border rounded mt-1 text-sm">
-            </div>
-            <div class="grid grid-cols-2 gap-3">
-                <div>
-                    <label class="block text-xs font-bold text-gray-600">Início de vigência</label>
-                    <input type="date" id="pm-camp-inicio" class="w-full p-2 border rounded mt-1 text-sm">
-                </div>
-                <div>
-                    <label class="block text-xs font-bold text-gray-600">Fim de vigência</label>
-                    <input type="date" id="pm-camp-fim" class="w-full p-2 border rounded mt-1 text-sm">
-                </div>
-            </div>
-            <p class="text-[10px]" style="color:var(--sage)">Início/fim de vigência é opcional — em branco = campanha sempre disponível.</p>
-            <button onclick="pmSalvarCampanha()" id="pm-camp-btn-salvar" class="w-full text-white font-bold py-2.5 rounded-lg text-sm" style="background:var(--pine)">Salvar campanha</button>
-            <p id="pm-camp-status" class="raiz-indicador-inline text-[11px]"></p>
-        </div>
-    `;
-}
-
-function pmLabelDuracao(cp) {
-    if (cp.duracao_tipo === 'dias_fixos') return `${cp.duracao_dias || '?'} dias`;
-    if (cp.duracao_tipo === 'fim_do_mes') return 'até o fim do mês';
-    if (cp.duracao_tipo === 'fim_do_ano') return 'até o fim do ano';
-    return cp.duracao_tipo;
-}
-
-function pmAbrirNovaCampanha() {
-    pmCampEditId = null;
-    document.getElementById('form-campanha-form-wrapper').classList.remove('hidden');
-    document.getElementById('pm-camp-nome').value = '';
-    document.getElementById('pm-camp-categoria').value = 'trial';
-    document.querySelectorAll('.pm-camp-pgto-check').forEach(chk => chk.checked = false);
-    document.getElementById('pm-camp-duracao-tipo').value = 'dias_fixos';
-    document.getElementById('pm-camp-duracao-dias').value = '';
-    document.getElementById('pm-camp-aviso-dias').value = 3;
-    document.getElementById('pm-camp-inicio').value = '';
-    document.getElementById('pm-camp-fim').value = '';
-    document.getElementById('pm-camp-btn-salvar').textContent = 'Salvar campanha';
-}
-
-function pmAbrirEdicaoCampanha(id) {
-    const cp = pmCampanhas.find(x => x.id === id);
-    if (!cp) return;
-    pmCampEditId = id;
-    const wrapper = document.getElementById('form-campanha-form-wrapper');
-    wrapper.classList.remove('hidden');
-    document.getElementById('pm-camp-nome').value = cp.nome;
-    document.getElementById('pm-camp-categoria').value = cp.categoria;
-    const pgtoIds = new Set(pmCampanhaPagamentos.filter(cpp => cpp.id_campanha === id).map(cpp => cpp.id_plano_pagamento));
-    document.querySelectorAll('.pm-camp-pgto-check').forEach(chk => chk.checked = pgtoIds.has(chk.value));
-    document.getElementById('pm-camp-duracao-tipo').value = cp.duracao_tipo;
-    document.getElementById('pm-camp-duracao-dias').value = cp.duracao_dias ?? '';
-    document.getElementById('pm-camp-aviso-dias').value = cp.tempo_aviso_dias;
-    document.getElementById('pm-camp-inicio').value = cp.inicio_vigencia || '';
-    document.getElementById('pm-camp-fim').value = cp.fim_vigencia || '';
-    document.getElementById('pm-camp-btn-salvar').textContent = 'Salvar alterações';
-    wrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
-}
-
-async function pmSalvarCampanha() {
-    const nome = document.getElementById('pm-camp-nome').value.trim();
-    const categoria = document.getElementById('pm-camp-categoria').value;
-    const duracao_tipo = document.getElementById('pm-camp-duracao-tipo').value;
-    const duracao_dias = document.getElementById('pm-camp-duracao-dias').value || null;
-    const tempo_aviso_dias = document.getElementById('pm-camp-aviso-dias').value || 3;
-    const inicio_vigencia = document.getElementById('pm-camp-inicio').value || null;
-    const fim_vigencia = document.getElementById('pm-camp-fim').value || null;
-    const pgtoSelecionados = Array.from(document.querySelectorAll('.pm-camp-pgto-check:checked')).map(chk => chk.value);
-    const status = document.getElementById('pm-camp-status');
-
-    if (!nome || !categoria || !duracao_tipo) { status.textContent = 'Preencha nome, categoria e duração.'; return; }
-    if (duracao_tipo === 'dias_fixos' && !duracao_dias) { status.textContent = 'Informe a quantidade de dias.'; return; }
-
-    const payload = {
-        nome, categoria, duracao_tipo,
-        duracao_dias: duracao_dias ? Number(duracao_dias) : null,
-        tempo_aviso_dias: Number(tempo_aviso_dias),
-        inicio_vigencia, fim_vigencia
-    };
-
-    let campanhaId = pmCampEditId;
-    if (pmCampEditId) {
-        const { error } = await dbAuth.schema('comercial').from('plano_campanhas').update(payload).eq('id', pmCampEditId);
-        if (error) { status.textContent = 'Erro: ' + error.message; return; }
-    } else {
-        const { data, error } = await dbAuth.schema('comercial').from('plano_campanhas').insert(payload).select().single();
-        if (error) { status.textContent = 'Erro: ' + error.message; return; }
-        campanhaId = data.id;
-    }
-
-    // Substitui o conjunto de formas de pagamento vinculadas por completo
-    // (mais simples e seguro do que tentar calcular o diff).
-    const { error: errDel } = await dbAuth.schema('comercial').from('plano_campanhas_pagamentos').delete().eq('id_campanha', campanhaId);
-    if (errDel) { status.textContent = 'Campanha salva, mas erro ao atualizar pagamentos: ' + errDel.message; return; }
-
-    if (pgtoSelecionados.length > 0) {
-        const linhas = pgtoSelecionados.map(idPgto => ({ id_campanha: campanhaId, id_plano_pagamento: idPgto }));
-        const { error: errIns } = await dbAuth.schema('comercial').from('plano_campanhas_pagamentos').insert(linhas);
-        if (errIns) { status.textContent = 'Campanha salva, mas erro ao vincular pagamentos: ' + errIns.message; return; }
-    }
-
-    await pmCarregarTudo();
-    pmRenderCampanhas();
-}
 
 // ============================================================================
-// SUB-ABA: CATEGORIAS (comercial.categoria_licenca)
+// CATÁLOGO: CATEGORIAS DE LICENÇA (idêntico à v0.7.0)
 // ============================================================================
 
 function pmRenderCategorias() {
@@ -974,8 +700,172 @@ async function pmSalvarCategoria() {
     pmRenderCategorias();
 }
 
+
 // ============================================================================
-// Helpers compartilhados
+// CATÁLOGO: PÚBLICO DE OFERTA — NOVO v0.8.1
+// comercial.publico_oferta hoje é mínimo (tipo_cliente + id_campanha
+// opcional). Não construímos motor de segmentação — só o cadastro do
+// tipo_cliente, exatamente como o prompt pede pra esta rodada.
+// ============================================================================
+
+function pmOpcoesTipoCliente() {
+    // Sugestões do prompt + qualquer valor que já exista no banco (não
+    // sobrescreve dado real por uma lista fixa).
+    const existentes = pmPublicoOferta.map(p => p.tipo_cliente).filter(Boolean);
+    const todos = Array.from(new Set([...PM_TIPO_CLIENTE_SUGERIDOS, ...existentes]));
+    return todos;
+}
+
+function pmRenderPublico() {
+    const c = document.getElementById('pm-conteudo-subaba');
+    pmPublicoEditId = null;
+    c.innerHTML = `
+        <div class="flex items-center justify-between mb-3">
+            <p class="text-xs" style="color:var(--sage)">Quem pode ver/usar uma campanha — hoje é só tipo de cliente (regra simples, sem motor de segmentação)</p>
+            ${pmBotaoToggle('publico-form', "pmAbrirNovoPublico()")}
+        </div>
+        <div id="form-publico-form-wrapper" class="hidden mb-4">${pmFormPublico()}</div>
+        <div class="space-y-1.5">
+            ${pmPublicoOferta.map(p => {
+                const campanha = pmCampanhas.find(c2 => c2.id === p.id_campanha);
+                return `
+                <div class="flex items-center justify-between bg-slate-50 px-3 py-2 rounded-xl border-2 border-slate-300 cursor-pointer" onclick="pmAbrirEdicaoPublico('${p.id}')">
+                    <div>
+                        <p class="text-sm font-medium" style="color:var(--ink)">${p.tipo_cliente}</p>
+                        <p class="text-xs" style="color:var(--sage)">${campanha ? 'usado em: ' + campanha.nome : 'não vinculado a nenhuma campanha ainda'}</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        ${pmIconeEditar()}
+                        <button onclick="event.stopPropagation();pmExcluirPublico('${p.id}','${pmEsc(p.tipo_cliente)}')" title="Excluir">${pmIconeExcluir()}</button>
+                    </div>
+                </div>
+            `; }).join('') || pmVazio('Nenhum público cadastrado ainda.')}
+        </div>
+    `;
+}
+
+function pmFormPublico() {
+    return `
+        <div class="bg-slate-50 p-4 rounded-xl border-2 border-slate-300 space-y-3">
+            <div>
+                <label class="block text-xs font-bold text-gray-600">Tipo de cliente <span style="color:var(--danger)">*</span></label>
+                <input type="text" id="pm-publico-tipo" required list="pm-publico-sugestoes" placeholder="ex.: novo_cliente" class="w-full p-2 border rounded mt-1 text-sm">
+                <datalist id="pm-publico-sugestoes">
+                    ${pmOpcoesTipoCliente().map(v => `<option value="${v}">`).join('')}
+                </datalist>
+                <p class="text-[10px] mt-1" style="color:var(--sage)">Nesta fase, use "prospect" — é o único público de trial (a base ainda não tem cliente pagante pra segmentar). Os outros valores da lista são só sugestão pra quando campanhas de cliente existente entrarem, mais pra frente.</p>
+            </div>
+            <button onclick="pmSalvarPublico()" id="pm-publico-btn-salvar" class="w-full text-white font-bold py-2.5 rounded-lg text-sm" style="background:var(--pine)">Salvar público</button>
+            <p id="pm-publico-status" class="raiz-indicador-inline text-[11px]"></p>
+        </div>
+    `;
+}
+
+function pmAbrirNovoPublico() {
+    pmPublicoEditId = null;
+    document.getElementById('form-publico-form-wrapper').classList.remove('hidden');
+    document.getElementById('pm-publico-tipo').value = '';
+    document.getElementById('pm-publico-btn-salvar').textContent = 'Salvar público';
+}
+
+function pmAbrirEdicaoPublico(id) {
+    const p = pmPublicoOferta.find(x => x.id === id);
+    if (!p) return;
+    pmPublicoEditId = id;
+    const wrapper = document.getElementById('form-publico-form-wrapper');
+    wrapper.classList.remove('hidden');
+    document.getElementById('pm-publico-tipo').value = p.tipo_cliente;
+    document.getElementById('pm-publico-btn-salvar').textContent = 'Salvar alterações';
+    wrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+async function pmSalvarPublico() {
+    const tipo_cliente = document.getElementById('pm-publico-tipo').value.trim();
+    const status = document.getElementById('pm-publico-status');
+    if (!tipo_cliente) { status.textContent = 'Informe o tipo de cliente.'; return; }
+
+    const { error } = pmPublicoEditId
+        ? await dbAuth.schema('comercial').from('publico_oferta').update({ tipo_cliente }).eq('id', pmPublicoEditId)
+        : await dbAuth.schema('comercial').from('publico_oferta').insert({ tipo_cliente });
+
+    if (error) { status.textContent = 'Erro: ' + error.message; return; }
+    await pmCarregarTudo();
+    pmRenderPublico();
+}
+
+function pmExcluirPublico(id, nome) {
+    pmExcluir({ schema: 'comercial', tabela: 'publico_oferta', coluna: 'id', valor: id, nome, onSucesso: pmRenderPublico });
+}
+
+// ============================================================================
+// FORM SIMPLES DE PLANO (metadados: código/descrição/ativo) — usado pelo
+// botão "+ Plano" de Planos & Limites (parametros-planos.js). A matriz de
+// funcionalidades×limite NÃO fica aqui — ver parametros-planos.js.
+// ============================================================================
+
+function pmFormPlano() {
+    return `
+        <div class="bg-slate-50 p-4 rounded-xl border-2 border-slate-300 space-y-3">
+            <div>
+                <label class="block text-xs font-bold text-gray-600">Código <span style="color:var(--danger)">*</span></label>
+                <input type="text" id="pm-plano-codigo" required placeholder="ex.: standard" class="w-full p-2 border rounded mt-1 text-sm">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-gray-600">Nome comercial <span style="color:var(--danger)">*</span></label>
+                <input type="text" id="pm-plano-descricao" required placeholder="ex.: Standard" class="w-full p-2 border rounded mt-1 text-sm">
+            </div>
+            <label class="flex items-center gap-2 text-sm">
+                <input type="checkbox" id="pm-plano-ativo" checked>
+                <span style="color:var(--ink)">Ativo</span>
+            </label>
+            <button onclick="pmSalvarPlano()" id="pm-plano-btn-salvar" class="w-full text-white font-bold py-2.5 rounded-lg text-sm" style="background:var(--pine)">Salvar plano</button>
+            <p id="pm-plano-status" class="raiz-indicador-inline text-[11px]"></p>
+        </div>
+    `;
+}
+
+function pmAbrirNovoPlano() {
+    pmPlanoEditCodigo = null;
+    document.getElementById('form-plano-form-wrapper').classList.remove('hidden');
+    document.getElementById('pm-plano-codigo').disabled = false;
+    document.getElementById('pm-plano-codigo').value = '';
+    document.getElementById('pm-plano-descricao').value = '';
+    document.getElementById('pm-plano-ativo').checked = true;
+    document.getElementById('pm-plano-btn-salvar').textContent = 'Salvar plano';
+}
+
+function pmAbrirEdicaoPlano(codigo) {
+    const p = pmPlanos.find(x => x.codigo === codigo);
+    if (!p) return;
+    pmPlanoEditCodigo = codigo;
+    const wrapper = document.getElementById('form-plano-form-wrapper');
+    wrapper.classList.remove('hidden');
+    document.getElementById('pm-plano-codigo').value = p.codigo;
+    document.getElementById('pm-plano-codigo').disabled = true;
+    document.getElementById('pm-plano-descricao').value = p.descricao;
+    document.getElementById('pm-plano-ativo').checked = !!p.ativo;
+    document.getElementById('pm-plano-btn-salvar').textContent = 'Salvar alterações';
+    wrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+async function pmSalvarPlano() {
+    const codigo = document.getElementById('pm-plano-codigo').value.trim();
+    const descricao = document.getElementById('pm-plano-descricao').value.trim();
+    const ativo = document.getElementById('pm-plano-ativo').checked;
+    const status = document.getElementById('pm-plano-status');
+    if (!codigo || !descricao) { status.textContent = 'Preencha código e nome comercial.'; return; }
+
+    const { error } = pmPlanoEditCodigo
+        ? await dbAuth.from('planos').update({ descricao, ativo }).eq('codigo', pmPlanoEditCodigo)
+        : await dbAuth.from('planos').insert({ codigo, descricao, ativo }); // modulo usa o DEFAULT do banco
+
+    if (error) { status.textContent = 'Erro: ' + error.message; return; }
+    await pmCarregarTudo();
+    if (typeof parametrosPlanosInit === 'function') parametrosPlanosInit();
+}
+
+// ============================================================================
+// HELPERS COMPARTILHADOS (idêntico à v0.7.0)
 // ============================================================================
 
 function pmBotaoToggle(id, onclick) {
@@ -1021,6 +911,12 @@ function pmIconeExcluir() {
     `;
 }
 
+
+// ============================================================================
+// EXCLUSÃO — 1 helper genérico + 1 wrapper fino por entidade (idêntico à
+// v0.7.0, + pmExcluirPublico já adicionado acima na seção do catálogo).
+// ============================================================================
+
 // ============================================================================
 // Exclusão — 1 helper genérico + 1 wrapper fino por entidade.
 // Operação destrutiva (regra do Prompt 03): sempre confirm() nomeando o
@@ -1055,7 +951,7 @@ function pmExcluirFuncionalidade(codigo, nome) {
 }
 
 function pmExcluirPlano(codigo, nome) {
-    pmExcluir({ tabela: 'planos', coluna: 'codigo', valor: codigo, nome, onSucesso: pmRenderPlanos });
+    pmExcluir({ tabela: 'planos', coluna: 'codigo', valor: codigo, nome, onSucesso: () => { if (typeof parametrosPlanosInit === 'function') parametrosPlanosInit(); } });
 }
 
 function pmExcluirForma(id, nome) {
@@ -1073,6 +969,8 @@ function pmExcluirPlanoPagamento(id, nome) {
 async function pmExcluirCampanha(id, nome) {
     if (!confirm(`Excluir a campanha "${nome}"?\n\nEssa ação não pode ser desfeita.`)) return;
 
+    // plano_campanhas_pagamentos e campanha_landing pertencem só à campanha
+    // (campanha_landing tem ON DELETE CASCADE — não precisa deletar manual).
     const { error: errVinculo } = await dbAuth.schema('comercial').from('plano_campanhas_pagamentos').delete().eq('id_campanha', id);
     if (errVinculo) { alert(`Erro ao excluir vínculos de pagamento da campanha: ${errVinculo.message}`); return; }
 
@@ -1086,8 +984,9 @@ async function pmExcluirCampanha(id, nome) {
     }
 
     await pmCarregarTudo();
-    pmRenderCampanhas();
+    if (typeof parametrosCampanhasInit === 'function') parametrosCampanhasInit();
 }
+
 
 function pmExcluirCategoria(id, nome) {
     pmExcluir({ schema: 'comercial', tabela: 'categoria_licenca', coluna: 'id_categoria_licenca', valor: id, nome, onSucesso: pmRenderCategorias });
