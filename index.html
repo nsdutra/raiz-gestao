@@ -1,1 +1,459 @@
+<!--
 
+==================================================================
+
+   RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
+   (painel interno/master, separado do app de Imóveis)
+
+   VERSÃO: v0.8.4
+   LINHAS: 459
+   DATA: 2026-08-19
+   NOVIDADES (v0.8.4) — correção de bug real + reorganização de navegação:
+     - BUG CORRIGIDO: aba Comercial e "Desempenho" de qualquer campanha
+       davam erro "relation pessoas does not exist". Causa: 2 funções de
+       gestao_fase2_uso_comercial_v1.sql (fn_comercial_landing_paginas e
+       fn_comercial_landing_origem) tinham search_path sem "public" —
+       corrigido via gestao_fase3c_fix_search_path_v1.sql (nova
+       migration, precisa rodar).
+     - BUG CORRIGIDO: tela Campanhas abria com rolagem lateral no mobile.
+       Causa: uma linha com scroll horizontal (os passos do wizard)
+       dentro de um item de grid sem min-width:0 forçava a página inteira
+       a crescer. Corrigido com min-w-0 nos pontos certos + rede de
+       segurança global (html,body{overflow-x:hidden}).
+     - REORGANIZAÇÃO: "Comercial" saiu do menu principal (6 itens em vez
+       de 7) e virou aba dentro de Parâmetros, junto com Campanhas — que
+       agora tem 2 sub-abas internas (Visão Geral / Campanhas). Dentro de
+       Campanhas, "Desempenho" de uma campanha deixou de pular pra outra
+       tela (era um atalho frágil com gestaoAbrirTela+setTimeout) e virou
+       um modo alternativo do mesmo card (botão "📈 Desempenho" ⇄
+       "⚙️ Configurar").
+     - "Perfis & Acessos" deixou de ser área própria de Parâmetros e virou
+       6ª sub-aba de "Catálogo & Acessos" (junto com Módulos/
+       Funcionalidades/Pagamento/Categorias/Público de oferta).
+     - Parâmetros: 4 áreas → 3 (Comercial, Planos & Limites, Catálogo &
+       Acessos).
+     - js/telas/comercial.js NÃO é mais carregado — substituído por
+       js/telas/parametros-comercial.js. Remova comercial.js do servidor
+       (ou deixe, já que não é mais referenciado — só ocupa espaço).
+     - Requer gestao_fase3c_fix_search_path_v1.sql rodado, além das fases
+       1, 2, 3 e 3b.
+
+   VERSÃO: v0.8.2
+   LINHAS: 417
+   DATA: 2026-08-19
+   NOVIDADES (v0.8.2) — regras de negócio da fase atual (sem HTML novo,
+   só os .js carregados por este arquivo mudaram — ver changelog deles):
+     - Só 1 campanha ativa por vez (bloqueado no banco).
+     - Só campanha trial/cortesia pode publicar (sem compra direta sem
+       trial ainda).
+     - Trial precisa da opção de pagamento grátis (R$ 0) marcada.
+     - Público desta fase é só "prospect".
+     - Perfis & Acessos: sem alteração — fica disponível, mas não é
+       prioridade de configuração agora (decisão do Nicola).
+     - Requer gestao_fase3b_regras_negocio_v1.sql rodado, além das fases
+       1, 2 e 3.
+
+   VERSÃO: v0.8.1
+   LINHAS: 402
+   DATA: 2026-08-19
+   NOVIDADES (v0.8.1) — pacote Campanhas&Landing/Planos/Perfis + Pessoas:
+     - Parâmetros Master virou roteador de 4 áreas (Campanhas & Landing,
+       Planos & Limites, Perfis & Acessos, Catálogos Base), substituindo
+       as 6 sub-abas soltas da v0.7.0. 3 arquivos novos: js/telas/
+       parametros-campanhas.js (wizard de 5 etapas), parametros-planos.js
+       (matriz plano×funcionalidade), parametros-perfis.js (matriz
+       perfil×funcionalidade). Catálogos Base preserva Módulos/
+       Funcionalidades/Pagamento/Categorias 1:1 + Público de oferta novo.
+     - Campanha ganhou status (rascunho/publicada/pausada/encerrada) e
+       conteúdo público de landing (comercial.campanha_landing) —
+       publicar/pausar é atômico via gestao.fn_publicar_campanha().
+     - Comercial ganhou "Desempenho por campanha": funil próprio (view→
+       CTA→trial→pago), origem, trials atribuídos, receita atribuída.
+       Funil global e trials/landing da v0.7.0 preservados sem alteração.
+     - Empresas → ficha ganhou "Pessoas & Usuários": lista de pessoas com
+       perfil/e-mail/último acesso/adoção individual (app 30d/bot 30d),
+       clicável pra ver ações mais usadas por pessoa.
+     - Requer gestao_fase3_campanhas_landing_v1.sql rodado, além das
+       fases 1 e 2. Landing (index.html do domínio público) evoluiu
+       separadamente para v3.1.0 — ver changelog próprio.
+
+   VERSÃO: v0.7.0
+   LINHAS: 375
+   DATA: 2026-08-19
+   NOVIDADES (v0.7.0) — UI fiel ao protótipo + Uso&Consumo + Comercial real:
+     - Navegação trocou de barra de abas única pra shell sidebar (desktop,
+       ≥900px) + barra inferior (mobile) — mais fiel ao protótipo aprovado
+       (RAIZ_GESTAO_COCKPIT_PROTOTIPO_UI_v0_6_0.html). Mesma lista de
+       telas (GESTAO_TELAS, js/nav.js), sem duplicar lógica de cada tela.
+     - Ícone informativo "ⓘ" (clicável, funciona em toque) explicando a
+       origem de cada métrica — Cockpit, Empresas (ficha), Financeiro,
+       Saúde, Comercial.
+     - Empresas → ficha ganhou seção "Uso & Consumo": imóveis/contratos
+       usados vs. limite (único par com contador real hoje — mesma regra
+       de fn_verificar_limite), ações mais usadas no app e no bot pela
+       empresa, nos últimos 30 dias.
+     - Saúde ganhou "Funções mais usadas" (app + bot, todas as empresas) —
+       frequência de log real, não consumo-vs-limite.
+     - Comercial deixou de ser placeholder: funil simplificado (visitas à
+       landing → trials iniciados → convertidos, only o que tem fonte
+       real hoje — não é funil de CRM completo), trials em andamento
+       (dimensionamento, uso app/bot durante o trial, dias restantes),
+       páginas mais navegadas e origem do tráfego da landing
+       (comercial.eventos_landing).
+     - Parâmetros Master ganhou EXCLUSÃO em todas as 6 sub-abas (só tinha
+       criar/editar) — confirmação obrigatória + erro de FK (Postgres
+       23503) convertido em mensagem amigável.
+     - Requer gestao_fase2_uso_comercial_v1.sql rodado, além da fase 1.
+
+   VERSÃO: v0.6.0
+   LINHAS: 296
+   DATA: 2026-08-18
+   NOVIDADES (v0.6.0) — CONVERSA C: EVOLUÇÃO PARA COCKPIT:
+     - Home deixou de ser Parâmetros Master direto e passou a ser o
+       Cockpit (decisão de produto, Prompt 03) — fila de atenção
+       unificada, indicadores rápidos de empresas/financeiro.
+     - Barra de navegação nova entre módulo (área logada): Cockpit,
+       Empresas, Financeiro, Saúde, Comercial, Suporte, Parâmetros —
+       reaproveitando o padrão visual de abas que já existia dentro de
+       Parâmetros Master (pm-subaba), agora um nível acima.
+     - 4 arquivos JS novos: js/nav.js (shell de navegação),
+       js/telas/cockpit.js, js/telas/empresas.js, js/telas/financeiro.js,
+       js/telas/saude.js. Nenhum arquivo existente foi reescrito — só
+       entrarNaGestao() (js/supabase-client.js) mudou 1 chamada, pra abrir
+       o Cockpit em vez de ir direto pra Parâmetros Master.
+     - Comercial e Suporte ainda SEM fonte de dado real no banco (não há
+       tabela de pipeline/funil nem de tickets) — telas mostram aviso
+       explícito de "ainda não disponível" em vez de dado fictício,
+       conforme regra do Prompt 03. Mesma lógica pra infraestrutura
+       (Storage/Edge Functions/uptime) dentro de Saúde.
+     - Requer gestao_fase1_cockpit_v1.sql rodado em produção (schema
+       "gestao" com funções SECURITY DEFINER cross-tenant) — ver
+       changelog do próprio SQL para detalhe de segurança.
+     - Parâmetros Master (js/telas/parametros-master.js) preservado sem
+       nenhuma alteração — só passou a ser aberto pela nova barra de
+       navegação em vez de direto no login.
+
+   VERSÃO: v0.5.0
+   LINHAS: 252
+   DATA: 2026-08-16
+   NOVIDADES (v0.5.0):
+     - Edição adicionada em TODAS as sub-abas de Parâmetros Master
+       (antes só dava pra criar, não editar).
+     - Cartão de débito adicionado como forma de pagamento.
+     - Ajuste de forma de pagamento agora usa um seletor Acréscimo/
+       Desconto + número positivo — corrige o teclado numérico do
+       Android não ter tecla de "-" pra digitar desconto direto.
+     - Campo "Módulo" saiu do formulário de Planos (o plano não precisa
+       mais escolher módulo — o agrupamento por módulo agora vive na
+       Funcionalidade, que ganhou esse campo). Lista de Funcionalidades
+       passou a agrupar por módulo em vez de pelo texto livre "área".
+     - Campanhas agora aceitam MAIS DE UMA opção de pagamento (checkbox
+       múltiplo) — precisou de tabela nova
+       (comercial.plano_campanhas_pagamentos, ver
+       comercial_campanhas_pagamentos_v1.sql).
+     - Nova sub-aba: Categorias (comercial.categoria_licenca).
+     - CORREÇÃO (grants faltando): "permission denied" ao criar plano ou
+       vincular funcionalidade — public.funcionalidades/planos/
+       plano_funcionalidade não tinham GRANT de escrita pro papel
+       authenticated. Resolvido em public_catalogo_grants_v1.sql.
+     - Lista de vínculo plano×funcionalidade reformatada: layout
+       empilhado (nome numa linha, limite/aviso na linha de baixo) em
+       vez de tudo espremido numa linha só — corrige o desalinhamento
+       em tela de celular.
+
+   VERSÃO: v0.4.0
+   LINHAS: 224
+   DATA: 2026-08-16
+   NOVIDADES (v0.4.0):
+     - Versão do app agora aparece na tela (login e área interna), via
+       constante única APP_VERSAO — mesma ideia do app de Imóveis.
+     - CORREÇÃO (grant faltando): tabelas novas do schema comercial
+       criadas via SQL Editor não herdam GRANT automático pro papel
+       "authenticated" — causava "permission denied for table
+       tipo_modulos". Resolvido em comercial_fase1_grants_v1.sql.
+     - CORREÇÃO (bug real, js/telas/parametros-master.js): quando o
+       carregamento de dados falhava, a tela tentava trocar de aba
+       mesmo assim, tentando estilizar um botão que não existia mais
+       (a caixa de erro tinha substituído as abas) — TypeError "Cannot
+       read properties of null". pmCarregarTudo() agora avisa se deu
+       certo antes de continuar.
+
+   VERSÃO: v0.3.0
+   LINHAS: 196
+   DATA: 2026-08-16
+   NOVIDADES (v0.3.0):
+     - PWA: manifest.json, sw.js e ícones (icon-192/icon-512/
+       icon-512-maskable) — instalável no Android e iPhone.
+     - Parâmetros Master ganhou 2 sub-abas: Pagamento (formas de
+       pagamento + opções de preço/parcelas) e Campanhas (ofertas com
+       vigência: trial, cortesia, promoção sazonal).
+
+   NOVIDADES (v0.2.0):
+     - Tela de Parâmetros Master ligada (js/telas/parametros-master.js):
+       Módulos, Funcionalidades e Planos (+ vínculo plano×funcionalidade
+       com limite/limite_aviso). Campanhas e formas de pagamento ficam
+       pra próxima fase.
+     - Tailwind @theme adicionado (emerald→ardósia, amber→cobre,
+       slate/gray com o mesmo neutro do app de Imóveis) — sem isso as
+       classes bg-slate-50/border-slate-300 usadas na tela renderizavam
+       cores erradas (cinza padrão do Tailwind, não a paleta da marca).
+     - CSS do padrão liga/desliga (seção 2 do design system) adicionado.
+
+   NOVIDADES (v0.1.0):
+     - Esqueleto inicial: login (mesma conta Supabase do app de Imóveis),
+       verificação de licença do módulo 'gestao' via banco (sem nada
+       fixo no código), shell da área logada.
+     - Tela de Parâmetros Master ainda não implementada — entra depois
+       que comercial_fase1_v1.sql estiver rodado em produção.
+
+==================================================================
+
+-->
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Raiz Gestão</title>
+
+<script>
+    // Fonte única da versão exibida na tela — mantida em sincronia com o
+    // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
+    const APP_VERSAO = 'v0.8.4';
+</script>
+
+<!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#142430">
+
+<!-- Android/Chrome -->
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+
+<!-- iPhone/Safari (o iOS ignora o manifest.json pro ícone; precisa destas tags) -->
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Raiz Gestão">
+
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style type="text/tailwindcss">
+    @theme {
+      /* emerald → ardósia (equivalente à cor primária --pine deste app) */
+      --color-emerald-50: #eef2f5;   --color-emerald-100: #dfe6ea;
+      --color-emerald-200: #c0ccd6;  --color-emerald-300: #9aacba;
+      --color-emerald-400: #66889f;  --color-emerald-500: #3f6483;
+      --color-emerald-600: #2d4a63;  --color-emerald-700: #253d52;
+      --color-emerald-800: #1c3140;  --color-emerald-900: #1e3245;
+      --color-emerald-950: #142430;
+
+      /* slate + gray → neutro, mesma base do app de Imóveis (só o 600
+         (equivalente ao --sage) muda de tom, de verde pra azulado) */
+      --color-slate-50: #faf9f5;     --color-slate-100: #ecefee;
+      --color-slate-200: #e6e3da;    --color-slate-300: #bbc7c2;
+      --color-slate-400: #97aaa2;    --color-slate-500: #7a9187;
+      --color-slate-600: #6b7c85;    --color-slate-700: #52675e;
+      --color-slate-800: #3d4e47;    --color-slate-900: #283530;
+      --color-slate-950: #1e2925;
+      --color-gray-50: #faf9f5;      --color-gray-100: #ecefee;
+      --color-gray-200: #e6e3da;     --color-gray-300: #bbc7c2;
+      --color-gray-400: #97aaa2;     --color-gray-500: #7a9187;
+      --color-gray-600: #6b7c85;     --color-gray-700: #52675e;
+      --color-gray-800: #3d4e47;     --color-gray-900: #283530;
+      --color-gray-950: #1e2925;
+
+      /* red → danger (universal, idêntico ao app de Imóveis) */
+      --color-red-50: #fbebe9;   --color-red-100: #f7e7e5;
+      --color-red-200: #eecbc8;  --color-red-300: #e2aaa4;
+      --color-red-400: #d47e75;  --color-red-500: #c7584e;
+      --color-red-600: #c1463a;  --color-red-700: #99382d;
+      --color-red-800: #782c22;  --color-red-900: #572018;
+      --color-red-950: #481a12;
+
+      /* amber → cobre (equivalente ao acento --brass deste app) */
+      --color-amber-50: #fbeee6;   --color-amber-100: #f7e4d6;
+      --color-amber-200: #eeccb2;  --color-amber-300: #e3ac85;
+      --color-amber-400: #cf8355;  --color-amber-500: #b3572e;
+      --color-amber-600: #8f4322;  --color-amber-700: #7c3a1e;
+      --color-amber-800: #5f2d18;  --color-amber-900: #432012;
+      --color-amber-950: #33180d;
+
+      /* green → success (universal, idêntico ao app de Imóveis) */
+      --color-green-50: #e8f5ed;   --color-green-100: #e4f0e9;
+      --color-green-200: #c5dfd0;  --color-green-300: #9fcab2;
+      --color-green-400: #6dae89;  --color-green-500: #449768;
+      --color-green-600: #2f8b57;  --color-green-700: #256f45;
+      --color-green-800: #1c5837;  --color-green-900: #144128;
+      --color-green-950: #103521;
+
+      --font-sans: "Inter", system-ui, sans-serif;
+    }
+</style>
+
+<link rel="stylesheet" href="css/tokens.css">
+
+<style>
+    body { font-family: "Inter", system-ui, sans-serif; background: var(--paper); color: var(--ink); }
+    /* v0.8.4 — rede de segurança contra rolagem lateral no mobile. Causa
+       raiz de um caso real (Campanhas): uma linha com overflow-x-auto
+       (os passos do wizard) dentro de um item de grid sem min-width:0
+       forçava a PÁGINA inteira a crescer em vez de rolar só a linha.
+       Corrigido com min-w-0 nos pontos certos (nav.js/parametros-
+       campanhas.js), e esta regra global garante que, se acontecer de
+       novo em qualquer tela nova, a página corta em vez de abrir barra
+       de rolagem horizontal. */
+    html, body { overflow-x: hidden; max-width: 100vw; }
+    .hidden { display: none !important; }
+
+    /* Padrão liga/desliga — DESIGN_SYSTEM_RAIZ_PATRIMONIO.md, seção 2 */
+    .raiz-btn-toggle.ativo { background: var(--pine) !important; color: #fff !important; border-color: var(--pine) !important; }
+    .raiz-btn-toggle svg.raiz-icone-toggle { width: 20px; height: 20px; }
+
+    /* Indicador de validação inline — seção 5 */
+    .raiz-indicador-inline:empty { height: 0; margin-top: 0; }
+
+    /* v0.7.0 — shell sidebar (desktop, ≥900px) / bottom-nav (mobile),
+       mais fiel ao protótipo aprovado. Sidebar fica escondida no mobile;
+       bottom-nav fica escondida no desktop. Mesma lista de telas
+       (GESTAO_TELAS, js/nav.js) alimenta as duas. */
+    .gestao-shell { display: block; }
+    .gestao-sidebar { display: none; }
+    .gestao-mobile-nav {
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+        display: flex; overflow-x: auto; background: #fff;
+        border-top: 1px solid var(--line);
+        padding-bottom: env(safe-area-inset-bottom, 0);
+    }
+    .gestao-main { padding-bottom: 84px; min-width: 0; } /* espaço pra bottom-nav não cobrir conteúdo; min-width:0 evita grid item esticar a página */
+
+    @media (min-width: 900px) {
+        .gestao-shell { display: grid; grid-template-columns: 220px 1fr; align-items: start; }
+        .gestao-sidebar {
+            display: block; position: sticky; top: 0; height: 100vh;
+            background: var(--pine-deep); padding: 20px 12px; overflow-y: auto;
+        }
+        .gestao-mobile-nav { display: none; }
+        .gestao-main { padding-bottom: 20px; }
+    }
+
+    .gestao-nav-item {
+        display: flex; align-items: center; gap: 10px;
+        padding: 10px 12px; border-radius: 10px; font-size: 13px; font-weight: 700;
+        color: var(--sage); white-space: nowrap; flex: none; width: 100%;
+        text-align: left;
+    }
+    .gestao-sidebar .gestao-nav-item { color: rgba(255,255,255,.65); margin-bottom: 2px; }
+    .gestao-sidebar .gestao-nav-item.ativo { background: var(--pine-light); color: #fff; }
+    .gestao-mobile-nav .gestao-nav-item {
+        flex-direction: column; gap: 2px; padding: 8px 14px; width: auto;
+        font-size: 10px; text-align: center;
+    }
+    .gestao-mobile-nav .gestao-nav-item.ativo { color: var(--brass); }
+    .gestao-nav-icone { font-size: 16px; line-height: 1; }
+
+    /* Ícone informativo (tooltip clicável) — Saúde/Financeiro/Comercial/Empresas */
+    .gestao-info-icone {
+        color: var(--sage); font-size: 12px; line-height: 1; cursor: pointer;
+        border: none; background: none; padding: 0;
+    }
+    .gestao-info-popover {
+        position: absolute; z-index: 30; top: 20px; left: 0; width: 240px;
+        background: var(--ink); color: #fff; font-size: 11px; font-weight: 400;
+        text-transform: none; letter-spacing: normal; padding: 10px 12px;
+        border-radius: 10px; line-height: 1.4; box-shadow: 0 8px 24px rgba(0,0,0,.25);
+    }
+</style>
+</head>
+<body class="min-h-screen">
+
+    <!-- ===================== ÁREA DE LOGIN ===================== -->
+    <div id="area-login" class="min-h-screen flex items-center justify-center p-4">
+        <div class="w-full max-w-sm rounded-2xl p-8 shadow-xl" style="background:var(--pine-deep)">
+            <h1 class="text-2xl font-bold text-white mb-1">Raiz Gestão</h1>
+            <p class="text-sm mb-1" style="color:var(--brass-light)">Painel interno · Raízes Tech</p>
+            <p class="text-[10px] mb-6" style="color:var(--pine-light)" id="badge-versao-login"></p>
+
+            <div class="space-y-3">
+                <input type="email" id="login-email" placeholder="E-mail" autocomplete="username"
+                    class="w-full p-4 rounded-xl text-white text-base"
+                    style="background:var(--pine);border:1px solid var(--pine-light)">
+                <input type="password" id="login-senha" placeholder="Senha" autocomplete="current-password"
+                    onkeydown="if(event.key==='Enter') fazerLoginGestao();"
+                    class="w-full p-4 rounded-xl text-white text-base"
+                    style="background:var(--pine);border:1px solid var(--pine-light)">
+                <button onclick="fazerLoginGestao()"
+                    class="w-full text-white font-bold py-3.5 rounded-xl shadow transition active:scale-95"
+                    style="background:var(--brass)">
+                    Entrar
+                </button>
+                <p id="login-status" class="text-xs text-center min-h-[1rem]" style="color:var(--brass-light)"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================== ÁREA LOGADA ===================== -->
+    <div id="area-app" class="hidden min-h-screen">
+        <header class="flex items-center justify-between px-5 py-4 shadow" style="background:var(--pine)">
+            <h1 class="text-lg font-bold text-white">🧭 Raiz Gestão</h1>
+            <div class="flex items-center gap-3">
+                <span class="text-sm text-white/80" id="nome-pessoa-logada"></span>
+                <span class="text-[10px] text-white/50" id="badge-versao-app"></span>
+                <button onclick="fazerLogoutGestao()" class="text-xs font-bold px-3 py-1.5 rounded-lg text-white" style="background:var(--pine-light)">Sair</button>
+            </div>
+        </header>
+
+        <!-- v0.7.0 — shell sidebar (desktop) / bottom-nav (mobile), mais fiel ao
+             protótipo aprovado. Ambas as navs são montadas por gestaoNavInit()
+             (js/nav.js) a partir da mesma lista GESTAO_TELAS. -->
+        <div class="gestao-shell">
+            <aside class="gestao-sidebar">
+                <nav id="gestao-sidebar-nav"></nav>
+            </aside>
+            <main class="p-5 gestao-main" id="area-conteudo">
+                <p class="text-sm" style="color:var(--sage)">Carregando...</p>
+            </main>
+        </div>
+
+        <nav id="gestao-mobile-nav" class="gestao-mobile-nav"></nav>
+    </div>
+
+    <script src="js/supabase-client.js"></script>
+    <script src="js/nav.js"></script>
+    <script src="js/telas/cockpit.js"></script>
+    <script src="js/telas/empresas.js"></script>
+    <script src="js/telas/financeiro.js"></script>
+    <script src="js/telas/saude.js"></script>
+    <script src="js/telas/parametros-master.js"></script>
+    <script src="js/telas/parametros-comercial.js"></script>
+    <script src="js/telas/parametros-campanhas.js"></script>
+    <script src="js/telas/parametros-planos.js"></script>
+    <script src="js/telas/parametros-perfis.js"></script>
+    <script>
+        window.addEventListener('load', function () {
+            if (window.lucide) lucide.createIcons();
+
+            document.getElementById('badge-versao-login').textContent = APP_VERSAO;
+            document.getElementById('badge-versao-app').textContent = APP_VERSAO;
+
+            // Registra o Service Worker — necessário em algumas versões do
+            // Chrome/Android pra instalar de verdade (ícone próprio, tela
+            // cheia), senão o Android cai no atalho genérico do navegador.
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('sw.js').catch(function (err) {
+                    console.warn('Falha ao registrar service worker:', err.message);
+                });
+            }
+        });
+    </script>
+
+</body>
+</html>
