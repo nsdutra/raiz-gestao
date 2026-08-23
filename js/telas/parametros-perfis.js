@@ -38,6 +38,7 @@ async function parametrosPerfisInit() {
             <div class="p-4 border-b" style="border-color:var(--line)">
                 <b class="text-sm" style="color:var(--ink)">Funcionalidades por perfil</b>
                 <div class="flex gap-2 overflow-x-auto mt-2 pb-1" id="pf-mobile-tabs"></div>
+                <p id="pf-mobile-legenda" class="text-[11px] mt-2" style="color:var(--sage)"></p>
             </div>
             <div id="pf-mobile-lista" class="p-3 space-y-2"></div>
         </div>
@@ -79,8 +80,14 @@ function pfRenderMobile() {
     if (tabs) {
         tabs.innerHTML = perfis.map(p => `
             <button onclick="pfMudarPerfilMobile('${p.codigo}')" class="px-3 py-1.5 rounded-full text-xs font-bold flex-none"
-                style="background:${p.codigo === pfPerfilMobileAtivo ? 'var(--pine)' : 'var(--paper)'};color:${p.codigo === pfPerfilMobileAtivo ? '#fff' : 'var(--ink)'}">${p.descricao}${p.codigo === 'master' ? ' 🔒' : ''}</button>
+                style="background:${p.codigo === pfPerfilMobileAtivo ? 'var(--pine)' : 'var(--paper)'};color:${p.codigo === pfPerfilMobileAtivo ? '#fff' : 'var(--ink)'}" title="${pmEsc(p.descricao)}">${p.codigo}${p.codigo === 'master' ? ' 🔒' : ''}</button>
         `).join('');
+    }
+
+    const legenda = document.getElementById('pf-mobile-legenda');
+    if (legenda) {
+        const ativo = perfis.find(p => p.codigo === pfPerfilMobileAtivo);
+        legenda.textContent = ativo?.descricao || '';
     }
 
     const lista = document.getElementById('pf-mobile-lista');
@@ -125,7 +132,7 @@ function pfRenderizar() {
             <thead>
                 <tr>
                     <th class="sticky left-0 bg-white text-left p-2 border-b" style="border-color:var(--line);min-width:200px">Funcionalidade</th>
-                    ${perfis.map(p => `<th class="p-2 border-b text-left" style="border-color:var(--line);min-width:100px">${p.descricao}${p.codigo === 'master' ? ' 🔒' : ''}</th>`).join('')}
+                    ${perfis.map(p => `<th class="p-2 border-b text-left" style="border-color:var(--line);min-width:100px" title="${pmEsc(p.descricao)}">${p.codigo}${p.codigo === 'master' ? ' 🔒' : ''}</th>`).join('')}
                 </tr>
             </thead>
             <tbody>
