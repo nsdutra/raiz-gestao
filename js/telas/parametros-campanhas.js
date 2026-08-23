@@ -2,7 +2,7 @@
 // js/telas/parametros-campanhas.js — Raiz Gestão
 //
 // v0.8.2 — regras de negócio da fase atual (definidas 19/08/2026):
-//   - Só 1 campanha ativa por vez (checklist da etapa 5 avisa; o bloquei
+//   - Só 1 campanha ativa por vez (checklist da etapa 5 avisa; o bloqueio
 //     de verdade é no banco, gestao.fn_publicar_campanha()).
 //   - Categoria trial/cortesia é a única publicável (sem compra direta
 //     sem trial ainda) — aviso na etapa 1, bloqueio no banco.
@@ -30,8 +30,11 @@ let pcStep = 1;
 let pcDraft = {};
 
 function pcCampanhaVazia() {
+    // tipo_oferta sempre 'promocional' aqui — criar oferta-base nova não é
+    // um caso de uso deste wizard (oferta-base vem semeada pela migration
+    // de planos/landing; aqui só se EDITA uma já existente).
     return {
-        nome: '', categoria: 'trial', plano_codigo: '',
+        nome: '', categoria: 'trial', plano_codigo: '', tipo_oferta: 'promocional',
         duracao_tipo: 'dias_fixos', duracao_dias: '', tempo_aviso_dias: 3,
         inicio_vigencia: '', fim_vigencia: '',
         pagamentos: [],
@@ -41,10 +44,10 @@ function pcCampanhaVazia() {
 }
 
 async function parametrosCampanhasInit() {
-    const c = document.getElementById('pm-conteudo-area');
+    const c = document.getElementById('pco-campanhas-wizard') || document.getElementById('pco-conteudo') || document.getElementById('pm-conteudo-area');
     c.innerHTML = `
-        <div class="grid lg:grid-cols-[300px_1fr] gap-5">
-            <div>
+        <div class="grid lg:grid-cols-[300px_1fr] gap-5 min-w-0">
+            <div class="min-w-0">
                 <div class="flex justify-between items-center mb-3">
                     <div>
                         <h2 class="text-sm font-extrabold" style="color:var(--ink)">Campanhas</h2>
@@ -54,11 +57,12 @@ async function parametrosCampanhasInit() {
                 </div>
                 <div id="pc-lista" class="space-y-2"></div>
             </div>
-            <div id="pc-wizard"></div>
+            <div id="pc-wizard" class="min-w-0"></div>
         </div>
     `;
     pcRenderLista();
-    if (pmCampanhas.length > 0) pcAbrirCampanha(pmCampanhas[0].id);
+    const primeiraPromocional = pmCampanhas.find(cp => cp.tipo_oferta !== 'oferta_base');
+    if (primeiraPromocional) pcAbrirCampanha(primeiraPromocional.id);
     else pcNovaCampanha();
 }
 
@@ -75,7 +79,12 @@ function pcStatusChip(status) {
 
 function pcRenderLista() {
     const el = document.getElementById('pc-lista');
-    el.innerHTML = pmCampanhas.map(cp => {
+    // Oferta-base (Essencial/Patrimônio/Plus) não é campanha promocional
+    // comum — vive em Comercial → Oferta no Site. Editar uma delas ainda
+    // é possível (pcAbrirCampanha funciona pra qualquer id), só não
+    // aparece nesta lista pra não confundir com promoção temporária.
+    const promocionais = pmCampanhas.filter(cp => cp.tipo_oferta !== 'oferta_base');
+    el.innerHTML = promocionais.map(cp => {
         const landing = pmCampanhaLanding.find(l => l.campanha_id === cp.id);
         return `
         <button onclick="pcAbrirCampanha('${cp.id}')" id="pc-item-${cp.id}"
@@ -96,6 +105,7 @@ function pcRenderLista() {
 function pcNovaCampanha() {
     pcCampanhaId = null;
     pcDraft = pcCampanhaVazia();
+    pcModo = 'configurar';
     // Regra desta fase (19/08/2026): único público em uso é "prospect" —
     // pré-seleciona se já existir no catálogo, pra não depender do master
     // lembrar de escolher toda vez.
@@ -111,13 +121,14 @@ function pcAbrirCampanha(id) {
     if (!cp) return;
     pcCampanhaId = id;
     pcStep = 1;
+    pcModo = 'configurar';
 
     const planoVinculado = pmPlanos.find(p => p.id_campanha === id);
     const landing = pmCampanhaLanding.find(l => l.campanha_id === id);
     const pagIds = pmCampanhaPagamentos.filter(cpp => cpp.id_campanha === id).map(cpp => cpp.id_plano_pagamento);
 
     pcDraft = {
-        nome: cp.nome, categoria: cp.categoria, plano_codigo: planoVinculado?.codigo || '',
+        nome: cp.nome, categoria: cp.categoria, plano_codigo: planoVinculado?.codigo || '', tipo_oferta: cp.tipo_oferta || 'promocional',
         status: cp.status, duracao_tipo: cp.duracao_tipo, duracao_dias: cp.duracao_dias ?? '',
         tempo_aviso_dias: cp.tempo_aviso_dias, inicio_vigencia: cp.inicio_vigencia || '', fim_vigencia: cp.fim_vigencia || '',
         pagamentos: pagIds, id_publico_oferta: cp.id_publico_oferta || '',
@@ -146,35 +157,55 @@ function pcPasso(n, label) {
     `;
 }
 
+let pcModo = 'configurar'; // 'configurar' | 'desempenho'
+
+const PC_NOMES_ETAPA = ['Oferta', 'Condições', 'Público', 'Landing', 'Publicar'];
+
 function pcRenderWizard() {
     const el = document.getElementById('pc-wizard');
+    const ehOfertaBase = pcDraft.tipo_oferta === 'oferta_base';
     el.innerHTML = `
-        <div class="p-4 md:p-5 rounded-2xl border-2" style="border-color:var(--line);background:#fff">
-            <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                <div>
-                    <div class="flex items-center gap-2">
-                        <h3 class="text-lg font-extrabold" style="color:var(--ink)">${pcDraft.nome || 'Nova campanha'}</h3>
+        <div class="p-4 md:p-5 rounded-2xl border-2 min-w-0 w-full" style="border-color:var(--line);background:#fff">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 min-w-0">
+                <div class="min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <h3 class="text-lg font-extrabold break-words" style="color:var(--ink)">${pcDraft.nome || 'Nova campanha'}</h3>
                         ${pcCampanhaId ? pcStatusChip(pcDraft.status) : ''}
+                        ${ehOfertaBase ? `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background:var(--info-bg);color:var(--info)">oferta-base</span>` : ''}
                     </div>
-                    <p class="text-xs mt-1" style="color:var(--sage)">Wizard de configuração e publicação da oferta.</p>
+                    <p class="text-xs mt-1" style="color:var(--sage)">${pcModo === 'desempenho' ? 'Visualizações, trials e receita atribuída a esta campanha.' : 'Wizard de configuração e publicação da oferta.'}</p>
                 </div>
-                <div class="flex flex-wrap gap-2">
-                    ${pcCampanhaId ? `<button onclick="pcAbrirDesempenho()" class="px-3 py-2 rounded-xl text-xs font-bold border-2" style="border-color:var(--line)">📈 Desempenho</button>` : ''}
-                    <button onclick="pcSalvar()" id="pc-btn-rascunho" class="px-3 py-2 rounded-xl text-xs font-bold text-white" style="background:var(--pine)">Salvar rascunho</button>
+                <div class="flex flex-wrap gap-2 flex-none">
+                    ${pcCampanhaId ? `<button onclick="pcAlternarModo()" class="px-3 py-2 rounded-xl text-xs font-bold border-2" style="border-color:var(--line)">${pcModo === 'desempenho' ? '⚙️ Configurar' : '📈 Desempenho'}</button>` : ''}
+                    ${pcModo === 'configurar' ? `<button onclick="pcSalvar()" id="pc-btn-rascunho" class="px-3 py-2 rounded-xl text-xs font-bold text-white" style="background:var(--pine)">Salvar rascunho</button>` : ''}
                 </div>
             </div>
-            <div class="flex items-center gap-2 mt-5 overflow-x-auto pb-1">
-                ${pcPasso(1, 'Oferta')}<div class="w-6 border-t flex-none" style="border-color:var(--line)"></div>
-                ${pcPasso(2, 'Condições')}<div class="w-6 border-t flex-none" style="border-color:var(--line)"></div>
-                ${pcPasso(3, 'Público')}<div class="w-6 border-t flex-none" style="border-color:var(--line)"></div>
-                ${pcPasso(4, 'Landing')}<div class="w-6 border-t flex-none" style="border-color:var(--line)"></div>
-                ${pcPasso(5, 'Publicar')}
-            </div>
-            <div id="pc-step-body" class="mt-4"></div>
+            ${pcModo === 'configurar' ? `
+                <!-- Mobile (<768px): SÓ texto, nunca linha com scroll horizontal (seção 5 do prompt v0.9.0). -->
+                <div class="md:hidden mt-4 pb-2 border-b" style="border-color:var(--line)">
+                    <b class="text-sm" style="color:var(--ink)">Etapa ${pcStep} de 5</b>
+                    <span class="text-sm" style="color:var(--sage)"> · ${PC_NOMES_ETAPA[pcStep - 1]}</span>
+                </div>
+                <!-- Desktop (≥768px): indicador visual rico, tem espaço de sobra. -->
+                <div class="hidden md:flex items-center gap-2 mt-5 pb-1 min-w-0">
+                    ${pcPasso(1, 'Oferta')}<div class="w-6 border-t flex-none" style="border-color:var(--line)"></div>
+                    ${pcPasso(2, 'Condições')}<div class="w-6 border-t flex-none" style="border-color:var(--line)"></div>
+                    ${pcPasso(3, 'Público')}<div class="w-6 border-t flex-none" style="border-color:var(--line)"></div>
+                    ${pcPasso(4, 'Landing')}<div class="w-6 border-t flex-none" style="border-color:var(--line)"></div>
+                    ${pcPasso(5, 'Publicar')}
+                </div>
+            ` : ''}
+            <div id="pc-step-body" class="mt-4 min-w-0 w-full"></div>
             <p id="pc-status" class="raiz-indicador-inline text-[11px] mt-2"></p>
         </div>
     `;
-    pcRenderStepBody();
+    if (pcModo === 'desempenho') pcRenderDesempenho();
+    else pcRenderStepBody();
+}
+
+function pcAlternarModo() {
+    pcModo = pcModo === 'desempenho' ? 'configurar' : 'desempenho';
+    pcRenderWizard();
 }
 
 function pcRenderStepBody() {
@@ -232,15 +263,18 @@ function pcCampoParaDraft() {
 // ----------------------------------------------------------------------------
 function pcStep1() {
     const categoriaCompativel = pcDraft.categoria === 'trial' || pcDraft.categoria === 'cortesia';
+    const ehOfertaBase = pcDraft.tipo_oferta === 'oferta_base';
     return `
         <div class="grid md:grid-cols-2 gap-3">
             <label class="text-xs font-bold" style="color:var(--ink)">Nome da campanha
                 <input id="pc-nome" value="${pmEsc(pcDraft.nome)}" class="w-full mt-1 p-2.5 border rounded-xl font-normal text-sm">
             </label>
             <label class="text-xs font-bold" style="color:var(--ink)">Categoria
-                <select id="pc-categoria" onchange="pcCampoParaDraft();pcRenderStepBody()" class="w-full mt-1 p-2.5 border rounded-xl font-normal text-sm">
-                    ${['trial', 'cortesia', 'item', 'padrao'].map(v => `<option value="${v}" ${pcDraft.categoria === v ? 'selected' : ''}>${{ trial: 'Trial', cortesia: 'Cortesia', item: 'Item avulso', padrao: 'Padrão (venda normal)' }[v]}</option>`).join('')}
+                <select id="pc-categoria" ${ehOfertaBase ? 'disabled' : ''} onchange="pcCampoParaDraft();pcRenderStepBody()" class="w-full mt-1 p-2.5 border rounded-xl font-normal text-sm ${ehOfertaBase ? 'bg-slate-100' : ''}">
+                    ${ehOfertaBase ? `<option value="${pcDraft.categoria}" selected>${pcDraft.categoria}</option>` :
+                        ['trial', 'cortesia', 'item', 'padrao'].map(v => `<option value="${v}" ${pcDraft.categoria === v ? 'selected' : ''}>${{ trial: 'Trial', cortesia: 'Cortesia', item: 'Item avulso', padrao: 'Padrão (venda normal)' }[v]}</option>`).join('')}
                 </select>
+                ${ehOfertaBase ? `<span class="block text-[10px] mt-1 font-normal" style="color:var(--sage)">Oferta-base — categoria vem da integração com a landing, não editável aqui.</span>` : ''}
             </label>
             <label class="text-xs font-bold" style="color:var(--ink)">Plano oferecido
                 <select id="pc-plano" class="w-full mt-1 p-2.5 border rounded-xl font-normal text-sm">
@@ -254,7 +288,12 @@ function pcStep1() {
                 <span class="block text-[10px] mt-1 font-normal" style="color:var(--sage)">Muda pra "publicada" só na etapa 5, depois de validar os requisitos.</span>
             </label>
         </div>
-        ${!categoriaCompativel ? `
+        ${ehOfertaBase ? `
+            <div class="p-3 rounded-xl mt-4" style="background:var(--info-bg);color:var(--info)">
+                <b class="text-xs">Esta é uma oferta-base</b>
+                <p class="text-xs mt-1">Pode ficar publicada ao mesmo tempo que outras ofertas-base (Essencial/Patrimônio/Plus) — a regra de "só 1 ativa" e "só trial/cortesia" vale só pra campanha promocional.</p>
+            </div>
+        ` : !categoriaCompativel ? `
             <div class="p-3 rounded-xl mt-4" style="background:var(--warning-bg);color:var(--warning)">
                 <b class="text-xs">Esta categoria não pode ser publicada ainda</b>
                 <p class="text-xs mt-1">Nesta fase, a landing só suporta fluxo via trial — compra direta sem passar pelo trial ainda não existe. Você pode cadastrar como rascunho, mas a publicação (etapa 5) fica bloqueada pro tipo "${pcDraft.categoria === 'padrao' ? 'Padrão' : 'Item avulso'}" até existir checkout de verdade.</p>
@@ -406,14 +445,17 @@ function pcValidacoes() {
     const planoObj = pmPlanos.find(p => p.codigo === pcDraft.plano_codigo);
     const vigenciaOk = !pcDraft.inicio_vigencia || !pcDraft.fim_vigencia || pcDraft.inicio_vigencia <= pcDraft.fim_vigencia;
     const dentroVigencia = (!pcDraft.inicio_vigencia || pcDraft.inicio_vigencia <= hoje) && (!pcDraft.fim_vigencia || pcDraft.fim_vigencia >= hoje);
+    const ehOfertaBase = pcDraft.tipo_oferta === 'oferta_base';
     const categoriaCompativel = pcDraft.categoria === 'trial' || pcDraft.categoria === 'cortesia';
     const pagamentosSelecionados = pmPlanoPagamentos.filter(p => pcDraft.pagamentos.includes(p.id));
     const temOpcaoGratis = pagamentosSelecionados.some(p => Number(p.preco) === 0);
     const publicoObj = pmPublicoOferta.find(p => p.id === pcDraft.id_publico_oferta);
-    const outraCampanhaAtiva = pmCampanhas.find(c => c.status === 'publicada' && c.id !== pcCampanhaId);
+    const outraCampanhaAtiva = pmCampanhas.find(c => c.status === 'publicada' && c.tipo_oferta === 'promocional' && c.id !== pcCampanhaId);
 
-    return [
-        { label: 'Categoria compatível com o fluxo atual (trial ou cortesia)', ok: categoriaCompativel },
+    const checks = [
+        ehOfertaBase
+            ? { label: 'Oferta-base — pode coexistir com outras publicadas', ok: true }
+            : { label: 'Categoria compatível com o fluxo atual (trial ou cortesia)', ok: categoriaCompativel },
         { label: 'Plano vinculado', ok: !!pcDraft.plano_codigo },
         { label: 'Plano está ativo', ok: !!planoObj?.ativo },
         { label: 'Vigência coerente (início ≤ fim)', ok: vigenciaOk },
@@ -421,9 +463,17 @@ function pcValidacoes() {
         { label: 'Tem ao menos 1 opção de pagamento marcada', ok: pcDraft.pagamentos.length > 0 },
         { label: pcDraft.categoria === 'trial' ? 'Inclui a opção grátis (R$ 0) — obrigatório pra trial' : 'Opção grátis (não obrigatório fora de trial)', ok: pcDraft.categoria === 'trial' ? temOpcaoGratis : true },
         { label: 'Público = prospect (única opção desta fase)', ok: publicoObj?.tipo_cliente === 'prospect' },
-        { label: 'Conteúdo de landing preenchido (título + código público)', ok: !!(pcDraft.landing.titulo && pcDraft.landing.codigo_publico) },
-        { label: outraCampanhaAtiva ? `Nenhuma outra campanha ativa (hoje: "${outraCampanhaAtiva.nome}" está publicada — pause-a antes)` : 'Nenhuma outra campanha ativa (regra: só 1 por vez)', ok: !outraCampanhaAtiva }
+        { label: 'Conteúdo de landing preenchido (título + código público)', ok: !!(pcDraft.landing.titulo && pcDraft.landing.codigo_publico) }
     ];
+
+    if (!ehOfertaBase) {
+        checks.push({
+            label: outraCampanhaAtiva ? `Nenhuma outra campanha promocional ativa (hoje: "${outraCampanhaAtiva.nome}" está publicada — pause-a antes)` : 'Nenhuma outra campanha promocional ativa (regra: só 1 por vez)',
+            ok: !outraCampanhaAtiva
+        });
+    }
+
+    return checks;
 }
 
 function pcStep5() {
@@ -542,10 +592,71 @@ async function pcPublicar(publicar) {
 }
 
 // ----------------------------------------------------------------------------
-// Desempenho — atalho pra Comercial (a análise mora lá, não duplicamos aqui)
+// Desempenho — embutido no próprio wizard (v0.8.4). Antes pulava pra uma
+// tela "Comercial" separada via gestaoAbrirTela + setTimeout (frágil,
+// dependia de outro arquivo já ter carregado); agora é só um modo
+// alternativo do mesmo card, sem sair da campanha selecionada.
 // ----------------------------------------------------------------------------
-function pcAbrirDesempenho() {
-    if (!pcCampanhaId) return;
-    gestaoAbrirTela('comercial');
-    setTimeout(() => { if (typeof comercialAbrirDesempenhoCampanha === 'function') comercialAbrirDesempenhoCampanha(pcCampanhaId); }, 150);
+async function pcRenderDesempenho() {
+    const body = document.getElementById('pc-step-body');
+    body.innerHTML = `<p class="text-sm" style="color:var(--sage)">Carregando desempenho...</p>`;
+
+    const [{ data: resumoTodas, error: e1 }, { data: origens, error: e2 }, { data: trials, error: e3 }] = await Promise.all([
+        dbAuth.schema('gestao').rpc('fn_comercial_campanhas_resumo', { p_dias: 30 }),
+        dbAuth.schema('gestao').rpc('fn_comercial_campanha_origens', { p_campanha_id: pcCampanhaId }),
+        dbAuth.schema('gestao').rpc('fn_comercial_campanha_trials', { p_campanha_id: pcCampanhaId })
+    ]);
+    if (e1 || e2 || e3) {
+        body.innerHTML = `<div class="p-4 rounded-xl border-2" style="background:var(--danger-bg);border-color:var(--danger);color:var(--danger)">
+            <strong>Não foi possível carregar:</strong> ${[e1, e2, e3].filter(Boolean).map(e => e.message).join(' | ')}
+        </div>`;
+        return;
+    }
+
+    const cp = (resumoTodas || []).find(r => r.campanha_id === pcCampanhaId);
+    if (!cp) {
+        body.innerHTML = `<p class="text-sm text-center py-6" style="color:var(--sage)">Sem dados de desempenho ainda pra esta campanha (só existem depois que ela é publicada e recebe visitas).</p>`;
+        return;
+    }
+
+    const funilPassos = [
+        ['Visualização → CTA', cp.page_views, cp.cta_clicks, cp.taxa_view_cta],
+        ['CTA → Trial', cp.cta_clicks, cp.trials, cp.taxa_cta_trial],
+        ['Trial → Pago', cp.trials, cp.convertidos, cp.taxa_trial_pago],
+        ['Visualização → Pago', cp.page_views, cp.convertidos, cp.taxa_view_pago]
+    ];
+
+    body.innerHTML = `
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+            ${gestaoCardMetrica('Visualizações', cp.page_views)}
+            ${gestaoCardMetrica('Trials ativos', cp.trials_ativos)}
+            ${gestaoCardMetrica('Convertidos', cp.convertidos, 'green')}
+            ${gestaoCardMetrica('Receita atribuída', gestaoFormatarMoedaBR(cp.receita_atribuida), 'green')}
+        </div>
+
+        <b class="text-sm" style="color:var(--ink)">Funil da campanha</b>
+        <div class="space-y-3 mt-3 mb-5">
+            ${funilPassos.map(([label, total, valor, pct]) => gestaoBarra(label, valor, Math.max(1, total), () => pct + '%')).join('')}
+        </div>
+
+        <b class="text-sm" style="color:var(--ink)">Atribuição por origem</b>
+        <div class="mt-2 space-y-1.5 mb-5">
+            ${(origens || []).map(o => `<div class="flex justify-between text-xs"><span style="color:var(--ink)">${o.utm_source} / ${o.utm_medium}</span><b>${o.views} views · ${o.cta_clicks} CTA</b></div>`).join('') || `<p class="text-xs" style="color:var(--sage)">Sem eventos atribuídos ainda.</p>`}
+        </div>
+
+        <b class="text-sm" style="color:var(--ink)">Trials atribuídos</b>
+        <div class="mt-2 space-y-1.5">
+            ${(trials || []).map(t => `
+                <div class="flex justify-between text-xs p-2 rounded-lg" style="background:var(--paper)">
+                    <span style="color:var(--ink)">${t.empresa}${t.convertido ? ' ✅' : ''}</span>
+                    <span style="color:var(--sage)">${t.plano_atual} · ${t.status}</span>
+                </div>
+            `).join('') || `<p class="text-xs" style="color:var(--sage)">Nenhum trial atribuído ainda.</p>`}
+        </div>
+
+        <div class="p-3 rounded-xl mt-5" style="background:var(--warning-bg);color:var(--warning)">
+            <b class="text-xs">Retorno financeiro</b>
+            <p class="text-xs mt-1">Receita atribuída pode ser medida. ROI/ROAS só aparece quando existir custo/orçamento de campanha cadastrado — não inferimos custo.</p>
+        </div>
+    `;
 }
