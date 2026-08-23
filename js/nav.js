@@ -1,64 +1,93 @@
 // ============================================================================
 // js/nav.js — Raiz Gestão
 //
-// v0.8.4 — Comercial saiu do menu principal e virou aba dentro de
-// Parâmetros (junto com Campanhas, que passou a incluir o Desempenho
-// embutido — sem mais pular de tela pra ver o desempenho de uma
-// campanha). Menu principal: 6 itens em vez de 7. Nenhuma outra mudança
-// neste arquivo.
+// v0.9.0 — Comercial volta ao menu principal (era item de uso diário,
+// não deveria estar escondido atrás de "Configurações" — reverte a
+// decisão de UX da v0.8.4). "Parâmetros" muda de RÓTULO pra
+// "Configurações" (id técnico continua 'parametros' — nenhum link
+// existente quebra).
 //
-// v0.7.0: layout mais fiel ao protótipo aprovado
-// (RAIZ_GESTAO_COCKPIT_PROTOTIPO_UI_v0_6_0.html) — sidebar vertical no
-// desktop (≥900px) e barra inferior no mobile, em vez da barra de abas
-// horizontal única da v0.6.0. Mesma lista de telas (GESTAO_TELAS),
-// renderizada duas vezes (sidebar + bottom nav), sincronizadas pelo mesmo
-// gestaoAbrirTela(). Nenhuma tela (*Init()) precisou mudar por causa
-// disso — continuam donas de #area-conteudo.
-//
-// v0.7.0 também adiciona gestaoInfoIcone(texto): ícone "ⓘ" clicável
-// (funciona em toque, não só hover) usado nas telas Saúde/Financeiro/
-// Empresas pra explicar o que cada métrica significa e de onde vem.
-//
-// v0.6.0: shell de navegação original (barra de abas única) — descontinuado.
+// Mobile deixou de rolar 6-7 itens na horizontal: bottom-nav mostra só 4
+// (Cockpit/Empresas/Comercial/Financeiro) + "Mais", que abre um
+// bottom-sheet com Saúde/Suporte/Configurações. Sidebar do desktop
+// continua mostrando todos os itens direto (não tem o problema de
+// espaço que o mobile tem).
 // ============================================================================
 
 const GESTAO_TELAS = [
-    { id: 'cockpit', label: 'Cockpit', icone: '📊', init: () => telaCockpitInit() },
-    { id: 'empresas', label: 'Empresas', icone: '🏢', init: () => telaEmpresasInit() },
-    { id: 'financeiro', label: 'Financeiro', icone: '💰', init: () => telaFinanceiroInit() },
-    { id: 'saude', label: 'Saúde', icone: '⚡', init: () => telaSaudeInit() },
-    { id: 'suporte', label: 'Suporte', icone: '🎧', init: () => telaEmConstrucaoInit('Suporte', 'Existe feedback (nota + comentário) real no banco — usado hoje na ficha da empresa e no Cockpit (alerta de nota baixa) — mas ainda não existe um sistema de tickets com prioridade/SLA. Fica para a fase seguinte.') },
-    { id: 'parametros', label: 'Parâmetros', icone: '⚙️', init: () => telaParametrosMasterInit() }
+    { id: 'cockpit', label: 'Cockpit', icone: '📊', mobilePrimario: true, init: () => telaCockpitInit() },
+    { id: 'empresas', label: 'Empresas', icone: '🏢', mobilePrimario: true, init: () => telaEmpresasInit() },
+    { id: 'comercial', label: 'Comercial', icone: '🤝', mobilePrimario: true, init: () => telaComercialInit() },
+    { id: 'financeiro', label: 'Financeiro', icone: '💰', mobilePrimario: true, init: () => telaFinanceiroInit() },
+    { id: 'saude', label: 'Saúde', icone: '⚡', mobilePrimario: false, init: () => telaSaudeInit() },
+    { id: 'suporte', label: 'Suporte', icone: '🎧', mobilePrimario: false, init: () => telaEmConstrucaoInit('Suporte', 'Existe feedback (nota + comentário) real no banco — usado hoje na ficha da empresa e no Cockpit (alerta de nota baixa) — mas ainda não existe um sistema de tickets com prioridade/SLA. Fica para a fase seguinte.') },
+    { id: 'parametros', label: 'Configurações', icone: '⚙️', mobilePrimario: false, init: () => telaParametrosMasterInit() }
 ];
 
 let gestaoTelaAtual = null;
 
 function gestaoNavInit() {
-    const itens = GESTAO_TELAS.map(t => `
+    const itemHtml = t => `
         <button onclick="gestaoAbrirTela('${t.id}')" data-tela="${t.id}"
             class="gestao-nav-item">
             <span class="gestao-nav-icone">${t.icone}</span>
             <span class="gestao-nav-label">${t.label}</span>
         </button>
-    `).join('');
+    `;
 
-    document.getElementById('gestao-sidebar-nav').innerHTML = itens;
-    document.getElementById('gestao-mobile-nav').innerHTML = itens;
+    // Sidebar (desktop) mostra todos os itens — não tem o problema de
+    // espaço que o mobile tem, não precisa de "Mais".
+    document.getElementById('gestao-sidebar-nav').innerHTML = GESTAO_TELAS.map(itemHtml).join('');
+
+    // Bottom-nav (mobile) mostra só os 4 mobilePrimario + "Mais" (nunca
+    // mais que 5 itens, nunca rola na horizontal).
+    const primarios = GESTAO_TELAS.filter(t => t.mobilePrimario);
+    const secundarios = GESTAO_TELAS.filter(t => !t.mobilePrimario);
+    document.getElementById('gestao-mobile-nav').innerHTML =
+        primarios.map(itemHtml).join('') +
+        `<button onclick="gestaoAbrirMais()" id="gestao-nav-mais" class="gestao-nav-item">
+            <span class="gestao-nav-icone">•••</span>
+            <span class="gestao-nav-label">Mais</span>
+        </button>`;
+
+    // Bottom-sheet com os itens secundários (Saúde/Suporte/Configurações).
+    document.getElementById('gestao-mais-sheet-itens').innerHTML = secundarios.map(t => `
+        <button onclick="gestaoFecharMais();gestaoAbrirTela('${t.id}')" data-tela="${t.id}"
+            class="gestao-mais-item">
+            <span class="gestao-nav-icone">${t.icone}</span>
+            <span>${t.label}</span>
+        </button>
+    `).join('');
 
     gestaoAbrirTela('cockpit');
 }
 
+function gestaoAbrirMais() {
+    document.getElementById('gestao-mais-sheet').classList.remove('hidden');
+}
+
+function gestaoFecharMais() {
+    document.getElementById('gestao-mais-sheet').classList.add('hidden');
+}
+
 function gestaoAbrirTela(nome) {
     gestaoTelaAtual = nome;
-    document.querySelectorAll('.gestao-nav-item').forEach(b => {
+    document.querySelectorAll('.gestao-nav-item, .gestao-mais-item').forEach(b => {
         b.classList.toggle('ativo', b.dataset.tela === nome);
     });
+    // "Mais" fica destacado no bottom-nav se a tela ativa for uma das
+    // secundárias (Saúde/Suporte/Configurações), pra dar feedback de
+    // onde a pessoa está mesmo com o item real escondido na sheet.
+    const ehSecundaria = GESTAO_TELAS.find(t => t.id === nome && !t.mobilePrimario);
+    const btnMais = document.getElementById('gestao-nav-mais');
+    if (btnMais) btnMais.classList.toggle('ativo', !!ehSecundaria);
 
     const tela = GESTAO_TELAS.find(t => t.id === nome);
     if (!tela) return;
     document.getElementById('area-conteudo').innerHTML =
         `<p class="text-sm" style="color:var(--sage)">Carregando ${tela.label}...</p>`;
     gestaoFecharTodosInfos();
+    gestaoFecharMais();
     tela.init();
 }
 
