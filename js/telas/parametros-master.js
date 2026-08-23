@@ -71,35 +71,48 @@ const PM_TIPO_CLIENTE_SUGERIDOS = ['prospect', 'cliente_existente', 'todos'];
 // ----------------------------------------------------------------------------
 // Entrada da tela — router das 4 áreas
 // ----------------------------------------------------------------------------
-const PM_AREAS = [
-    { id: 'comercial', label: 'Comercial', init: () => parametrosComercialInit() },
-    { id: 'planos', label: 'Planos & Limites', init: () => parametrosPlanosInit() },
-    { id: 'catalogos', label: 'Catálogo & Acessos', init: () => pmRenderCatalogos() }
+// v0.9.0 — Configurações virou HUB de cards (não é mais barra de abas).
+// "Comercial" saiu daqui — voltou a ser tela de topo (js/telas/comercial.js).
+// Ordem dos cards e textos seguem o protótipo v0.9.0.
+const PM_HUB = [
+    { id: 'planos', icone: '🧩', titulo: 'Planos & Limites', desc: 'O que a empresa contrata: funcionalidades, limites e capacidade.', init: () => parametrosPlanosInit() },
+    { id: 'perfis', icone: '🛡️', titulo: 'Perfis & Acessos', desc: 'O que cada pessoa pode fazer dentro do que a empresa contratou.', init: () => parametrosPerfisInit() },
+    { id: 'catalogos', icone: '🧱', titulo: 'Catálogo Técnico', desc: 'Módulos, funcionalidades e categorias de limite.', init: () => pmRenderCatalogos() },
+    { id: 'comercial', icone: '📣', titulo: 'Oferta & campanhas', desc: 'Preço, trial, pagamentos, público e landing ficam em Comercial.', redirecionaPara: 'comercial' }
 ];
 
 async function telaParametrosMasterInit() {
     const area = document.getElementById('area-conteudo');
     area.innerHTML = `
-        <div class="flex gap-2 mb-5 border-b overflow-x-auto" style="border-color:var(--line)">
-            ${PM_AREAS.map(a => `<button onclick="pmAbrirArea('${a.id}')" id="pm-area-${a.id}" class="pm-subaba px-4 py-2.5 text-sm font-bold whitespace-nowrap">${a.label}</button>`).join('')}
+        <div class="mb-1">
+            <h1 class="text-lg font-extrabold" style="color:var(--ink)">Configurações</h1>
+            <p class="text-xs" style="color:var(--sage)">Baixa frequência de uso — entre pelo card do que você precisa, não por uma barra de 6 abas.</p>
         </div>
-        <div id="pm-conteudo-area"></div>
+        <div class="grid gap-3 md:grid-cols-2 mt-4">
+            ${PM_HUB.map(h => `
+                <button onclick="pmAbrirHub('${h.id}')" id="pm-hub-${h.id}"
+                    class="text-left p-4 rounded-2xl border-2 flex gap-3 items-start" style="border-color:var(--line);background:#fff">
+                    <span class="w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-none" style="background:var(--paper)">${h.icone}</span>
+                    <span>
+                        <span class="block text-sm font-extrabold" style="color:var(--ink)">${h.titulo}</span>
+                        <span class="block text-xs mt-0.5" style="color:var(--sage)">${h.desc}</span>
+                    </span>
+                </button>
+            `).join('')}
+        </div>
+        <div id="pm-conteudo-area" class="mt-5"></div>
     `;
-    const ok = await pmCarregarTudo();
-    if (ok) pmAbrirArea('comercial');
+    await pmCarregarTudo();
 }
 
-function pmAbrirArea(nome) {
-    document.querySelectorAll('.pm-subaba').forEach(b => {
-        b.style.color = 'var(--sage)';
-        b.style.borderBottom = 'none';
-    });
-    const ativa = document.getElementById('pm-area-' + nome);
-    ativa.style.color = 'var(--pine)';
-    ativa.style.borderBottom = '3px solid var(--brass)';
+function pmAbrirHub(id) {
+    const card = PM_HUB.find(h => h.id === id);
+    if (!card) return;
+    if (card.redirecionaPara) { gestaoAbrirTela(card.redirecionaPara); return; }
 
-    const area = PM_AREAS.find(a => a.id === nome);
-    if (area) area.init();
+    document.querySelectorAll('[id^="pm-hub-"]').forEach(b => b.style.borderColor = 'var(--line)');
+    document.getElementById('pm-hub-' + id).style.borderColor = 'var(--brass)';
+    card.init();
 }
 
 async function pmCarregarTudo() {
@@ -165,13 +178,16 @@ function pmErro(msg) {
 // Público de oferta: NOVO.
 // ============================================================================
 
+// v0.9.0: Catálogo Técnico encolheu — Pagamento mudou pra Comercial/Oferta
+// no Site, Público mudou pra Comercial/Campanhas, Perfis & Acessos virou
+// card próprio do hub de Configurações (não é mais sub-aba daqui). As
+// funções pmRenderPagamento()/pmRenderPublico() continuam existindo
+// (mais abaixo neste arquivo) — só não fazem mais parte desta navegação,
+// são chamadas diretamente por js/telas/comercial.js.
 const PM_CATALOGOS = [
     { id: 'modulos', label: 'Módulos', init: () => pmRenderModulos() },
     { id: 'funcionalidades', label: 'Funcionalidades', init: () => pmRenderFuncionalidades() },
-    { id: 'pagamento', label: 'Pagamento', init: () => pmRenderPagamento() },
-    { id: 'categorias', label: 'Categorias', init: () => pmRenderCategorias() },
-    { id: 'publico', label: 'Público de oferta', init: () => pmRenderPublico() },
-    { id: 'perfis', label: 'Perfis & Acessos', init: () => parametrosPerfisInit() }
+    { id: 'categorias', label: 'Categorias', init: () => pmRenderCategorias() }
 ];
 
 function pmRenderCatalogos() {
