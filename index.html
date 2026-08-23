@@ -5,6 +5,48 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
+   VERSÃO: v0.9.0
+   LINHAS: 530
+   DATA: 2026-08-20
+   TÍTULO: COMERCIAL COMO DOMÍNIO + CONFIGURAÇÕES ENXUTAS + OFERTA/LANDING CONSISTENTE
+   NOVIDADES (v0.9.0):
+     - CONFLITO RESOLVIDO: oferta-base (Essencial/Patrimônio/Plus, podem
+       ficar publicadas simultaneamente) separada de campanha promocional
+       (só 1 ativa por vez) via coluna comercial.plano_campanhas.
+       tipo_oferta — a regra antiga não foi apagada, só passou a valer
+       só pra promocional.
+     - Comercial voltou ao menu principal (não fica mais escondido atrás
+       de "Configurações") e ganhou 3ª aba: Oferta no Site — checklist
+       real por plano (ativo/publicado/trial/preço/limite), sem fingir
+       enforcement que não existe (limite de usuários continua marcado
+       como copy, não como técnico).
+     - Menu mobile: 4 destinos fixos (Cockpit/Empresas/Comercial/
+       Financeiro) + "Mais" (bottom-sheet com Saúde/Suporte/Configurações)
+       — nunca mais rolagem horizontal no menu principal.
+     - Configurações virou hub de 4 cards (Planos & Limites, Perfis &
+       Acessos, Catálogo Técnico, atalho pra Comercial) em vez de barra
+       de abas. Rótulo mudou de "Parâmetros" pra "Configurações" — id
+       técnico continua "parametros", nenhum link quebra.
+     - Perfis & Acessos voltou a ser card próprio (não é mais sub-aba de
+       Catálogo). Catálogo Técnico encolheu pra 3 itens (Módulos/
+       Funcionalidades/Categorias) — Pagamento mudou pra Comercial/Oferta
+       no Site, Público mudou pra Comercial/Campanhas.
+     - Planos & Limites e Perfis & Acessos ganharam visão mobile-first
+       (plano/perfil primeiro + lista vertical) — matriz larga só aparece
+       no desktop (≥768px).
+     - Campanhas: stepper horizontal saiu de vez no mobile — "Etapa X de
+       5 · Nome" em texto simples abaixo de 768px, indicador visual rico
+       só no desktop. Lista de campanhas filtra oferta-base fora (não
+       lista Essencial/Patrimônio/Plus como promoção comum).
+     - Segurança: public.fn_sou_master() ganhou search_path próprio
+       (public, pg_temp) — fix DEFINITIVO da causa raiz do bug de 19/08
+       (antes herdava search_path de quem chamava; agora não depende mais
+       de nenhuma função nova lembrar de incluir "public").
+     - Requer gestao_fase4_oferta_base_v1.sql rodada, além das fases
+       1/2/3/3b/3c anteriores.
+     - js/telas/parametros-comercial.js NÃO existe mais — virou
+       js/telas/comercial.js de novo (agora tela de topo).
+
    VERSÃO: v0.8.4
    LINHAS: 459
    DATA: 2026-08-19
@@ -219,7 +261,7 @@
 <script>
     // Fonte única da versão exibida na tela — mantida em sincronia com o
     // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
-    const APP_VERSAO = 'v0.8.4';
+    const APP_VERSAO = 'v0.9.0';
 </script>
 
 <!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->
@@ -329,7 +371,7 @@
     .gestao-sidebar { display: none; }
     .gestao-mobile-nav {
         position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
-        display: flex; overflow-x: auto; background: #fff;
+        display: flex; justify-content: space-around; background: #fff;
         border-top: 1px solid var(--line);
         padding-bottom: env(safe-area-inset-bottom, 0);
     }
@@ -354,11 +396,28 @@
     .gestao-sidebar .gestao-nav-item { color: rgba(255,255,255,.65); margin-bottom: 2px; }
     .gestao-sidebar .gestao-nav-item.ativo { background: var(--pine-light); color: #fff; }
     .gestao-mobile-nav .gestao-nav-item {
-        flex-direction: column; gap: 2px; padding: 8px 14px; width: auto;
+        flex-direction: column; gap: 2px; padding: 8px 10px; width: auto; flex: 1 1 0;
         font-size: 10px; text-align: center;
     }
     .gestao-mobile-nav .gestao-nav-item.ativo { color: var(--brass); }
     .gestao-nav-icone { font-size: 16px; line-height: 1; }
+
+    /* v0.9.0 — bottom-sheet "Mais" (Saúde/Suporte/Configurações no mobile) */
+    .gestao-mais-sheet {
+        position: fixed; inset: 0; z-index: 50; background: rgba(15,23,42,.48);
+        display: flex; align-items: flex-end;
+    }
+    .gestao-mais-painel {
+        width: 100%; background: #fff; border-radius: 20px 20px 0 0; padding: 18px;
+        padding-bottom: calc(18px + env(safe-area-inset-bottom, 0));
+    }
+    .gestao-mais-item {
+        display: flex; align-items: center; gap: 12px; width: 100%;
+        padding: 12px; border-radius: 12px; font-size: 14px; font-weight: 700;
+        color: var(--ink); text-align: left;
+    }
+    .gestao-mais-item.ativo { background: var(--paper); color: var(--pine); }
+    @media (min-width: 900px) { .gestao-mais-sheet { display: none !important; } }
 
     /* Ícone informativo (tooltip clicável) — Saúde/Financeiro/Comercial/Empresas */
     .gestao-info-icone {
@@ -424,16 +483,28 @@
         </div>
 
         <nav id="gestao-mobile-nav" class="gestao-mobile-nav"></nav>
+
+        <!-- v0.9.0 — bottom-sheet do "Mais" (Saúde/Suporte/Configurações no
+             mobile, pra bottom-nav nunca ter mais que 4+Mais itens). -->
+        <div id="gestao-mais-sheet" class="gestao-mais-sheet hidden" onclick="if(event.target===this) gestaoFecharMais()">
+            <div class="gestao-mais-painel">
+                <div class="flex items-center justify-between mb-3">
+                    <b class="text-sm" style="color:var(--ink)">Mais</b>
+                    <button onclick="gestaoFecharMais()" class="text-xs font-bold px-3 py-1.5 rounded-lg border-2" style="border-color:var(--line)">Fechar</button>
+                </div>
+                <div id="gestao-mais-sheet-itens" class="space-y-1"></div>
+            </div>
+        </div>
     </div>
 
     <script src="js/supabase-client.js"></script>
     <script src="js/nav.js"></script>
     <script src="js/telas/cockpit.js"></script>
     <script src="js/telas/empresas.js"></script>
+    <script src="js/telas/comercial.js"></script>
     <script src="js/telas/financeiro.js"></script>
     <script src="js/telas/saude.js"></script>
     <script src="js/telas/parametros-master.js"></script>
-    <script src="js/telas/parametros-comercial.js"></script>
     <script src="js/telas/parametros-campanhas.js"></script>
     <script src="js/telas/parametros-planos.js"></script>
     <script src="js/telas/parametros-perfis.js"></script>
