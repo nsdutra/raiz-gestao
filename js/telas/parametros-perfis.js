@@ -23,7 +23,7 @@
 // ============================================================================
 
 async function parametrosPerfisInit() {
-    const c = document.getElementById('pm-conteudo-subaba');
+    const c = document.getElementById('pm-conteudo-area');
 
     c.innerHTML = `
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
@@ -33,7 +33,17 @@ async function parametrosPerfisInit() {
             </div>
         </div>
 
-        <div class="rounded-2xl border-2 overflow-hidden mb-4" style="border-color:var(--line);background:#fff">
+        <!-- Mobile (<768px): perfil primeiro, lista vertical (seção 6.2 do prompt v0.9.0) -->
+        <div class="md:hidden rounded-2xl border-2 overflow-hidden mb-4" style="border-color:var(--line);background:#fff">
+            <div class="p-4 border-b" style="border-color:var(--line)">
+                <b class="text-sm" style="color:var(--ink)">Funcionalidades por perfil</b>
+                <div class="flex gap-2 overflow-x-auto mt-2 pb-1" id="pf-mobile-tabs"></div>
+            </div>
+            <div id="pf-mobile-lista" class="p-3 space-y-2"></div>
+        </div>
+
+        <!-- Desktop (≥768px): matriz comparativa -->
+        <div class="hidden md:block rounded-2xl border-2 overflow-hidden mb-4" style="border-color:var(--line);background:#fff">
             <div class="p-4 border-b" style="border-color:var(--line)">
                 <b class="text-sm" style="color:var(--ink)">Matriz perfil × funcionalidade</b>
                 <p class="text-[11px] mt-0.5" style="color:var(--sage)">Não é licença: é autorização do usuário dentro do que a empresa já possui.</p>
@@ -47,13 +57,59 @@ async function parametrosPerfisInit() {
                 <div>
                     <b class="text-sm" style="color:var(--ink)">Regra de autorização proposta</b>
                     <p class="text-xs mt-1" style="color:var(--sage)">A UI deve liberar a ação somente se <b>plano contém a funcionalidade</b> E <b>perfil contém a funcionalidade</b>. Segurança real continua no banco/RPC/RLS; esconder botão não é controle de segurança.</p>
-                    <p class="text-xs mt-2" style="color:var(--warning)"><b>Observação encontrada nesta rodada:</b> a função pública tem_acesso() hoje confere só o lado do perfil (perfil_funcionalidade) — não confere se o plano da empresa também tem a funcionalidade. Não alteramos essa função (é usada pelo app de Imóveis, fora do escopo do Gestão); fica registrado aqui pra decisão futura.</p>
+                    <p class="text-xs mt-2" style="color:var(--warning)"><b>Observação (mantida desde a rodada anterior):</b> a função pública tem_acesso() hoje confere só o lado do perfil (perfil_funcionalidade) — não confere se o plano da empresa também tem a funcionalidade. Não alteramos essa função (é usada pelo app de Imóveis, fora do escopo do Gestão); fica registrado aqui pra decisão futura.</p>
                 </div>
             </div>
         </div>
     `;
 
     pfRenderizar();
+    pfRenderMobile();
+}
+
+let pfPerfilMobileAtivo = null;
+
+function pfRenderMobile() {
+    const perfis = pmPerfis;
+    if (!pfPerfilMobileAtivo || !perfis.some(p => p.codigo === pfPerfilMobileAtivo)) {
+        pfPerfilMobileAtivo = perfis[0]?.codigo || null;
+    }
+
+    const tabs = document.getElementById('pf-mobile-tabs');
+    if (tabs) {
+        tabs.innerHTML = perfis.map(p => `
+            <button onclick="pfMudarPerfilMobile('${p.codigo}')" class="px-3 py-1.5 rounded-full text-xs font-bold flex-none"
+                style="background:${p.codigo === pfPerfilMobileAtivo ? 'var(--pine)' : 'var(--paper)'};color:${p.codigo === pfPerfilMobileAtivo ? '#fff' : 'var(--ink)'}">${p.descricao}${p.codigo === 'master' ? ' 🔒' : ''}</button>
+        `).join('');
+    }
+
+    const lista = document.getElementById('pf-mobile-lista');
+    if (!lista) return;
+    if (!pfPerfilMobileAtivo) { lista.innerHTML = `<p class="text-xs text-center py-4" style="color:var(--sage)">Nenhum perfil cadastrado ainda.</p>`; return; }
+
+    const protegido = pfPerfilMobileAtivo === 'master';
+    lista.innerHTML = pmFuncionalidades.map(f => {
+        const v = !!pfVinculo(pfPerfilMobileAtivo, f.codigo);
+        return `
+        <div class="p-3 rounded-xl border flex items-center justify-between gap-2" style="border-color:var(--line)">
+            <div class="min-w-0">
+                <b class="text-xs" style="color:var(--ink)">${f.codigo}</b>
+                <div class="text-[10px] truncate" style="color:var(--sage)">${f.nome_comercial || f.descricao}</div>
+            </div>
+            <input type="checkbox" ${v ? 'checked' : ''} class="flex-none" ${protegido ? 'disabled title="Perfil master é protegido"' : ''}
+                onchange="pfToggleMobile('${pfPerfilMobileAtivo}','${f.codigo}', this.checked)">
+        </div>`;
+    }).join('');
+}
+
+async function pfToggleMobile(perfilCodigo, funcCodigo, marcado) {
+    await pfToggle(perfilCodigo, funcCodigo, marcado);
+    pfRenderMobile();
+}
+
+function pfMudarPerfilMobile(codigo) {
+    pfPerfilMobileAtivo = codigo;
+    pfRenderMobile();
 }
 
 function pfVinculo(perfilCodigo, funcCodigo) {
