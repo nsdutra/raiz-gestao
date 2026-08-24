@@ -5,6 +5,41 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
+   VERSÃO: v0.10.0
+   LINHAS: 566
+   DATA: 2026-08-23
+   TÍTULO: CORREÇÕES (DESEMPENHO DE OFERTA, PERFIL×FUNCIONALIDADE) + NOVO PERFIL + BOT · USO
+   NOVIDADES (v0.10.0):
+     - BUG CORRIGIDO: "column pcip.valor does not exist" ao abrir desempenho
+       de uma oferta — comercial.plano_contratado_item_pagamentos nunca
+       teve a coluna "valor" que gestao.fn_comercial_campanha_trials e
+       gestao.fn_comercial_campanhas_resumo já esperavam. Corrigido no
+       banco (gestao_fase5_correcoes_bot_uso_v1.sql), sem mudança de
+       front-end — as duas RPCs já eram chamadas certas por
+       parametros-campanhas.js.
+     - BUG CORRIGIDO: "permission denied for table perfil_funcionalidade"
+       ao vincular funcionalidade a um perfil — a tabela nunca teve GRANT
+       de INSERT/DELETE (só SELECT, desde sempre). parametros-perfis.js
+       (pfToggle) trocou escrita direta por
+       gestao.fn_definir_perfil_funcionalidade() (RPC master-only, novo).
+     - NOVO: cadastro de perfil (não existia UI nenhuma, só SQL manual).
+       Botão "+" em Perfis & Acessos chama gestao.fn_criar_perfil() (novo).
+     - NOVO DOMÍNIO: Bot · Uso (js/telas/bot-uso.js) — usuários por
+       empresa, funcionalidades mais usadas, série temporal (dia/semana/
+       mês), filtro por tipo de interação (menu/voz/texto livre/
+       pró-ativo) e drill-down por empresa (quem, quando, o quê). Usa
+       public.ia_eventos_log (já existia) + coluna nova
+       ia_eventos_log.tipo_interacao + 4 RPCs novas em gestao. PENDÊNCIA
+       registrada na própria tela: tipo_interacao só passa a ter dado
+       depois que o código do bot (_shared.ts/bot_ia.ts/bot_legado.ts,
+       fora do escopo desta rodada) for atualizado pra gravá-la — até lá
+       o painel funciona mas o filtro por tipo vem vazio.
+     - Menu: "Bot · Uso" entrou como item secundário (dentro de "Mais" no
+       mobile, junto de Saúde/Suporte/Configurações — mobilePrimario:
+       false, não mexe nos 4 fixos da v0.9.0).
+     - Requer gestao_fase5_correcoes_bot_uso_v1.sql rodada, além das
+       fases 1 a 4 anteriores.
+
    VERSÃO: v0.9.0
    LINHAS: 530
    DATA: 2026-08-20
@@ -261,7 +296,7 @@
 <script>
     // Fonte única da versão exibida na tela — mantida em sincronia com o
     // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
-    const APP_VERSAO = 'v0.9.0';
+    const APP_VERSAO = 'v0.10.0';
 </script>
 
 <!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->
@@ -508,6 +543,7 @@
     <script src="js/telas/parametros-campanhas.js"></script>
     <script src="js/telas/parametros-planos.js"></script>
     <script src="js/telas/parametros-perfis.js"></script>
+    <script src="js/telas/bot-uso.js"></script>
     <script>
         window.addEventListener('load', function () {
             if (window.lucide) lucide.createIcons();
