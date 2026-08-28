@@ -166,7 +166,7 @@ async function pcoAtualizarLanding() {
     wrapPaginas.innerHTML = `<p class="text-sm" style="color:var(--sage)">Carregando...</p>`;
     wrapOrigens.innerHTML = `<p class="text-sm" style="color:var(--sage)">Carregando...</p>`;
 
-    const { inicio, fim } = gestaoLerFiltroPeriodo('pco', 7);
+    const { inicio, fim } = gestaoLerFiltroPeriodo('pco');
     const [{ data: paginas, error: e1 }, { data: origens, error: e2 }] = await Promise.all([
         dbAuth.schema('gestao').rpc('fn_comercial_landing_paginas', { p_data_inicio: inicio, p_data_fim: fim }),
         dbAuth.schema('gestao').rpc('fn_comercial_landing_origem', { p_data_inicio: inicio, p_data_fim: fim })

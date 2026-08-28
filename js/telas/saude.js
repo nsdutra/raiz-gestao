@@ -99,7 +99,7 @@ async function sdCarregar() {
     const el = document.getElementById('sd-conteudo');
     el.innerHTML = `<p class="text-sm" style="color:var(--sage)">Carregando...</p>`;
 
-    const { inicio, fim } = gestaoLerFiltroPeriodo('sd', 7);
+    const { inicio, fim } = gestaoLerFiltroPeriodo('sd');
     const clienteId = document.getElementById('sd-filtro-empresa').value || null;
     const pessoaId = document.getElementById('sd-filtro-pessoa').value || null;
 

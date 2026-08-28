@@ -159,7 +159,7 @@ async function edCarregarAdocao() {
     if (!el) return;
     el.innerHTML = `<p class="text-sm" style="color:var(--sage)">Carregando...</p>`;
 
-    const { inicio, fim } = gestaoLerFiltroPeriodo('ed-ad', 30);
+    const { inicio, fim } = gestaoLerFiltroPeriodo('ed-ad');
     const clienteId = document.getElementById('ed-ad-filtro-empresa').value || null;
     const pessoaId = document.getElementById('ed-ad-filtro-pessoa').value || null;
 
@@ -170,10 +170,15 @@ async function edCarregarAdocao() {
 
     const linhas = data || [];
     el.innerHTML = linhas.map(p => {
-        const dias = p.dias_periodo || 1;
+        // dias_periodo vem NULL quando um dos lados do período está em
+        // aberto (campo em branco) — não dá pra calcular a fração real
+        // nesse caso, então a barra usa o próprio dias_ativos como teto
+        // (mostra a barra cheia) em vez de inventar um denominador.
+        const dias = p.dias_periodo;
+        const maximo = dias || Math.max(1, p.dias_ativos);
         const ultimo = p.ultimo_login ? new Date(p.ultimo_login).toLocaleDateString('pt-BR') : 'nunca';
-        return gestaoBarra(`${p.pessoa_nome} · ${p.nome_empresa}`, p.dias_ativos, dias,
-            (v) => `${v}/${dias} dia(s) · último: ${ultimo}`);
+        return gestaoBarra(`${p.pessoa_nome} · ${p.nome_empresa}`, p.dias_ativos, maximo,
+            (v) => dias ? `${v}/${dias} dia(s) · último: ${ultimo}` : `${v} dia(s) ativo(s) · último: ${ultimo}`);
     }).join('') || `<p class="text-sm text-center py-8" style="color:var(--sage)">Nenhuma pessoa encontrada pro filtro selecionado.</p>`;
 }
 

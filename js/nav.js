@@ -1,6 +1,16 @@
 // ============================================================================
 // js/nav.js — Raiz Gestão
 //
+// v0.11.3 — gestaoLerFiltroPeriodo() não cai mais no padrão de N dias
+// quando um campo de data fica em branco: cada lado (início/fim) agora é
+// lido independente — em branco vira null (sem limite naquele lado), não
+// os dois campos padrão de novo. O valor padrão (N dias) só é usado UMA
+// vez, pra pré-preencher o <input> quando a tela abre
+// (gestaoFiltroPeriodoHtml) — depois disso, quem manda é o que está
+// digitado. RPCs do lado do banco (Comercial/Saúde/Empresas·Adoção) já
+// tratam p_data_inicio/p_data_fim NULL como "sem limite" — ver
+// gestao_fase6_periodo_aberto_v1.sql.
+//
 // v0.9.0 — Comercial volta ao menu principal (era item de uso diário,
 // não deveria estar escondido atrás de "Configurações" — reverte a
 // decisão de UX da v0.8.4). "Parâmetros" muda de RÓTULO pra
@@ -217,18 +227,15 @@ function gestaoFiltroPeriodoHtml(prefixo, diasPadrao) {
     `;
 }
 
-// Lê o par de datas desenhado por gestaoFiltroPeriodoHtml(), com fallback
-// pro padrão de N dias caso os campos ainda não existam no DOM (proteção
-// defensiva, não deveria acontecer no fluxo normal).
-function gestaoLerFiltroPeriodo(prefixo, diasPadrao) {
+// Lê o par de datas desenhado por gestaoFiltroPeriodoHtml(). Campo em
+// branco = SEM LIMITE naquele lado (não cai mais no padrão de N dias —
+// isso só vale pro valor inicial do input, não pra leitura). O RPC do
+// lado do banco trata null como "sem limite" nesse lado.
+function gestaoLerFiltroPeriodo(prefixo) {
     const elIni = document.getElementById(`${prefixo}-data-inicio`);
     const elFim = document.getElementById(`${prefixo}-data-fim`);
-    if (elIni && elFim && elIni.value && elFim.value) {
-        return { inicio: elIni.value, fim: elFim.value };
-    }
-    const hoje = new Date();
-    const inicio = new Date(hoje);
-    inicio.setDate(inicio.getDate() - (diasPadrao - 1));
-    const fmt = (d) => d.toISOString().slice(0, 10);
-    return { inicio: fmt(inicio), fim: fmt(hoje) };
+    return {
+        inicio: (elIni && elIni.value) ? elIni.value : null,
+        fim: (elFim && elFim.value) ? elFim.value : null
+    };
 }
