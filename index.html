@@ -5,6 +5,79 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
+   VERSÃO: v0.11.1
+   LINHAS: 639
+   DATA: 2026-08-27
+   TÍTULO: SAÚDE — CUSTO ESTIMADO DE IA (EM VEZ DE BYTES)
+   NOVIDADES (v0.11.1):
+     - SAÚDE: "Bytes processados por IA" (v0.11.0) trocado por uma
+       aproximação de CUSTO em USD — tokens de entrada/saída
+       (ia_eventos_log) × preço por modelo, lido de uma tabela nova
+       (gestao.ia_precos_modelo) em vez de hardcoded no código, porque
+       preço de IA muda com frequência (ex.: Claude Sonnet 5 é $2/$10 por
+       milhão de tokens até 31/08/2026, sobe pra $3/$15 em 01/09/2026 —
+       poucos dias depois desta entrega). Mostra tokens de entrada/saída +
+       custo estimado (USD), com aviso quando há eventos de IA no período
+       sem tokens ou preço mapeado (hoje: voz via Gemini não grava tokens
+       ainda, então o custo real fica um pouco acima do mostrado quando há
+       uso de voz — a tela avisa isso em vez de fingir que o número está
+       completo).
+     - Requer gestao_fase6_custo_ia_v1.sql rodada (já aplicada neste banco
+       via MCP do Supabase — não precisa rodar de novo manualmente).
+
+   VERSÃO: v0.11.0
+   LINHAS: 619
+   DATA: 2026-08-27
+   TÍTULO: FILTROS (COMERCIAL/SAÚDE/EMPRESAS) + ADOÇÃO + STORAGE/IA/WHATSAPP EM SAÚDE + CORREÇÃO BOT·USO + EDITAR/EXCLUIR PLANO E PERFIL
+   NOVIDADES (v0.11.0):
+     - COMERCIAL: "Páginas mais navegadas" e "Origem do tráfego" ganharam
+       filtro de período (data início/fim, padrão últimos 7 dias) — um
+       único filtro pras duas listas juntas. Layout deixou de ser 2 colunas
+       lado a lado e virou empilhado em largura cheia, pra nome de
+       página/origem longo não empurrar mais o número pra fora (ver também
+       gestaoBarra() em nav.js, que ganhou truncamento defensivo com "...").
+     - SAÚDE: filtro de empresa/pessoa/período (padrão últimos 7 dias)
+       agora afeta TODA a tela (antes eram janelas fixas de 24h/7d sem
+       filtro nenhum). NOVO: Storage (bytes + arquivos do Cofre de
+       Documentos), bytes processados por IA (arquivos do Cofre que
+       passaram por extração) e mensagens de WhatsApp no período — o aviso
+       antigo de "não disponível" tinha ficado desatualizado desde que o
+       Cofre entrou em produção; só Edge Functions/uptime continuam sem
+       fonte de dado real, aviso mantido só pra esses.
+     - EMPRESAS: lista passou a mostrar quantidade de pessoas cadastradas
+       por empresa. NOVA sub-aba "Adoção": em quantos dias (dentro do
+       período, padrão últimos 30 dias) cada pessoa entrou pelo menos 1
+       vez — filtra por período/empresa/pessoa.
+     - BOT · USO: BUG CORRIGIDO — selecionar "Por semana"/"Por mês" com o
+       período ainda em "Últimos 7 dias" mostrava só 1-2 barras (parecia
+       travado "na semana em andamento"). A função no banco já agrupava
+       certo; o problema era o período curto não caber várias semanas/
+       meses pra agrupar. Selecionar essas granularidades agora sobe
+       automaticamente o período pro mínimo que garante várias barras (90
+       dias pra semana, 365 pra mês), sem nunca diminuir um período maior
+       que a pessoa já tenha escolhido.
+     - PLANOS & LIMITES: matriz ganhou ícone de editar/excluir por plano
+       (editar já existia como função — pmAbrirEdicaoPlano/pmExcluirPlano
+       — só não tinha botão nenhum nesta tela que os chamasse; essa é a
+       causa real de "não sei onde renomear/excluir plano"). Os 3 nomes
+       mencionados ("Licença Master do Módulo de Gestão", "Plano padrão —
+       todas as funcionalidades liberadas...", "Trial — acesso completo
+       por tempo limitado") são public.planos.descricao dos planos
+       gestao_master/standard/trial — editáveis direto por aqui agora.
+     - PERFIS & ACESSOS: editar/excluir perfil (só existia criar, desde
+       v0.10.0) — gestao.fn_editar_perfil()/fn_excluir_perfil() (novas,
+       SECURITY DEFINER, guarda master). Perfis 'master' e
+       'master_plataforma' são protegidos (não aparece ícone de
+       editar/excluir pra eles, e a RPC recusa mesmo que alguém chame
+       direto). Excluir um perfil ainda em uso por alguma pessoa é
+       bloqueado com mensagem nomeando quantas pessoas usam.
+     - Requer gestao_fase6_filtro_periodo_comercial_v1.sql,
+       gestao_fase6_filtro_periodo_saude_v1.sql,
+       gestao_fase6_empresas_pessoas_adocao_v1.sql e
+       gestao_fase6_editar_excluir_perfil_v1.sql rodadas (já aplicadas
+       neste banco via MCP do Supabase nesta entrega — não precisa rodar
+       de novo manualmente).
+
    VERSÃO: v0.10.0
    LINHAS: 566
    DATA: 2026-08-23
@@ -296,7 +369,7 @@
 <script>
     // Fonte única da versão exibida na tela — mantida em sincronia com o
     // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
-    const APP_VERSAO = 'v0.10.0';
+    const APP_VERSAO = 'v0.11.1';
 </script>
 
 <!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->
