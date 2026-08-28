@@ -1,6 +1,18 @@
 // ============================================================================
 // js/telas/bot-uso.js — Raiz Gestão
 //
+// v0.11.0 — BUG CORRIGIDO: selecionar "Por semana" (ou "Por mês") com o
+// filtro de período ainda em "Últimos 7 dias" (o mais curto do <select>)
+// dava só 1-2 semanas no gráfico — parecia travado "na semana em
+// andamento", mesmo a RPC (fn_bot_uso_serie) agrupando certo por
+// date_trunc('week', ...). Causa: os dois filtros (dias × granularidade)
+// são independentes; um período de 7 dias simplesmente não CABE mais de
+// ~1-2 semanas pra agrupar, não importa o que a função devolve. Corrigido
+// em buMudarFiltro(): trocar a granularidade pra "semana" ou "mês" agora
+// auto-ajusta o período pra um mínimo que garanta várias barras (90 dias
+// pra semana, 365 pra mês) SE o período atual for menor que isso — nunca
+// diminui um período maior que a pessoa já tenha escolhido.
+//
 // v0.10.0 (NOVO) — painel de uso do bot do WhatsApp, pedido em 23/08/2026:
 // usuários por empresa, funções mais usadas, uso por dia/semana/mês/geral,
 // filtro por menu/voz/pró-ativo, e detalhe (quem recebeu, quando, qual
@@ -102,11 +114,30 @@ async function telaBotUsoInit() {
     buCarregar();
 }
 
+// Período mínimo (em dias) pra cada granularidade mostrar várias barras de
+// verdade — abaixo disso, "por semana"/"por mês" vira essencialmente 1
+// barra, o que parece bug mesmo sem ser (ver changelog v0.11.0 no topo).
+const BU_DIAS_MINIMO_POR_GRANULARIDADE = { semana: 90, mes: 365 };
+
 function buMudarFiltro() {
-    buDias = Number(document.getElementById('bu-filtro-dias').value);
     buTipoInteracao = document.getElementById('bu-filtro-tipo').value;
     buClienteId = document.getElementById('bu-filtro-empresa').value;
     buGranularidade = document.getElementById('bu-filtro-granularidade').value;
+
+    const selDias = document.getElementById('bu-filtro-dias');
+    buDias = Number(selDias.value);
+
+    const minimo = BU_DIAS_MINIMO_POR_GRANULARIDADE[buGranularidade];
+    if (minimo && buDias < minimo) {
+        buDias = minimo;
+        // Sobe o <select> também pro valor que passou a valer de verdade —
+        // sem isso a pessoa veria "Últimos 7 dias" escrito enquanto a busca
+        // já roda com 90/365, o que confundiria mais do que ajudaria.
+        if ([...selDias.options].some(o => Number(o.value) === minimo)) {
+            selDias.value = String(minimo);
+        }
+    }
+
     buCarregar();
 }
 

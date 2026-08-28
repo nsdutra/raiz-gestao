@@ -20,7 +20,6 @@ const GESTAO_TELAS = [
     { id: 'comercial', label: 'Comercial', icone: '🤝', mobilePrimario: true, init: () => telaComercialInit() },
     { id: 'financeiro', label: 'Financeiro', icone: '💰', mobilePrimario: true, init: () => telaFinanceiroInit() },
     { id: 'saude', label: 'Saúde', icone: '⚡', mobilePrimario: false, init: () => telaSaudeInit() },
-    { id: 'bot-uso', label: 'Bot · Uso', icone: '🤖', mobilePrimario: false, init: () => telaBotUsoInit() },
     { id: 'suporte', label: 'Suporte', icone: '🎧', mobilePrimario: false, init: () => telaEmConstrucaoInit('Suporte', 'Existe feedback (nota + comentário) real no banco — usado hoje na ficha da empresa e no Cockpit (alerta de nota baixa) — mas ainda não existe um sistema de tickets com prioridade/SLA. Fica para a fase seguinte.') },
     { id: 'parametros', label: 'Configurações', icone: '⚙️', mobilePrimario: false, init: () => telaParametrosMasterInit() }
 ];
