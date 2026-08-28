@@ -1,6 +1,16 @@
 // ============================================================================
 // js/telas/parametros-planos.js — Raiz Gestão
 //
+// v0.11.0 — matriz ganhou ícone de editar/excluir por plano (desktop: no
+// cabeçalho da coluna; mobile: linha abaixo das abas, pro plano ativo).
+// pmAbrirEdicaoPlano()/pmExcluirPlano() (parametros-master.js) JÁ EXISTIAM
+// desde antes — só nunca tinham um botão nesta tela que os chamasse. É a
+// causa real de "não sei onde renomear/excluir plano": o formulário de
+// edição sempre funcionou, só faltava o gatilho aqui. O nome comercial
+// ("Licença Master do Módulo de Gestão", "Plano padrão...", "Trial...")
+// mostrado nesta matriz vem de public.planos.descricao — editável a partir
+// de agora direto por aqui.
+//
 // v0.8.1 (novo arquivo) — "Planos & Limites": matriz plano × funcionalidade,
 // substituindo a lista com "abrir detalhe" da v0.7.0. Cada célula é um
 // toggle (vínculo em plano_funcionalidade); quando ligado, expande campos
@@ -48,6 +58,7 @@ async function parametrosPlanosInit() {
             <div class="p-4 border-b" style="border-color:var(--line)">
                 <b class="text-sm" style="color:var(--ink)">Funcionalidades por plano</b>
                 <div class="flex gap-2 overflow-x-auto mt-2 pb-1" id="pp-mobile-tabs"></div>
+                <div class="flex gap-4 mt-1" id="pp-mobile-acoes"></div>
             </div>
             <div id="pp-mobile-lista" class="p-3 space-y-2"></div>
         </div>
@@ -106,6 +117,15 @@ function ppRenderMobile() {
             <button onclick="ppMudarPlanoMobile('${p.codigo}')" class="px-3 py-1.5 rounded-full text-xs font-bold flex-none"
                 style="background:${p.codigo === ppPlanoMobileAtivo ? 'var(--pine)' : 'var(--paper)'};color:${p.codigo === ppPlanoMobileAtivo ? '#fff' : 'var(--ink)'}">${p.descricao}${p.ativo ? '' : ' (inativo)'}</button>
         `).join('');
+    }
+
+    const acoes = document.getElementById('pp-mobile-acoes');
+    if (acoes) {
+        const ativo = pmPlanos.find(p => p.codigo === ppPlanoMobileAtivo);
+        acoes.innerHTML = ativo ? `
+            <button onclick="pmAbrirEdicaoPlano('${ativo.codigo}')" class="text-[11px] font-bold flex items-center gap-1" style="color:var(--pine)">${pmIconeEditar()} Editar nome/status</button>
+            <button onclick="pmExcluirPlano('${ativo.codigo}','${pmEsc(ativo.descricao)}')" class="text-[11px] font-bold flex items-center gap-1" style="color:var(--danger)">${pmIconeExcluir()} Excluir</button>
+        ` : '';
     }
 
     const lista = document.getElementById('pp-mobile-lista');
@@ -174,7 +194,17 @@ function ppRenderizar() {
             <thead>
                 <tr>
                     <th class="sticky left-0 bg-white text-left p-2 border-b" style="border-color:var(--line);min-width:200px">Funcionalidade</th>
-                    ${planosOrdenados.map(p => `<th class="p-2 border-b text-left" style="border-color:var(--line);min-width:170px;${p.ativo ? '' : 'opacity:.5'}">${p.descricao}${p.ativo ? '' : ' <span class="text-[9px]">(inativo)</span>'}</th>`).join('')}
+                    ${planosOrdenados.map(p => `
+                        <th class="p-2 border-b text-left align-top" style="border-color:var(--line);min-width:170px;${p.ativo ? '' : 'opacity:.5'}">
+                            <div class="flex items-start justify-between gap-1">
+                                <span>${p.descricao}${p.ativo ? '' : ' <span class="text-[9px]">(inativo)</span>'}</span>
+                                <span class="flex gap-1 flex-none">
+                                    <button type="button" onclick="pmAbrirEdicaoPlano('${p.codigo}')" title="Editar nome/status de ${pmEsc(p.descricao)}">${pmIconeEditar()}</button>
+                                    <button type="button" onclick="pmExcluirPlano('${p.codigo}','${pmEsc(p.descricao)}')" title="Excluir ${pmEsc(p.descricao)}">${pmIconeExcluir()}</button>
+                                </span>
+                            </div>
+                            <span class="text-[9px] font-normal" style="color:var(--sage)">código: ${p.codigo}</span>
+                        </th>`).join('')}
                 </tr>
             </thead>
             <tbody>

@@ -1,6 +1,15 @@
 // ============================================================================
 // js/telas/comercial.js — Raiz Gestão
 //
+// v0.11.0 — "Páginas mais navegadas" e "Origem do tráfego" (dentro de Visão
+// Geral) ganharam filtro de período (data início/fim, padrão últimos 7
+// dias) — um único filtro pras duas listas juntas. Requer
+// gestao_fase6_filtro_periodo_comercial_v1.sql (fn_comercial_landing_paginas/
+// _origem passaram a receber p_data_inicio/p_data_fim). Layout das duas
+// listas deixou de ser 2 colunas lado a lado e virou empilhado em largura
+// cheia — nome de página/origem longo não empurra mais o número pra fora
+// (ver também gestaoBarra() em nav.js, que ganhou truncamento defensivo).
+//
 // v0.9.0 — volta a ser tela de topo (era js/telas/parametros-comercial.js,
 // vivia dentro de Configurações — reverte a decisão da v0.8.4: Comercial
 // é operação de uso diário, não deveria estar escondido atrás de
@@ -60,31 +69,37 @@ function pcoMudarAba(nome) {
 }
 
 // ----------------------------------------------------------------------------
-// Visão Geral — funil, trials, landing (sem mudança de lógica desde v0.8.4).
+// Visão Geral — funil, trials, landing.
+//
+// v0.11.0 — "Páginas mais navegadas" e "Origem do tráfego" ganharam filtro
+// de período (data início/fim, padrão últimos 7 dias — pmco-* usa o par de
+// inputs de gestaoFiltroPeriodoHtml()/gestaoLerFiltroPeriodo() de nav.js).
+// O MESMO período filtra as duas listas juntas (é um único filtro, não um
+// por lista). Funil e Trials continuam nos 30 dias fixos de antes — não
+// foram pedidos nesta rodada, ver gestao.fn_comercial_funil()/_trials().
+//
+// Layout: as duas listas deixaram de ficar lado a lado (md:grid-cols-2) e
+// passaram a empilhar em largura cheia — nome de página/origem longo (URL,
+// domínio) precisa de espaço pra não empurrar o número pra fora. gestaoBarra()
+// também ganhou truncamento defensivo (nav.js v0.11.0), mas a largura cheia
+// é o que resolve de verdade aqui.
 // ----------------------------------------------------------------------------
 async function pcoVisaoGeralInit() {
     const el = document.getElementById('pco-conteudo');
     el.innerHTML = `<p class="text-sm" style="color:var(--sage)">Carregando...</p>`;
 
-    const [
-        { data: funil, error: e1 }, { data: trials, error: e2 },
-        { data: paginas, error: e3 }, { data: origens, error: e4 }
-    ] = await Promise.all([
+    const [{ data: funil, error: e1 }, { data: trials, error: e2 }] = await Promise.all([
         dbAuth.schema('gestao').rpc('fn_comercial_funil'),
-        dbAuth.schema('gestao').rpc('fn_comercial_trials'),
-        dbAuth.schema('gestao').rpc('fn_comercial_landing_paginas'),
-        dbAuth.schema('gestao').rpc('fn_comercial_landing_origem')
+        dbAuth.schema('gestao').rpc('fn_comercial_trials')
     ]);
-    if (e1 || e2 || e3 || e4) {
+    if (e1 || e2) {
         el.innerHTML = `<div class="p-4 rounded-xl border-2" style="background:var(--danger-bg);border-color:var(--danger);color:var(--danger)">
-            <strong>Não foi possível carregar:</strong> ${[e1, e2, e3, e4].filter(Boolean).map(e => e.message).join(' | ')}
+            <strong>Não foi possível carregar:</strong> ${[e1, e2].filter(Boolean).map(e => e.message).join(' | ')}
         </div>`;
         return;
     }
 
     const f = (funil && funil[0]) || {};
-    const maiorPagina = Math.max(1, ...(paginas || []).map(p => Number(p.qtd)));
-    const maiorOrigem = Math.max(1, ...(origens || []).map(o => Number(o.qtd)));
 
     el.innerHTML = `
         <h2 class="text-sm font-extrabold mb-3 flex items-center" style="color:var(--ink)">
@@ -102,18 +117,25 @@ async function pcoVisaoGeralInit() {
         <h2 class="text-sm font-extrabold mb-3" style="color:var(--ink)">Trials em andamento</h2>
         <div id="pco-trials" class="space-y-2 mb-6"></div>
 
-        <div class="grid md:grid-cols-2 gap-6">
+        <div class="flex items-center justify-between gap-2 flex-wrap mb-3">
+            <h2 class="text-sm font-extrabold flex items-center" style="color:var(--ink)">
+                Landing — páginas e origem do tráfego
+                ${gestaoInfoIcone('Mesmo filtro de período aplicado às duas listas juntas: Páginas mais navegadas e Origem do tráfego. Fonte: comercial.eventos_landing.')}
+            </h2>
+            <div class="flex items-center gap-2 flex-wrap">
+                ${gestaoFiltroPeriodoHtml('pco', 7)}
+                <button onclick="pcoAtualizarLanding()" class="text-xs font-bold px-3 py-2 rounded-lg text-white" style="background:var(--pine)">Aplicar</button>
+            </div>
+        </div>
+
+        <div class="space-y-6">
             <div>
-                <h2 class="text-sm font-extrabold mb-3" style="color:var(--ink)">Páginas mais navegadas (30d)</h2>
-                <div class="space-y-2">
-                    ${(paginas || []).map(p => gestaoBarra(p.pagina, p.qtd, maiorPagina)).join('') || `<p class="text-sm" style="color:var(--sage)">Sem eventos de landing nos últimos 30 dias.</p>`}
-                </div>
+                <h3 class="text-xs font-bold uppercase tracking-wide mb-2" style="color:var(--sage)">Páginas mais navegadas</h3>
+                <div id="pco-paginas" class="space-y-2"></div>
             </div>
             <div>
-                <h2 class="text-sm font-extrabold mb-3" style="color:var(--ink)">Origem do tráfego (30d)</h2>
-                <div class="space-y-2">
-                    ${(origens || []).map(o => gestaoBarra(o.origem, o.qtd, maiorOrigem)).join('') || `<p class="text-sm" style="color:var(--sage)">Sem eventos de landing nos últimos 30 dias.</p>`}
-                </div>
+                <h3 class="text-xs font-bold uppercase tracking-wide mb-2" style="color:var(--sage)">Origem do tráfego</h3>
+                <div id="pco-origens" class="space-y-2"></div>
             </div>
         </div>
     `;
@@ -132,6 +154,37 @@ async function pcoVisaoGeralInit() {
             </div>
         `;
     }).join('') || `<p class="text-sm text-center py-6" style="color:var(--sage)">Nenhum trial ativo agora.</p>`;
+
+    await pcoAtualizarLanding();
+}
+
+async function pcoAtualizarLanding() {
+    const wrapPaginas = document.getElementById('pco-paginas');
+    const wrapOrigens = document.getElementById('pco-origens');
+    if (!wrapPaginas || !wrapOrigens) return; // saiu da aba antes de terminar de carregar
+
+    wrapPaginas.innerHTML = `<p class="text-sm" style="color:var(--sage)">Carregando...</p>`;
+    wrapOrigens.innerHTML = `<p class="text-sm" style="color:var(--sage)">Carregando...</p>`;
+
+    const { inicio, fim } = gestaoLerFiltroPeriodo('pco', 7);
+    const [{ data: paginas, error: e1 }, { data: origens, error: e2 }] = await Promise.all([
+        dbAuth.schema('gestao').rpc('fn_comercial_landing_paginas', { p_data_inicio: inicio, p_data_fim: fim }),
+        dbAuth.schema('gestao').rpc('fn_comercial_landing_origem', { p_data_inicio: inicio, p_data_fim: fim })
+    ]);
+    if (e1 || e2) {
+        const msg = `<p class="text-sm" style="color:var(--danger)">Erro: ${[e1, e2].filter(Boolean).map(e => e.message).join(' | ')}</p>`;
+        wrapPaginas.innerHTML = msg;
+        wrapOrigens.innerHTML = msg;
+        return;
+    }
+
+    const maiorPagina = Math.max(1, ...(paginas || []).map(p => Number(p.qtd)));
+    const maiorOrigem = Math.max(1, ...(origens || []).map(o => Number(o.qtd)));
+
+    wrapPaginas.innerHTML = (paginas || []).map(p => gestaoBarra(p.pagina, p.qtd, maiorPagina)).join('')
+        || `<p class="text-sm" style="color:var(--sage)">Sem eventos de landing no período selecionado.</p>`;
+    wrapOrigens.innerHTML = (origens || []).map(o => gestaoBarra(o.origem, o.qtd, maiorOrigem)).join('')
+        || `<p class="text-sm" style="color:var(--sage)">Sem eventos de landing no período selecionado.</p>`;
 }
 
 // ----------------------------------------------------------------------------
