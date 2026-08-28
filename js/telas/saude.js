@@ -1,14 +1,18 @@
 // ============================================================================
 // js/telas/saude.js — Raiz Gestão
 //
+// v0.11.4 — custo de IA detalhado por PRODUTO (Claude/Gemini) e MODELO,
+// com volume de chamadas por linha + total geral (gestao.fn_saude_custo_ia,
+// nova — substitui os 4 campos agregados que fn_saude_resumo tinha desde
+// v0.11.1). Produto vem de gestao.ia_precos_modelo.produto, com fallback
+// pelo prefixo do nome do modelo pra não sumir um modelo novo sem preço
+// cadastrado ainda. Total geral é somado no front-end a partir das linhas
+// (uma soma só, sem duplicar em 2 RPCs).
+//
 // v0.11.1 — "Bytes processados por IA" trocado por uma aproximação real de
 // custo (USD): soma tokens_entrada/tokens_saida de ia_eventos_log × preço
-// por modelo (gestao.ia_precos_modelo, tabela nova — preço de IA muda toda
-// hora, então fica configurável no banco em vez de hardcoded no código).
-// Mostra tokens de entrada/saída + custo estimado, com aviso quando há
-// eventos de IA no período sem dado de custo suficiente (hoje: mensagens
-// de voz via Gemini não gravam tokens ainda — ver comentário na migration
-// gestao_fase6_custo_ia_v1.sql). Requer essa migration rodada.
+// por modelo (gestao.ia_precos_modelo, tabela editável — atualizar preço
+// não requer deploy de código).
 //
 // v0.11.0 — filtro de empresa/pessoa/período (data início/fim, padrão
 // últimos 7 dias) atuando em TODA a tela — troca as janelas fixas antigas
@@ -18,7 +22,7 @@
 // reaproveitar o período histórico selecionado), mas passa a respeitar o
 // filtro de empresa.
 //
-// NOVO nesta rodada — o aviso de "Storage/IA não disponível" ficou
+// NOVO desde v0.11.0 — o aviso de "Storage/IA não disponível" ficou
 // desatualizado desde que o Cofre de Documentos entrou em produção:
 //   - Storage: bytes + arquivos de public.cofre_documentos, no período.
 //   - Mensagens de WhatsApp: ia_eventos_log canal='whatsapp', contando
@@ -29,7 +33,8 @@
 //
 // Requer gestao_fase6_filtro_periodo_saude_v1.sql,
 // gestao_fase6_empresas_pessoas_adocao_v1.sql (fn_lista_pessoas, usada
-// aqui pro seletor de pessoa) e gestao_fase6_custo_ia_v1.sql.
+// aqui pro seletor de pessoa), gestao_fase6_fix_tipos_e_rls_v1.sql e
+// gestao_fase6_custo_ia_por_modelo_v1.sql.
 // ============================================================================
 
 let sdEmpresas = [];
@@ -103,19 +108,31 @@ async function sdCarregar() {
     const clienteId = document.getElementById('sd-filtro-empresa').value || null;
     const pessoaId = document.getElementById('sd-filtro-pessoa').value || null;
 
-    const [{ data, error }, { data: topApp, error: e2 }, { data: topBot, error: e3 }] = await Promise.all([
+    const [{ data, error }, { data: topApp, error: e2 }, { data: topBot, error: e3 }, { data: custoIa, error: e4 }] = await Promise.all([
         dbAuth.schema('gestao').rpc('fn_saude_resumo', { p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId, p_pessoa_id: pessoaId }),
         dbAuth.schema('gestao').rpc('fn_funcoes_mais_usadas_app', { p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId, p_pessoa_id: pessoaId }),
-        dbAuth.schema('gestao').rpc('fn_funcoes_mais_usadas_bot', { p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId, p_pessoa_id: pessoaId })
+        dbAuth.schema('gestao').rpc('fn_funcoes_mais_usadas_bot', { p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId, p_pessoa_id: pessoaId }),
+        dbAuth.schema('gestao').rpc('fn_saude_custo_ia', { p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId, p_pessoa_id: pessoaId })
     ]);
     if (error) { el.innerHTML = `<p class="text-sm" style="color:var(--danger)">Erro: ${error.message}</p>`; return; }
     const s = (data && data[0]) || {};
     if (e2 || e3) console.warn('Funções mais usadas indisponível:', (e2 || e3).message);
+    if (e4) { el.innerHTML = `<p class="text-sm" style="color:var(--danger)">Erro ao carregar custo de IA: ${e4.message}</p>`; return; }
 
     const taxaErro = Number(s.ia_taxa_erro_periodo) || 0;
     const toneErro = taxaErro >= 10 ? 'red' : taxaErro > 0 ? 'amber' : 'green';
     const maiorApp = Math.max(1, ...(topApp || []).map(a => Number(a.qtd)));
     const maiorBot = Math.max(1, ...(topBot || []).map(b => Number(b.qtd)));
+
+    // Total geral somado aqui a partir das linhas de fn_saude_custo_ia —
+    // uma soma só, em vez de duplicar em mais uma RPC.
+    const linhasIa = custoIa || [];
+    const totalChamadas = linhasIa.reduce((s, l) => s + Number(l.chamadas || 0), 0);
+    const totalTokIn = linhasIa.reduce((s, l) => s + Number(l.tokens_entrada || 0), 0);
+    const totalTokOut = linhasIa.reduce((s, l) => s + Number(l.tokens_saida || 0), 0);
+    const totalCusto = linhasIa.reduce((s, l) => s + Number(l.custo_estimado_usd || 0), 0);
+    const fmtUsd = (v) => 'US$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+    const fmtNum = (v) => Number(v).toLocaleString('pt-BR');
 
     el.innerHTML = `
         <h2 class="text-sm font-extrabold mb-3 flex items-center" style="color:var(--ink)">
@@ -139,17 +156,52 @@ async function sdCarregar() {
         </div>
 
         <h2 class="text-sm font-extrabold mb-3 flex items-center" style="color:var(--ink)">
-            IA — custo estimado (período selecionado)
-            ${gestaoInfoIcone('Custo = tokens de entrada/saída (ia_eventos_log) × preço por modelo (gestao.ia_precos_modelo, tabela editável — atualizar quando o provedor mudar preço). Em USD, que é a moeda de cobrança da Anthropic/Google. Hoje só cobre Claude (Haiku/Sonnet) — mensagens de voz via Gemini ainda não gravam tokens, então o valor real fica um pouco acima deste quando há uso de voz no período.')}
+            IA — custo estimado por produto e modelo (período selecionado)
+            ${gestaoInfoIcone('Custo = tokens de entrada/saída (ia_eventos_log) × preço por modelo (gestao.ia_precos_modelo, tabela editável — atualizar quando o provedor mudar preço). Em USD, moeda de cobrança da Anthropic/Google. Uma linha com chamadas > 0 e tokens = 0 significa que aquele modelo ainda não grava tokens (hoje é o caso do Gemini/voz) — o custo real fica acima do total mostrado enquanto isso não for corrigido no bot.')}
         </h2>
-        <div class="grid grid-cols-3 gap-3 mb-2">
-            ${gestaoCardMetrica('Tokens de entrada', Number(s.ia_tokens_entrada_periodo ?? 0).toLocaleString('pt-BR'))}
-            ${gestaoCardMetrica('Tokens de saída', Number(s.ia_tokens_saida_periodo ?? 0).toLocaleString('pt-BR'))}
-            ${gestaoCardMetrica('Custo estimado (USD)', 'US$ ' + Number(s.ia_custo_estimado_usd_periodo ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 }))}
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+            ${gestaoCardMetrica('Chamadas de IA', fmtNum(totalChamadas))}
+            ${gestaoCardMetrica('Tokens de entrada', fmtNum(totalTokIn))}
+            ${gestaoCardMetrica('Tokens de saída', fmtNum(totalTokOut))}
+            ${gestaoCardMetrica('Custo total estimado', fmtUsd(totalCusto))}
         </div>
-        ${Number(s.ia_eventos_sem_preco_periodo) > 0 ? `
-            <p class="text-[11px] mb-6" style="color:var(--warning)">⚠️ ${s.ia_eventos_sem_preco_periodo} evento(s) de IA no período sem tokens ou preço mapeado (ex.: voz via Gemini) — não entram nesta soma, então o custo real é maior que o mostrado acima.</p>
-        ` : `<div class="mb-6"></div>`}
+        <div class="overflow-x-auto mb-6 rounded-xl border-2" style="border-color:var(--line)">
+            <table class="w-full text-xs" style="border-collapse:separate;border-spacing:0">
+                <thead>
+                    <tr style="background:var(--paper)">
+                        <th class="p-2 text-left" style="color:var(--sage)">Produto</th>
+                        <th class="p-2 text-left" style="color:var(--sage)">Modelo</th>
+                        <th class="p-2 text-right" style="color:var(--sage)">Chamadas</th>
+                        <th class="p-2 text-right" style="color:var(--sage)">Tokens entrada</th>
+                        <th class="p-2 text-right" style="color:var(--sage)">Tokens saída</th>
+                        <th class="p-2 text-right" style="color:var(--sage)">Custo (USD)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${linhasIa.map(l => `
+                        <tr class="border-t" style="border-color:var(--line)">
+                            <td class="p-2" style="color:var(--ink)">${l.produto}</td>
+                            <td class="p-2" style="color:var(--sage)">${l.modelo}</td>
+                            <td class="p-2 text-right" style="color:var(--ink)">${fmtNum(l.chamadas)}</td>
+                            <td class="p-2 text-right" style="color:var(--ink)">${fmtNum(l.tokens_entrada)}</td>
+                            <td class="p-2 text-right" style="color:var(--ink)">${fmtNum(l.tokens_saida)}</td>
+                            <td class="p-2 text-right font-bold" style="color:var(--ink)">${fmtUsd(l.custo_estimado_usd)}</td>
+                        </tr>
+                    `).join('') || `<tr><td colspan="6" class="p-4 text-center" style="color:var(--sage)">Sem chamadas de IA no período/filtro selecionado.</td></tr>`}
+                </tbody>
+                ${linhasIa.length > 0 ? `
+                    <tfoot>
+                        <tr class="border-t-2" style="border-color:var(--line);background:var(--paper)">
+                            <td class="p-2 font-bold" style="color:var(--ink)" colspan="2">Total</td>
+                            <td class="p-2 text-right font-bold" style="color:var(--ink)">${fmtNum(totalChamadas)}</td>
+                            <td class="p-2 text-right font-bold" style="color:var(--ink)">${fmtNum(totalTokIn)}</td>
+                            <td class="p-2 text-right font-bold" style="color:var(--ink)">${fmtNum(totalTokOut)}</td>
+                            <td class="p-2 text-right font-bold" style="color:var(--ink)">${fmtUsd(totalCusto)}</td>
+                        </tr>
+                    </tfoot>
+                ` : ''}
+            </table>
+        </div>
 
         <h2 class="text-sm font-extrabold mb-3 flex items-center" style="color:var(--ink)">
             Storage
