@@ -5,6 +5,44 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
+   VERSÃO: v0.13.0
+   LINHAS: 782
+   DATA: 2026-08-30
+   TÍTULO: COMUNICAÇÕES — SEPARA USO DE CONFIGURAÇÃO + EDIÇÃO AMIGÁVEL + SIMULAÇÃO
+   NOVIDADES (v0.13.0):
+     - CORRIGIDO de quebra: a constante APP_VERSAO (fonte real do que
+       aparece na tela de login/menu) estava presa em "v0.11.4" desde a
+       entrega da v0.12.0 — o cabeçalho já dizia v0.12.0, mas a versão
+       exibida de verdade pro Nicola nunca acompanhou. As duas ficam
+       sincronizadas aqui.
+     - js/telas/comunicacoes.js reescrito (v0.2.0), pedido explícito do
+       Nicola em 2 partes:
+       1) "separar as configurações da visualização do uso" — a tela
+          ganhou um toggle de modo (📊 Uso / ⚙️ Configuração), separado da
+          barra de abas de plano (que continua valendo pros dois modos).
+          Uso = filtros de período/empresa + cards + funil + por empresa +
+          log (exatamente o que já existia). Configuração = a lista de
+          mensagens do plano, que saiu do modo Uso. Cada modo só busca as
+          RPCs que ele realmente desenha — não traz dado de configuração
+          só pra olhar o funil, e vice-versa.
+       2) "na configuração das msg queria tb ver uma opção mais amigável
+          da msg, e pode editar direto ali" + "incluir uma opção de
+          ver/simular a msg como ela aparece ou vai aparecer antes de
+          salvar" — cada mensagem agora mostra 1 card por canal (app/
+          whatsapp/email) com título/mensagem como texto legível (não só
+          "Ver JSON" — que virou "Ver conteúdo avançado", ainda disponível
+          pra quem precisa mexer em botões/passos). "Editar" abre um
+          formulário inline pra título/mensagem direto no banco.
+          "Simular" (chamável tanto do card salvo quanto de DENTRO do
+          formulário, com os valores ainda não salvos) desenha 3 maquetes
+          diferentes conforme canal/formato — bolha de WhatsApp, modal de
+          app, ou passo-a-passo de onboarding — reconhecidas contra os
+          dados reais já cadastrados (não inventadas).
+     - Requer migration comunicacoes_editar_canal (aplicada via MCP em
+       30/08/2026): fn_comunicacoes_mensagens passou a incluir o `id` de
+       cada canal (faltava, sem isso não dava pra saber qual linha
+       atualizar) + fn_comunicacao_canal_atualizar (nova, master-only).
+
    VERSÃO: v0.12.0
    LINHAS: 744
    DATA: 2026-08-29
@@ -473,7 +511,7 @@
 <script>
     // Fonte única da versão exibida na tela — mantida em sincronia com o
     // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
-    const APP_VERSAO = 'v0.11.4';
+    const APP_VERSAO = 'v0.13.0';
 </script>
 
 <!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->
