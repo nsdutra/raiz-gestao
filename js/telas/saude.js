@@ -1,6 +1,23 @@
 // ============================================================================
 // js/telas/saude.js — Raiz Gestão
 //
+// v0.11.5 — NOVA seção "IA — real (registro imediato) × log de negócio",
+// pedido explícito do Nicola depois da investigação que achou um gap
+// entre o Console da Anthropic e ia_eventos_log (ver HANDOFF_TOKENS_IA_
+// 2026-08-30.md). Chama gestao.fn_saude_custo_ia_real() (nova, lê
+// ia_chamadas_tentativas — gravada IMEDIATAMENTE após a resposta da
+// Anthropic/Google voltar, antes de qualquer lógica de negócio) e mescla
+// com fn_saude_custo_ia (já existente, ia_eventos_log) numa tabela só,
+// por produto+modelo, com coluna de diferença — mostra o gap de relance,
+// sem precisar rodar SQL. Card "Diferença" fica verde quando bate (< meio
+// centavo de diferença) e âmbar quando não bate. Falha graciosamente se
+// a migration/RPC nova ainda não existir no ambiente (mostra aviso, não
+// quebra o resto da tela). Filtro de Pessoa não se aplica a esta seção
+// (ia_chamadas_tentativas não guarda pessoa_id, só cliente_id) — avisado
+// no ícone de info. Requer ia_chamadas_tentativas.sql (migration
+// migrations_ia_chamadas_tentativas_2026-08-30.sql — já aplicada neste
+// banco via MCP do Supabase, não precisa rodar de novo).
+//
 // v0.11.4 — custo de IA detalhado por PRODUTO (Claude/Gemini) e MODELO,
 // com volume de chamadas por linha + total geral (gestao.fn_saude_custo_ia,
 // nova — substitui os 4 campos agregados que fn_saude_resumo tinha desde
@@ -108,16 +125,21 @@ async function sdCarregar() {
     const clienteId = document.getElementById('sd-filtro-empresa').value || null;
     const pessoaId = document.getElementById('sd-filtro-pessoa').value || null;
 
-    const [{ data, error }, { data: topApp, error: e2 }, { data: topBot, error: e3 }, { data: custoIa, error: e4 }] = await Promise.all([
+    const [{ data, error }, { data: topApp, error: e2 }, { data: topBot, error: e3 }, { data: custoIa, error: e4 }, { data: custoIaReal, error: e5 }] = await Promise.all([
         dbAuth.schema('gestao').rpc('fn_saude_resumo', { p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId, p_pessoa_id: pessoaId }),
         dbAuth.schema('gestao').rpc('fn_funcoes_mais_usadas_app', { p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId, p_pessoa_id: pessoaId }),
         dbAuth.schema('gestao').rpc('fn_funcoes_mais_usadas_bot', { p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId, p_pessoa_id: pessoaId }),
-        dbAuth.schema('gestao').rpc('fn_saude_custo_ia', { p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId, p_pessoa_id: pessoaId })
+        dbAuth.schema('gestao').rpc('fn_saude_custo_ia', { p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId, p_pessoa_id: pessoaId }),
+        dbAuth.schema('gestao').rpc('fn_saude_custo_ia_real', { p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId })
     ]);
     if (error) { el.innerHTML = `<p class="text-sm" style="color:var(--danger)">Erro: ${error.message}</p>`; return; }
     const s = (data && data[0]) || {};
     if (e2 || e3) console.warn('Funções mais usadas indisponível:', (e2 || e3).message);
     if (e4) { el.innerHTML = `<p class="text-sm" style="color:var(--danger)">Erro ao carregar custo de IA: ${e4.message}</p>`; return; }
+    // NOVO (30/08/2026) — fn_saude_custo_ia_real não bloqueia a tela se
+    // falhar (migration nova, pode não existir ainda em algum ambiente) —
+    // só avisa no console e a seção de comparação mostra "indisponível".
+    if (e5) console.warn('Custo real (ia_chamadas_tentativas) indisponível:', e5.message);
 
     const taxaErro = Number(s.ia_taxa_erro_periodo) || 0;
     const toneErro = taxaErro >= 10 ? 'red' : taxaErro > 0 ? 'amber' : 'green';
@@ -133,6 +155,22 @@ async function sdCarregar() {
     const totalCusto = linhasIa.reduce((s, l) => s + Number(l.custo_estimado_usd || 0), 0);
     const fmtUsd = (v) => 'US$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
     const fmtNum = (v) => Number(v).toLocaleString('pt-BR');
+
+    // NOVO (30/08/2026) — comparação com ia_chamadas_tentativas (log
+    // imediato, gravado antes de qualquer lógica de negócio — ver
+    // HANDOFF_TOKENS_IA_2026-08-30.md). Mescla as 2 fontes por
+    // produto+modelo pra mostrar lado a lado numa tabela só; qualquer
+    // diferença aparece na hora, sem precisar rodar SQL. Filtro de
+    // Pessoa não se aplica à fonte "real" (a tabela não guarda
+    // pessoa_id) — avisado no ícone de info.
+    const linhasReal = custoIaReal || [];
+    const totalCustoReal = linhasReal.reduce((s, l) => s + Number(l.custo_estimado_usd || 0), 0);
+    const diferencaTotal = totalCustoReal - totalCusto;
+    const chaveDe = (l) => `${l.produto}|${l.modelo}`;
+    const porChaveLog = new Map(linhasIa.map(l => [chaveDe(l), l]));
+    const porChaveReal = new Map(linhasReal.map(l => [chaveDe(l), l]));
+    const todasAsChaves = [...new Set([...porChaveLog.keys(), ...porChaveReal.keys()])].sort();
+    const comparativoDisponivel = !e5;
 
     el.innerHTML = `
         <h2 class="text-sm font-extrabold mb-3 flex items-center" style="color:var(--ink)">
@@ -204,7 +242,55 @@ async function sdCarregar() {
         </div>
 
         <h2 class="text-sm font-extrabold mb-3 flex items-center" style="color:var(--ink)">
-            Storage
+            IA — real (registro imediato) × log de negócio
+            ${gestaoInfoIcone('ia_chamadas_tentativas é gravada IMEDIATAMENTE após a resposta da Anthropic/Google voltar, antes de qualquer lógica de negócio — não depende do resto do fluxo terminar bem (ver HANDOFF_TOKENS_IA_2026-08-30.md). É a fonte mais confiável pra reconciliar com o Console da Anthropic. ia_eventos_log (tabela acima) é o log de negócio — contexto, funcionalidade, canal — e pode ficar pra trás se algo interromper o fluxo depois da chamada. "Diferença" = real menos log; positivo significa gasto real que o log de negócio ainda não capturou. Filtro de Pessoa não se aplica aqui (a tabela não guarda pessoa_id, só empresa).')}
+        </h2>
+        ${!comparativoDisponivel ? `
+            <div class="p-4 rounded-xl border-2 mb-6" style="border-color:var(--line);background:var(--paper)">
+                <p class="text-xs" style="color:var(--sage)">Não disponível — a migration ia_chamadas_tentativas ainda não foi aplicada neste ambiente, ou a função gestao.fn_saude_custo_ia_real() não existe.</p>
+            </div>
+        ` : `
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                ${gestaoCardMetrica('Custo real (imediato)', fmtUsd(totalCustoReal))}
+                ${gestaoCardMetrica('Custo no log de negócio', fmtUsd(totalCusto))}
+                ${gestaoCardMetrica('Diferença', (diferencaTotal >= 0 ? '+' : '') + fmtUsd(diferencaTotal), Math.abs(diferencaTotal) < 0.005 ? 'green' : 'amber')}
+            </div>
+            <div class="overflow-x-auto mb-6 rounded-xl border-2" style="border-color:var(--line)">
+                <table class="w-full text-xs" style="border-collapse:separate;border-spacing:0">
+                    <thead>
+                        <tr style="background:var(--paper)">
+                            <th class="p-2 text-left" style="color:var(--sage)">Produto</th>
+                            <th class="p-2 text-left" style="color:var(--sage)">Modelo</th>
+                            <th class="p-2 text-right" style="color:var(--sage)">Chamadas (real)</th>
+                            <th class="p-2 text-right" style="color:var(--sage)">Custo real</th>
+                            <th class="p-2 text-right" style="color:var(--sage)">Custo no log</th>
+                            <th class="p-2 text-right" style="color:var(--sage)">Diferença</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${todasAsChaves.map(chave => {
+                            const real = porChaveReal.get(chave);
+                            const log = porChaveLog.get(chave);
+                            const [produto, modelo] = chave.split('|');
+                            const custoRealLinha = Number(real?.custo_estimado_usd || 0);
+                            const custoLogLinha = Number(log?.custo_estimado_usd || 0);
+                            const diffLinha = custoRealLinha - custoLogLinha;
+                            const corDiff = Math.abs(diffLinha) < 0.005 ? 'var(--success)' : 'var(--warning)';
+                            return `
+                                <tr class="border-t" style="border-color:var(--line)">
+                                    <td class="p-2" style="color:var(--ink)">${produto}</td>
+                                    <td class="p-2" style="color:var(--sage)">${modelo}</td>
+                                    <td class="p-2 text-right" style="color:var(--ink)">${real ? fmtNum(real.chamadas) : '—'}</td>
+                                    <td class="p-2 text-right" style="color:var(--ink)">${real ? fmtUsd(custoRealLinha) : '—'}</td>
+                                    <td class="p-2 text-right" style="color:var(--ink)">${log ? fmtUsd(custoLogLinha) : '—'}</td>
+                                    <td class="p-2 text-right font-bold" style="color:${corDiff}">${(diffLinha >= 0 ? '+' : '') + fmtUsd(diffLinha)}</td>
+                                </tr>
+                            `;
+                        }).join('') || `<tr><td colspan="6" class="p-4 text-center" style="color:var(--sage)">Sem chamadas registradas em nenhuma das 2 fontes, no período/filtro selecionado.</td></tr>`}
+                    </tbody>
+                </table>
+            </div>
+        `}
             ${gestaoInfoIcone('Bytes/arquivos de documentos ativos no Cofre criados no período (public.cofre_documentos).')}
         </h2>
         <div class="grid grid-cols-2 gap-3 mb-6">

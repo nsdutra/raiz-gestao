@@ -5,6 +5,31 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
+   VERSÃO: v0.14.0
+   LINHAS: 807
+   DATA: 2026-08-30
+   TÍTULO: COMUNICAÇÕES — EDITAR DIRETO QUAIS PERFIS VEEM CADA MENSAGEM
+   NOVIDADES (v0.14.0):
+     - js/telas/comunicacoes.js (v0.3.0), pedido explícito do Nicola:
+       testando a v0.13.0, uma mensagem não apareceu pra ele numa empresa
+       de teste — a causa era a regra de perfil da mensagem não incluir
+       'master' (o perfil dele mesmo, testando). "Queria poder editar o
+       perfil que aparecem as msg no app gestão, nas configurações" — em
+       vez de pedir migration toda vez. Nova seção "Quem vê esta
+       mensagem" no modo Configuração: checkboxes de perfil editáveis
+       (admin/consulta/master/master_plataforma/operador) + botão
+       "Salvar perfis". De quebra, restaura a visibilidade das condições
+       de gatilho (regras) que tinham sumido sem querer na v0.13.0 — a
+       reescrita anterior trocou o "Ver JSON" único (canais+regras) por
+       conteúdo avançado só por canal, derrubando junto a visão das
+       regras. As outras 14 condições possíveis continuam só-leitura
+       (texto legível, não mais só JSON) — editor próprio pra cada uma
+       fica pra quando for pedido.
+     - Requer migration comunicacao_regra_perfis_definir (aplicada via
+       MCP em 30/08/2026): fn_comunicacao_regra_perfis_definir (nova,
+       master-only) — cria ou atualiza a regra tipo_regra='perfil' de
+       uma comunicação.
+
    VERSÃO: v0.13.0
    LINHAS: 782
    DATA: 2026-08-30
@@ -511,7 +536,7 @@
 <script>
     // Fonte única da versão exibida na tela — mantida em sincronia com o
     // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
-    const APP_VERSAO = 'v0.13.0';
+    const APP_VERSAO = 'v0.14.0';
 </script>
 
 <!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->

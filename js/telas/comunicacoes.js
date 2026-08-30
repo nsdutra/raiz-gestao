@@ -1,6 +1,25 @@
 // ============================================================================
 // js/telas/comunicacoes.js — Raiz Gestão
 //
+// v0.3.0 (30/08/2026) — pedido explícito do Nicola: testando a v0.2.0, uma
+// mensagem (onboarding_adocao_contrato_v1) não apareceu pra ele numa
+// empresa de teste — investigando, a causa era a regra de perfil
+// (tipo_regra='perfil', valor ['admin','operador']) não incluir 'master'
+// (o perfil dele mesmo, testando). "Queria poder editar o perfil que
+// aparecem as msg no app gestão, nas configurações" — em vez de pedir
+// migration toda vez que quiser ajustar isso.
+//
+// Nova seção "Quem vê esta mensagem" (cmSecaoQuemVe), por COMUNICAÇÃO
+// (regra é da comunicação inteira, não de 1 canal — ficou visível de
+// novo aqui; a reescrita v0.2.0 tinha derrubado a visibilidade de
+// `regras` sem querer, ao trocar o "Ver JSON" único por conteúdo
+// avançado por canal). Perfil vira checkboxes editáveis (o pedido em si,
+// usa cmPerfis carregado de `perfis` no init) + botão "Salvar perfis"
+// (fn_comunicacao_regra_perfis_definir, nova). As outras 14 condições
+// possíveis (sem_imoveis, dias_sem_uso etc.) ficam como texto legível
+// só-leitura — editor próprio pra cada uma é bem mais trabalho do que
+// foi pedido agora, registrado como pendência, não escondido.
+//
 // v0.2.0 (30/08/2026) — pedido explícito do Nicola, 2 partes:
 //   1) "separar as configurações da visualização do uso" — a tela virou 2
 //      MODOS (cmModo: 'uso' | 'config'), alternados por um toggle no
@@ -56,18 +75,21 @@ let cmClienteId = '';
 let cmMensagensDoPlano = []; // cache pra abrir o JSON/editar sem nova consulta
 let cmModo = 'uso'; // 'uso' | 'config'
 let cmCanalEditandoId = null; // id do canal com o form de edição aberto (null = nenhum)
+let cmPerfis = []; // NOVO v0.3.0 — {codigo, descricao}, pra montar os checkboxes de "quem vê"
 
 async function telaComunicacoesInit() {
     const area = document.getElementById('area-conteudo');
     area.innerHTML = `<p class="text-sm" style="color:var(--sage)">Carregando Comunicações...</p>`;
 
-    const [{ data: planos, error: e1 }, empresasResp] = await Promise.all([
+    const [{ data: planos, error: e1 }, empresasResp, perfisResp] = await Promise.all([
         dbAuth.schema('gestao').rpc('fn_comunicacoes_planos'),
-        cmEmpresas.length === 0 ? dbAuth.from('clientes').select('id, nome_empresa').order('nome_empresa') : Promise.resolve({ data: cmEmpresas })
+        cmEmpresas.length === 0 ? dbAuth.from('clientes').select('id, nome_empresa').order('nome_empresa') : Promise.resolve({ data: cmEmpresas }),
+        cmPerfis.length === 0 ? dbAuth.from('perfis').select('codigo, descricao').order('codigo') : Promise.resolve({ data: cmPerfis })
     ]);
     if (e1) { gestaoErro(e1.message); return; }
     cmPlanos = planos || [];
     if (empresasResp?.data) cmEmpresas = empresasResp.data;
+    if (perfisResp?.data) cmPerfis = perfisResp.data;
     if (!cmPlanoAtualId && cmPlanos.length) cmPlanoAtualId = cmPlanos.find(p => p.codigo === 'onboarding')?.id || cmPlanos[0].id;
 
     area.innerHTML = `
@@ -308,10 +330,93 @@ function cmLinhaMensagem(m) {
                 </div>
             </div>
             <div class="divide-y" style="border-color:var(--line)">
+                ${cmSecaoQuemVe(m)}
                 ${canais.map(c => cmCardCanal(m, c)).join('') || `<p class="text-xs p-3" style="color:var(--sage)">Nenhum canal configurado pra esta mensagem.</p>`}
             </div>
         </div>
     `;
+}
+
+const CM_TIPO_REGRA_ROTULO = {
+    sem_imoveis: 'Sem imóveis cadastrados', tem_contrato_ou_item_controle: 'Já tem contrato ou item de controle',
+    tem_imovel_ou_ativo: 'Tem imóvel ou ativo cadastrado', tem_recebimento_ou_ocorrencia_tratada: 'Tem recebimento/ocorrência tratada',
+    dias_desde_cadastro: 'Dias desde o cadastro', dias_sem_uso: 'Dias sem uso', dias_para_expirar_licenca: 'Dias pra expirar a licença',
+    contador_login: 'Quantidade de logins', interacoes_desde_nps: 'Interações desde o último NPS',
+    nunca_usou_bot: 'Nunca usou o bot', aceita_comunicacao_comercial: 'Aceita comunicação comercial',
+    dependencia_mensagem: 'Depende de outra mensagem',
+};
+const CM_OPERADOR_ROTULO = { eq: '=', gte: '≥', lte: '≤', in: 'em' };
+
+// NOVO v0.3.0 — pedido explícito do Nicola (depois de descobrir, testando,
+// que uma mensagem não apareceu pra ele por causa da regra de perfil):
+// "queria poder editar o perfil que aparecem as msg". Antes, `regras`
+// (as condições de gatilho) tinham sumido de vista na reescrita v0.2.0 —
+// só ficaram visíveis por canal (conteúdo avançado), a condição de perfil
+// em si não aparecia em lugar nenhum. Esta seção mostra "Quem vê esta
+// mensagem" por comunicação (regra é da comunicação inteira, não de 1
+// canal): perfil vira checkbox editável (o pedido); as outras condições
+// (sem_imoveis, dias_sem_uso etc.) ficam como texto legível só-leitura —
+// dar um editor próprio pra cada uma das 14 outras regras é bem mais
+// trabalho do que foi pedido agora, então ficou de fora desta rodada.
+function cmSecaoQuemVe(m) {
+    const regras = m.regras || [];
+    const regraPerfil = regras.find(r => r.tipo_regra === 'perfil');
+    const perfisAtuais = Array.isArray(regraPerfil?.valor) ? regraPerfil.valor : [];
+    const outrasRegras = regras.filter(r => r.tipo_regra !== 'perfil');
+
+    return `
+        <div class="p-3" style="background:#fbfaf7">
+            <p class="text-[10px] font-bold uppercase mb-1.5" style="color:var(--sage)">Quem vê esta mensagem</p>
+
+            <div class="flex flex-wrap gap-x-3 gap-y-1.5 mb-2" id="cm-perfis-${m.id}">
+                ${cmPerfis.map(p => `
+                    <label class="flex items-center gap-1.5 text-xs" style="color:var(--ink)" title="${cmEscAttr(p.descricao || '')}">
+                        <input type="checkbox" value="${p.codigo}" ${perfisAtuais.includes(p.codigo) ? 'checked' : ''}>
+                        ${cmEscTexto(p.codigo)}
+                    </label>
+                `).join('')}
+            </div>
+            <div class="flex items-center gap-2 mb-2">
+                <button onclick="cmSalvarPerfis('${m.id}')" class="text-[11px] font-bold px-2 py-1 rounded-lg" style="background:var(--pine);color:#fff">Salvar perfis</button>
+                <span id="cm-perfis-status-${m.id}" class="text-[11px] font-bold"></span>
+            </div>
+            ${perfisAtuais.length === 0 ? `<p class="text-[11px] mb-2" style="color:var(--warning)">⚠️ Nenhum perfil marcado ainda — sem isso a mensagem não aparece pra ninguém.</p>` : ''}
+
+            ${outrasRegras.length > 0 ? `
+                <p class="text-[10px] font-bold uppercase mt-2 mb-1" style="color:var(--sage)">Outras condições (só leitura por aqui ainda)</p>
+                <ul class="text-[11px] space-y-0.5" style="color:var(--ink)">
+                    ${outrasRegras.map(r => `<li>${cmEscTexto(CM_TIPO_REGRA_ROTULO[r.tipo_regra] || r.tipo_regra)} ${cmEscTexto(CM_OPERADOR_ROTULO[r.operador] || r.operador)} ${cmEscTexto(JSON.stringify(r.valor))}</li>`).join('')}
+                </ul>
+            ` : ''}
+        </div>
+    `;
+}
+
+async function cmSalvarPerfis(comunicacaoId) {
+    const statusEl = document.getElementById(`cm-perfis-status-${comunicacaoId}`);
+    const checkboxes = document.querySelectorAll(`#cm-perfis-${comunicacaoId} input[type="checkbox"]`);
+    const perfisEscolhidos = Array.from(checkboxes).filter(c => c.checked).map(c => c.value);
+
+    statusEl.textContent = 'Salvando...';
+    statusEl.style.color = 'var(--sage)';
+
+    const { error } = await dbAuth.schema('gestao').rpc('fn_comunicacao_regra_perfis_definir', {
+        p_comunicacao_id: comunicacaoId, p_perfis: perfisEscolhidos
+    });
+    if (error) { statusEl.textContent = 'Erro: ' + error.message; statusEl.style.color = 'var(--danger)'; return; }
+
+    // Atualiza o cache local (regra de perfil pode não ter existido antes
+    // — cria ali mesmo, sem esperar recarregar tudo de novo).
+    const msg = cmMensagensDoPlano.find(m => m.id === comunicacaoId);
+    if (msg) {
+        if (!msg.regras) msg.regras = [];
+        const regraPerfil = msg.regras.find(r => r.tipo_regra === 'perfil');
+        if (regraPerfil) regraPerfil.valor = perfisEscolhidos;
+        else msg.regras.push({ tipo_regra: 'perfil', operador: 'in', valor: perfisEscolhidos, grupo_regra: 1 });
+    }
+    statusEl.textContent = '✓ Salvo';
+    statusEl.style.color = 'var(--success)';
+    setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 2500);
 }
 
 // NOVO v0.2.0 — 1 canal (app/whatsapp/email) de 1 comunicação. Modo
