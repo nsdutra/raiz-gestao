@@ -5,6 +5,27 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
+   VERSÃO: v0.12.0
+   LINHAS: 744
+   DATA: 2026-08-29
+   TÍTULO: NOVA TELA "COMUNICAÇÕES" — ACOMPANHAMENTO DOS PLANOS (ONBOARDING/ADOÇÃO/UPSELL)
+   NOVIDADES (v0.12.0):
+     - Novo item de menu "Comunicações" (js/telas/comunicacoes.js, NOVO),
+       pedido explícito do Nicola: acompanhar os Planos de Comunicação
+       (Onboarding/Adoção/Upsell/Novos Releases) que passaram a rodar de
+       verdade no app/Cofre nesta sessão (fn_comunicacao_proxima_app/
+       _servico). Abas por plano, funil por mensagem (exibiu → concluiu),
+       quebra por empresa com drill-down, log detalhado filtrável por
+       empresa/período, e pausar/reativar mensagem
+       (fn_comunicacao_definir_status).
+     - Requer gestao_comunicacoes_rpcs.sql rodada (já aplicada neste banco
+       via MCP do Supabase — não precisa rodar de novo manualmente).
+     - PENDÊNCIA CONHECIDA (documentada na própria tela, não escondida):
+       o bot do WhatsApp ainda não chama fn_comunicacao_proxima_servico —
+       os dados hoje refletem só o canal app/Cofre. Edição de conteúdo/
+       gatilho das mensagens (texto, regras) ainda não tem UI — por ora
+       só visualização (JSON) e pausar/ativar.
+
    VERSÃO: v0.11.4
    LINHAS: 722
    DATA: 2026-08-28
@@ -700,6 +721,7 @@
     <script src="js/telas/parametros-planos.js"></script>
     <script src="js/telas/parametros-perfis.js"></script>
     <script src="js/telas/bot-uso.js"></script>
+    <script src="js/telas/comunicacoes.js"></script>
     <script>
         window.addEventListener('load', function () {
             if (window.lucide) lucide.createIcons();
