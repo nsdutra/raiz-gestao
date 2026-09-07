@@ -1,6 +1,15 @@
 // ============================================================================
 // js/telas/empresas.js — Raiz Gestão
 //
+// v0.13.0 (07/09/2026) — pedidos do Nicola após a v0.16.0:
+//   - Ficha › Uso & Consumo mostrava "0 / ∞" e "0 ações": fn_uso_empresa_resumo
+//     lia licencas.limite_imoveis/limite_contratos (colunas que não existem
+//     mais) e quebrava. Agora: fn_uso_empresa_cotas (nova) lista TODAS as
+//     cotas do plano (ativos, contratos, controles, IA, MB) com usado ×
+//     limite contados como app e bot contam; fn_uso_empresa_resumo recriada
+//     só com os totais 30d.
+//   - Adoção agrupada por empresa, em ordem de adoção.
+//
 // v0.12.0 (07/09/2026) — E.6 (revisão pós-fatia 8): alerta de WhatsApp
 // repetido no topo da lista de empresas (gestao.fn_telefones_duplicados,
 // nova). Vermelho = mesmo número em 2 pessoas da MESMA empresa (o bot
@@ -201,25 +210,39 @@ async function edCarregarAdocao() {
     if (error) { el.innerHTML = `<p class="text-sm" style="color:var(--danger)">Erro: ${error.message}</p>`; return; }
 
     const linhas = data || [];
-    el.innerHTML = linhas.map(p => {
-        // dias_periodo vem NULL quando um dos lados do período está em
-        // aberto (campo em branco) — não dá pra calcular a fração real
-        // nesse caso, então a barra usa o próprio dias_ativos como teto
-        // (mostra a barra cheia) em vez de inventar um denominador.
-        const dias = p.dias_periodo;
-        const maximo = dias || Math.max(1, p.dias_ativos);
-        const ultimo = p.ultimo_login ? new Date(p.ultimo_login).toLocaleDateString('pt-BR') : 'nunca';
-        return gestaoBarra(`${p.pessoa_nome} · ${p.nome_empresa}`, p.dias_ativos, maximo,
-            (v) => dias ? `${v}/${dias} dia(s) · último: ${ultimo}` : `${v} dia(s) ativo(s) · último: ${ultimo}`);
-    }).join('') || `<p class="text-sm text-center py-8" style="color:var(--sage)">Nenhuma pessoa encontrada pro filtro selecionado.</p>`;
+    // v0.13.0 — agrupado por EMPRESA, em ordem de adoção (empresa com mais
+    // dias ativos somados primeiro; dentro dela, pessoa mais ativa primeiro).
+    const porEmp = new Map();
+    linhas.forEach(p => { if (!porEmp.has(p.cliente_id)) porEmp.set(p.cliente_id, { nome: p.nome_empresa, pessoas: [] }); porEmp.get(p.cliente_id).pessoas.push(p); });
+    const grupos = Array.from(porEmp.values()).map(g => ({ ...g, total: g.pessoas.reduce((s, p) => s + (p.dias_ativos || 0), 0), ativos: g.pessoas.filter(p => p.dias_ativos > 0).length }))
+        .sort((a, b) => b.total - a.total || b.ativos - a.ativos || a.nome.localeCompare(b.nome));
+    el.innerHTML = grupos.map(g => `
+        <div class="rounded-2xl border-2 p-3" style="border-color:var(--line);background:#fff">
+            <div class="flex items-center justify-between mb-2">
+                <b class="text-sm" style="color:var(--ink)">${pmEsc(g.nome)}</b>
+                <span class="text-[11px]" style="color:var(--sage)">${g.ativos}/${g.pessoas.length} pessoa(s) ativa(s) · ${g.total} dia(s)-pessoa</span>
+            </div>
+            <div class="space-y-2">
+            ${g.pessoas.sort((a, b) => b.dias_ativos - a.dias_ativos).map(p => {
+                // dias_periodo vem NULL quando um dos lados do período está em
+                // aberto — a barra usa o próprio dias_ativos como teto.
+                const dias = p.dias_periodo;
+                const maximo = dias || Math.max(1, p.dias_ativos);
+                const ultimo = p.ultimo_login ? new Date(p.ultimo_login).toLocaleDateString('pt-BR') : 'nunca';
+                return gestaoBarra(p.pessoa_nome, p.dias_ativos, maximo,
+                    (v) => dias ? `${v}/${dias} dia(s) · último: ${ultimo}` : `${v} dia(s) ativo(s) · último: ${ultimo}`);
+            }).join('')}
+            </div>
+        </div>`).join('') || `<p class="text-sm text-center py-8" style="color:var(--sage)">Nenhuma pessoa encontrada pro filtro selecionado.</p>`;
 }
 
 async function empresasAbrirFicha(clienteId) {
-    const [{ data: fichaData, error }, { data: uso, error: eUso }, { data: topApp }, { data: topBot }] = await Promise.all([
+    const [{ data: fichaData, error }, { data: uso, error: eUso }, { data: topApp }, { data: topBot }, { data: cotas, error: eCotas }] = await Promise.all([
         dbAuth.schema('gestao').rpc('fn_ficha_empresa', { p_cliente_id: clienteId }),
         dbAuth.schema('gestao').rpc('fn_uso_empresa_resumo', { p_cliente_id: clienteId }),
         dbAuth.schema('gestao').rpc('fn_uso_empresa_top_app', { p_cliente_id: clienteId }),
-        dbAuth.schema('gestao').rpc('fn_uso_empresa_top_bot', { p_cliente_id: clienteId })
+        dbAuth.schema('gestao').rpc('fn_uso_empresa_top_bot', { p_cliente_id: clienteId }),
+        dbAuth.schema('gestao').rpc('fn_uso_empresa_cotas', { p_cliente_id: clienteId }) // v0.13.0 — todas as cotas do plano
     ]);
     if (error) { alert('Erro ao carregar ficha: ' + error.message); return; }
     const f = (fichaData && fichaData[0]);
@@ -250,11 +273,16 @@ async function empresasAbrirFicha(clienteId) {
                 <div class="mt-5 pt-4 border-t" style="border-color:var(--line)">
                     <h4 class="text-sm font-extrabold mb-3 flex items-center" style="color:var(--ink)">
                         Uso &amp; Consumo
-                        ${gestaoInfoIcone('Consumo vs. limite só existe de verdade hoje para Imóveis e Contratos (é o que o sistema já checa antes de deixar criar um novo). As demais funcionalidades têm limite definido no plano, mas ainda sem contador de uso implementado.')}
+                        ${gestaoInfoIcone('Cada barra é uma cota do plano da empresa (plano_funcionalidade.limite), contada do jeito que o app e o bot contam (fn_uso_funcionalidade): estoque = o que existe; mensal = eventos do mês; MB = Storage. Âmbar = passou do aviso; vermelho = no limite.')}
                     </h4>
                     <div class="space-y-2 mb-3">
-                        ${gestaoBarra('Imóveis', u.imoveis_usado ?? 0, u.imoveis_limite || Math.max(1, u.imoveis_usado || 1), (v) => `${v} / ${u.imoveis_limite ?? '∞'}`)}
-                        ${gestaoBarra('Contratos', u.contratos_usado ?? 0, u.contratos_limite || Math.max(1, u.contratos_usado || 1), (v) => `${v} / ${u.contratos_limite ?? '∞'}`)}
+                        ${(cotas || []).map(c => {
+                            const unidade = c.cota_tipo === 'bytes' ? ' MB' : '';
+                            const sufixo = c.cota_tipo === 'mensal' ? ' no mês' : '';
+                            const cor = c.usado >= c.limite ? 'var(--danger)' : (c.avisar ? 'var(--warning)' : 'var(--pine)');
+                            return `<div><div class="flex justify-between text-xs"><span style="color:var(--ink)">${pmEsc(c.rotulo)} <span style="color:var(--sage)">· ${c.cota_tipo === 'estoque' ? 'teto' : c.cota_tipo === 'bytes' ? 'MB' : 'mensal'}</span></span><b style="color:${cor}">${c.usado}${unidade} / ${c.limite}${unidade}${sufixo}</b></div>
+                                <div class="h-2 rounded-full mt-1" style="background:var(--paper)"><div class="h-2 rounded-full" style="width:${Math.min(100, Math.round(100 * c.usado / Math.max(1, c.limite)))}%;background:${cor}"></div></div></div>`;
+                        }).join('') || `<p class="text-xs" style="color:var(--sage)">${eCotas ? 'Cotas indisponíveis: ' + pmEsc(eCotas.message) : 'Este plano não tem cota com limite.'}</p>`}
                     </div>
                     <div class="grid grid-cols-2 gap-3 mb-3">
                         <div class="p-2.5 rounded-xl" style="background:var(--paper)"><p class="text-[10px]" style="color:var(--sage)">Ações no app (30d)</p><p class="text-sm font-bold">${u.total_acoes_app_30d ?? 0}</p></div>

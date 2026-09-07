@@ -1,6 +1,14 @@
 // ============================================================================
 // js/telas/parametros-perfis.js — Raiz Gestão
 //
+// v0.13.0 (07/09/2026) — pedidos do Nicola: (1) mobile agrupado por área
+// (recolhível), com faixa e divergência por linha, igual ao desktop;
+// (2) os 3 códigos "sem regra" ganharam faixa: autenticar.* → Ver,
+// *.alerta_alterar e solicitar.* → Operar; (3) master e master_plataforma
+// passaram a ter todas as capacidades da empresa no banco (migration
+// gestao_v0_17_master_tudo_cotas_ficha_oferta_v1) — as 2 proativas
+// faltavam; plataforma.* segue só do master_plataforma.
+//
 // v0.12.0 (07/09/2026) — E.2 (revisão pós-fatia 8): a matriz virou a tela
 // da REGRA DE PRODUTO. Linhas agrupadas por área (recolhíveis), cada uma
 // com o nome comercial e a faixa pela regra de sufixo (Ver / Operar /
@@ -72,6 +80,8 @@ function pfFaixaDe(codigo) {
     if (c === 'storage.usar') return 'cota';
     if (/^(dev\.|dados\.(limpar|apagar)|licenca\.editar)/.test(c)) return 'vermelha';
     if (/\.excluir$/.test(c) || /^pessoas\./.test(c) || /^parametros\./.test(c) || /^(cofre\.(categorias|auditoria|ver_restrito|controles\.desativar)|imoveis\.divisao|repasses\.excluir)$/.test(c)) return 'administrar';
+    if (/^autenticar\./.test(c)) return 'ver';           // v0.13 — acesso pelo WhatsApp: todo mundo
+    if (/\.alerta_alterar$/.test(c) || /^solicitar\./.test(c)) return 'operar'; // v0.13 — reagendar alerta / bot pedindo apólice
     if (/\.ver$/.test(c) || /^relatorios\./.test(c) || /^(alertas\.consultar|cofre\.download|cofre\.baixar|cofre\.alertas\.ver|cofre\.controles\.ver)$/.test(c)) return 'ver';
     if (/\.(criar|editar|registrar|baixar|estornar|gerar|upload|tratar|reagendar|resolver|importar|enviar|compartilhar|estender|reajustar|usar|analisar_ia)$/.test(c) || /^(cobrar|vitrine|minutas|saidas)\./.test(c)) return 'operar';
     return null; // fora do padrão — mostra "?" e não sugere nada
@@ -274,20 +284,36 @@ function pfRenderMobile() {
     if (!lista) return;
     if (!pfPerfilMobileAtivo) { lista.innerHTML = `<p class="text-xs text-center py-4" style="color:var(--sage)">Nenhum perfil cadastrado ainda.</p>`; return; }
 
-    const protegido = pfPerfilMobileAtivo === 'master';
-    lista.innerHTML = pmFuncionalidades.map(f => {
-        const v = !!pfVinculo(pfPerfilMobileAtivo, f.codigo);
+    const protegido = PF_PERFIS_PROTEGIDOS.includes(pfPerfilMobileAtivo); // v0.13 — master_plataforma também
+    // v0.13.0 — agrupado por ÁREA (mesma lógica da matriz do desktop), com a
+    // faixa por sufixo em cada linha e contagem de divergências por área.
+    const porArea = {};
+    pmFuncionalidades.forEach(f => { const a = f.area || '(sem área)'; (porArea[a] = porArea[a] || []).push(f); });
+    lista.innerHTML = Object.keys(porArea).sort().map(area => {
+        const fechada = pfAreasFechadas.has('m:' + area);
+        const diverg = protegido ? 0 : porArea[area].filter(f => pfRegraDiz(pfPerfilMobileAtivo, f.codigo) !== null && pfRegraDiz(pfPerfilMobileAtivo, f.codigo) !== !!pfVinculo(pfPerfilMobileAtivo, f.codigo)).length;
         return `
-        <div class="p-3 rounded-xl border flex items-center justify-between gap-2" style="border-color:var(--line)">
-            <div class="min-w-0">
-                <div class="flex items-center gap-1.5"><b class="text-xs truncate" style="color:var(--ink)">${pmEsc(f.nome_comercial || f.codigo)}</b>${pfBadgeFaixa(f.codigo)}</div>
-                <div class="text-[10px] truncate font-mono" style="color:var(--sage)">${f.area || ''} · ${f.codigo}</div>
-            </div>
-            <input type="checkbox" ${v ? 'checked' : ''} class="flex-none" ${protegido ? 'disabled title="Perfil master é protegido"' : ''}
-                onchange="pfToggleMobile('${pfPerfilMobileAtivo}','${f.codigo}', this.checked)">
-        </div>`;
+        <button type="button" onclick="pfAlternarAreaMobile('${pmEsc(area)}')" class="w-full flex items-center justify-between py-2 mt-1">
+            <span class="text-[11px] font-bold uppercase tracking-wide" style="color:var(--pine)">${fechada ? '▸' : '▾'} ${pmEsc(area)} <span class="font-normal" style="color:var(--sage)">· ${porArea[area].length}</span></span>
+            ${diverg ? `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background:var(--warning-bg);color:var(--warning)">${diverg} fora da regra</span>` : ''}
+        </button>
+        ${fechada ? '' : porArea[area].map(f => {
+            const v = !!pfVinculo(pfPerfilMobileAtivo, f.codigo);
+            const regra = pfRegraDiz(pfPerfilMobileAtivo, f.codigo);
+            const diverge = !protegido && regra !== null && regra !== v;
+            return `
+            <label class="flex items-center justify-between gap-3 p-3 rounded-xl border-2" style="border-color:${diverge ? 'var(--warning)' : 'var(--line)'};background:${diverge ? 'var(--warning-bg)' : '#fff'}" ${diverge ? `title="Regra sugere: ${regra ? 'liberar' : 'não liberar'}"` : ''}>
+                <div class="min-w-0">
+                    <div class="flex items-center gap-1.5"><b class="text-xs truncate" style="color:var(--ink)">${pmEsc(f.nome_comercial || f.codigo)}</b>${pfBadgeFaixa(f.codigo)}</div>
+                    <div class="text-[10px] truncate font-mono" style="color:var(--sage)">${f.codigo}</div>
+                </div>
+                <input type="checkbox" class="w-5 h-5 flex-none" ${v ? 'checked' : ''} ${protegido ? 'disabled' : ''}
+                    onchange="pfToggleMobile('${pfPerfilMobileAtivo}','${f.codigo}', this.checked)">
+            </label>`;
+        }).join('')}`;
     }).join('');
 }
+function pfAlternarAreaMobile(area) { const k = 'm:' + area; if (pfAreasFechadas.has(k)) pfAreasFechadas.delete(k); else pfAreasFechadas.add(k); pfRenderMobile(); }
 
 async function pfToggleMobile(perfilCodigo, funcCodigo, marcado) {
     await pfToggle(perfilCodigo, funcCodigo, marcado);

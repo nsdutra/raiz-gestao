@@ -33,6 +33,7 @@ const GESTAO_TELAS = [
     { id: 'bot-uso', label: 'Bot · Uso', icone: '🤖', mobilePrimario: false, init: () => telaBotUsoInit() },
     { id: 'comunicacoes', label: 'Comunicações', icone: '📨', mobilePrimario: false, init: () => telaComunicacoesInit() },
     { id: 'suporte', label: 'Suporte', icone: '🎧', mobilePrimario: false, init: () => telaEmConstrucaoInit('Suporte', 'Existe feedback (nota + comentário) real no banco — usado hoje na ficha da empresa e no Cockpit (alerta de nota baixa) — mas ainda não existe um sistema de tickets com prioridade/SLA. Fica para a fase seguinte.') },
+    { id: 'codigo', label: 'Código', icone: '🧩', mobilePrimario: false, init: () => telaCodigoInit() }, // v0.17.0
     { id: 'parametros', label: 'Configurações', icone: '⚙️', mobilePrimario: false, init: () => telaParametrosMasterInit() }
 ];
 

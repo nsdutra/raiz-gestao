@@ -5,9 +5,32 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
-   VERSÃO: v0.16.0
-   LINHAS: 843
+   VERSÃO: v0.17.0
+   LINHAS: 867
    DATA: 2026-09-07
+   TÍTULO: AJUSTES DO NICOLA PÓS-v0.16 — CÓDIGO, COTAS NA FICHA, PERFIS, PREÇO
+   NOVIDADES (v0.17.0):
+     - NOVA tela "Código" (js/telas/codigo.js v1.0.0, botão em Mais): o que
+       está no ar por arquivo — versão, linhas e componentes — do app
+       (versoes.json com `detalhes`), da Gestão (medido ao vivo), da landing
+       (index.html) e do bot (edge_function_versoes; quem não registra
+       aparece como pendência). "O que está no ar" saiu da Saúde.
+     - Empresas (empresas.js v0.13.0): ficha mostra TODAS as cotas do plano
+       (ativos, contratos, controles, IA, MB) com usado × limite contados
+       como app e bot contam — antes "0 / ∞", porque fn_uso_empresa_resumo
+       lia colunas que não existem mais; Adoção agrupada por empresa em
+       ordem de adoção.
+     - Perfis (parametros-perfis.js v0.13.0): mobile agrupado por área com
+       faixa e divergência; 3 códigos sem regra ganharam faixa; master e
+       master_plataforma com todas as capacidades da empresa no banco.
+     - Comercial: preço do Essencial saía "R$ 0,00" porque a oferta-base
+       tinha uma opção "Trial gratuito" R$ 0 sem forma de pagamento vinculada
+       (min(preco) = 0; a landing recebia essa opção primeiro). Vínculo
+       removido e as duas funções passaram a ignorar opção sem forma de
+       pagamento → R$ 69,00. Trial continua pelos 7 dias.
+     - Migration gestao_v0_17_master_tudo_cotas_ficha_oferta_v1 (aplicada).
+   ------------------------------------------------------------------
+   VERSÃO ANTERIOR: v0.16.0 · 2026-09-07
    TÍTULO: REVISÃO PÓS-FATIA 8 (§E) — ENTREGA 2: E.3 COTAS POR TIPO
    NOVIDADES (v0.16.0):
      - E.3 Planos & Limites (parametros-planos.js v0.12.0): seletor do tipo
@@ -572,7 +595,7 @@
 <script>
     // Fonte única da versão exibida na tela — mantida em sincronia com o
     // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
-    const APP_VERSAO = 'v0.16.0';
+    const APP_VERSAO = 'v0.17.0';
 </script>
 
 <!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->
@@ -815,6 +838,7 @@
     <script src="js/telas/comercial.js"></script>
     <script src="js/telas/financeiro.js"></script>
     <script src="js/telas/saude.js"></script>
+    <script src="js/telas/codigo.js"></script>
     <script src="js/telas/parametros-master.js"></script>
     <script src="js/telas/parametros-campanhas.js"></script>
     <script src="js/telas/parametros-planos.js"></script>

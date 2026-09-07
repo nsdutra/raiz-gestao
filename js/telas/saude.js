@@ -1,6 +1,9 @@
 // ============================================================================
 // js/telas/saude.js — Raiz Gestão
 //
+// v0.12.1 (07/09/2026) — "O que está no ar" migrou pra tela Código (pedido do
+// Nicola). sdRenderNoAr fica exportável mas não é mais chamada daqui.
+//
 // v0.12.0 (07/09/2026) — E.5 (revisão pós-fatia 8): seção "O que está no
 // ar" no topo — bot (edge_function_versoes: versão, data, último boot), app
 // (versoes.json publicado em app.raizpatrimonio.com.br, lido sem cache) e
@@ -145,10 +148,8 @@ async function telaSaudeInit() {
             <button onclick="sdCarregar()" class="text-xs font-bold px-3 py-2 rounded-lg text-white" style="background:var(--pine)">Aplicar</button>
         </div>
 
-        <div id="sd-no-ar" class="mb-5"></div>
         <div id="sd-conteudo"></div>
     `;
-    sdRenderNoAr();
 
     sdCarregar();
 }
