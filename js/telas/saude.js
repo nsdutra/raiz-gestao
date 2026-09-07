@@ -1,6 +1,11 @@
 // ============================================================================
 // js/telas/saude.js — Raiz Gestão
 //
+// v0.12.0 (07/09/2026) — E.5 (revisão pós-fatia 8): seção "O que está no
+// ar" no topo — bot (edge_function_versoes: versão, data, último boot), app
+// (versoes.json publicado em app.raizpatrimonio.com.br, lido sem cache) e
+// este Gestão (APP_VERSAO). Responde "o deploy chegou?" sem abrir 3 lugares.
+//
 // v0.11.5 — NOVA seção "IA — real (registro imediato) × log de negócio",
 // pedido explícito do Nicola depois da investigação que achou um gap
 // entre o Console da Anthropic e ia_eventos_log (ver HANDOFF_TOKENS_IA_
@@ -57,6 +62,50 @@
 let sdEmpresas = [];
 let sdPessoas = [];
 
+
+// ----------------------------------------------------------------------------
+// v0.12.0 (E.5) — "O QUE ESTÁ NO AR": bot (edge_function_versoes: versão,
+// data e último boot) + app (versoes.json publicado no site — a mesma
+// fonte que ⚙️ › Versões do app usa como "esperado") + este Gestão
+// (APP_VERSAO). Não mostra o "rodando" do app: isso é por aparelho, só o
+// próprio app consegue medir. Aqui a pergunta é "o deploy chegou?".
+// ----------------------------------------------------------------------------
+const SD_URL_VERSOES_APP = 'https://app.raizpatrimonio.com.br/versoes.json';
+async function sdRenderNoAr() {
+    const el = document.getElementById('sd-no-ar'); if (!el) return;
+    el.innerHTML = `<p class="text-xs" style="color:var(--sage)">Conferindo o que está no ar…</p>`;
+    const [bot, app] = await Promise.all([
+        dbAuth.from('edge_function_versoes').select('funcao, versao, data_versao, ultimo_boot').order('funcao'),
+        fetch(SD_URL_VERSOES_APP + '?v=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))).catch(e => ({ erro: e.message })),
+    ]);
+    const fmtDt = (iso) => iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+    const idade = (iso) => { if (!iso) return ''; const h = (Date.now() - new Date(iso).getTime()) / 36e5; return h < 1 ? 'há menos de 1 h' : h < 48 ? `há ${Math.round(h)} h` : `há ${Math.round(h / 24)} d`; };
+    const linhasBot = (bot.data || []).map(b => `
+        <div class="flex items-center justify-between py-1.5 border-b" style="border-color:var(--line)">
+            <div class="min-w-0"><b class="text-xs" style="color:var(--ink)">${pmEsc(b.funcao)}</b><div class="text-[10px]" style="color:var(--sage)">último boot ${fmtDt(b.ultimo_boot)} · ${idade(b.ultimo_boot)}</div></div>
+            <span class="text-xs font-bold" style="color:var(--pine)">v${pmEsc(b.versao)}</span>
+        </div>`).join('') || `<p class="text-xs" style="color:var(--danger)">${bot.error ? 'Erro: ' + pmEsc(bot.error.message) : 'Nenhuma function registrada.'}</p>`;
+    const arqs = app && app.arquivos ? Object.entries(app.arquivos) : [];
+    const linhasApp = app.erro ? `<p class="text-xs" style="color:var(--danger)">Não consegui ler ${SD_URL_VERSOES_APP}: ${pmEsc(app.erro)}</p>` : `
+        <div class="flex items-center justify-between py-1.5 border-b" style="border-color:var(--line)"><b class="text-xs" style="color:var(--ink)">index.html</b><span class="text-xs font-bold" style="color:var(--pine)">${pmEsc(app.arquivos?.['index.html'] || '—')}</span></div>
+        <details class="mt-1"><summary class="text-[11px] cursor-pointer" style="color:var(--sage)">${arqs.length - 1} módulos · gerado ${pmEsc(app.gerado_em || '')}</summary>
+            ${arqs.filter(([k]) => k !== 'index.html').map(([k, v]) => `<div class="flex justify-between text-[11px] py-0.5"><span class="font-mono" style="color:var(--ink)">${pmEsc(k)}</span><span style="color:var(--sage)">${pmEsc(v)}</span></div>`).join('')}
+        </details>`;
+    el.innerHTML = `
+        <div class="rounded-2xl border-2 p-4" style="border-color:var(--line);background:#fff">
+            <div class="flex items-center justify-between mb-2">
+                <b class="text-sm" style="color:var(--ink)">O que está no ar</b>
+                <button onclick="sdRenderNoAr()" class="text-[11px] font-bold" style="color:var(--pine)">Atualizar</button>
+            </div>
+            <div class="grid md:grid-cols-3 gap-4">
+                <div><p class="text-[10px] font-bold uppercase mb-1" style="color:var(--sage)">🤖 Bot · Edge Functions</p>${linhasBot}</div>
+                <div><p class="text-[10px] font-bold uppercase mb-1" style="color:var(--sage)">📱 App · versoes.json do site</p>${linhasApp}</div>
+                <div><p class="text-[10px] font-bold uppercase mb-1" style="color:var(--sage)">🧭 Este Gestão</p><div class="flex items-center justify-between py-1.5 border-b" style="border-color:var(--line)"><b class="text-xs" style="color:var(--ink)">gestao.raizpatrimonio.com.br</b><span class="text-xs font-bold" style="color:var(--pine)">${typeof APP_VERSAO !== 'undefined' ? APP_VERSAO : '—'}</span></div></div>
+            </div>
+            <p class="text-[10px] mt-2" style="color:var(--sage)">"Esperado" do app = versoes.json publicado (o que o deploy mandou). O "rodando" de cada aparelho só o próprio app mede em ⚙️ › Versões.</p>
+        </div>`;
+}
+
 async function telaSaudeInit() {
     const area = document.getElementById('area-conteudo');
     area.innerHTML = `<p class="text-sm" style="color:var(--sage)">Carregando Saúde...</p>`;
@@ -96,8 +145,10 @@ async function telaSaudeInit() {
             <button onclick="sdCarregar()" class="text-xs font-bold px-3 py-2 rounded-lg text-white" style="background:var(--pine)">Aplicar</button>
         </div>
 
+        <div id="sd-no-ar" class="mb-5"></div>
         <div id="sd-conteudo"></div>
     `;
+    sdRenderNoAr();
 
     sdCarregar();
 }

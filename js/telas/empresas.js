@@ -1,6 +1,12 @@
 // ============================================================================
 // js/telas/empresas.js — Raiz Gestão
 //
+// v0.12.0 (07/09/2026) — E.6 (revisão pós-fatia 8): alerta de WhatsApp
+// repetido no topo da lista de empresas (gestao.fn_telefones_duplicados,
+// nova). Vermelho = mesmo número em 2 pessoas da MESMA empresa (o bot
+// resolve pela primeira que acha — caso Nick × Nicola); cinza recolhido =
+// mesma pessoa em 2 empresas (esperado; o bot pergunta qual).
+//
 // v0.11.0:
 //   - Lista de empresas passou a mostrar quantidade de pessoas cadastradas
 //     (gestao.fn_lista_empresas() ganhou qtd_pessoas — requer
@@ -70,9 +76,35 @@ function edRenderListaEmpresas() {
         <input type="text" id="empresas-busca" placeholder="Buscar empresa, cidade..."
             oninput="empresasRenderLista()"
             class="w-full p-3 border-2 rounded-xl text-sm mb-4" style="border-color:var(--line)">
+        <div id="empresas-telefones-dup" class="mb-3"></div>
         <div id="empresas-lista" class="space-y-2"></div>
     `;
     empresasRenderLista();
+    edRenderTelefonesDuplicados();
+}
+
+// ----------------------------------------------------------------------------
+// v0.12.0 (E.6) — mesmo WhatsApp em mais de uma pessoa. Caso real: Nick ×
+// Nicola na Eita — o bot resolve pela primeira que acha, então a pessoa
+// errada "atende". gestao.fn_telefones_duplicados() (migration 07/09,
+// master-only) devolve os números repetidos; aqui separo o que é grave
+// (mesma empresa: o bot escolhe às cegas) do que é só informação (a mesma
+// pessoa em 2 empresas: o bot já pergunta "qual empresa?").
+// ----------------------------------------------------------------------------
+async function edRenderTelefonesDuplicados() {
+    const el = document.getElementById('empresas-telefones-dup'); if (!el) return;
+    const { data, error } = await dbAuth.schema('gestao').rpc('fn_telefones_duplicados');
+    if (error) { el.innerHTML = `<p class="text-[11px]" style="color:var(--danger)">Telefones duplicados: ${pmEsc(error.message)}</p>`; return; }
+    const porTel = {};
+    (data || []).forEach(r => (porTel[r.whatsapp] = porTel[r.whatsapp] || []).push(r));
+    const graves = Object.entries(porTel).filter(([, ps]) => ps.some(p => p.mesma_empresa));
+    const leves = Object.entries(porTel).filter(([, ps]) => !ps.some(p => p.mesma_empresa));
+    if (!graves.length && !leves.length) { el.innerHTML = ''; return; }
+    const fmtTel = (t) => t.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, '+55 ($1) $2-$3');
+    const linha = (tel, ps) => `<div class="text-[11px] py-1" style="color:var(--ink)"><b>${fmtTel(tel)}</b> → ${ps.map(p => `${pmEsc(p.nome)} <span style="color:var(--sage)">(${pmEsc(p.perfil || '—')} · ${pmEsc(p.nome_empresa)})</span>`).join(' · ')}</div>`;
+    el.innerHTML = `
+        ${graves.length ? `<div class="p-3 rounded-xl mb-2" style="background:var(--danger-bg)"><p class="text-xs font-bold" style="color:var(--danger)">⚠️ ${graves.length} número(s) em duas pessoas da MESMA empresa — o bot atende pela primeira que achar</p>${graves.map(([t, ps]) => linha(t, ps)).join('')}<p class="text-[10px] mt-1" style="color:var(--sage)">Corrija no app da empresa (⚙️ › Pessoas): cada pessoa com o próprio WhatsApp.</p></div>` : ''}
+        ${leves.length ? `<details class="p-3 rounded-xl" style="background:var(--paper)"><summary class="text-xs cursor-pointer" style="color:var(--sage)">${leves.length} número(s) em mais de uma empresa (normal — o bot pergunta a empresa)</summary>${leves.map(([t, ps]) => linha(t, ps)).join('')}</details>` : ''}`;
 }
 
 function empresasRenderLista() {

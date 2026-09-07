@@ -1,6 +1,15 @@
 // ============================================================================
 // js/telas/parametros-master.js — Raiz Gestão
 //
+// v0.9.0 (07/09/2026) — E.1 (revisão pós-fatia 8): Catálogo › Funcionalidades
+// reescrito pra falar a língua do app e do bot: agrupado por ÁREA (não por
+// módulo), cada linha com o NOME COMERCIAL em destaque e o código embaixo;
+// aviso no topo com as que estão sem nome comercial (aparecem pelo código
+// pro cliente); busca por código/nome/área; formulário ganhou nome
+// comercial (obrigatório), descrição comercial e tipo (passiva /
+// conversacional / proativa) — colunas que já existiam em `funcionalidades`
+// e a tela ignorava.
+//
 // v0.8.1 — ROUTER. Deixou de ser um conjunto de 6 sub-abas soltas e virou
 // o roteador de 4 áreas (pacote de parametrização do prompt v0.8.1):
 //   Campanhas & Landing → js/telas/parametros-campanhas.js (wizard)
@@ -308,39 +317,47 @@ function pmRenderFuncionalidades() {
     const c = document.getElementById('pm-conteudo-subaba');
     pmFuncEditCodigo = null;
 
-    const porModulo = {};
-    pmFuncionalidades.forEach(f => {
-        const chave = f.tipo_modulo_id || '__sem_modulo__';
-        (porModulo[chave] = porModulo[chave] || []).push(f);
-    });
-    const nomeModulo = (id) => id === '__sem_modulo__' ? 'Sem módulo definido' : (pmModulos.find(m => m.id === id)?.nome || '(módulo removido)');
+    // v0.9.0 (E.1) — agrupado por ÁREA (o vocabulário que app e bot usam
+    // pra gate e log), com módulo como etiqueta. Cada linha mostra o
+    // nome_comercial em destaque — é o rótulo que aparece pro cliente no
+    // app (cadeado com motivo) e no bot (linha de menu) — e o código embaixo.
+    const termo = (pmFuncFiltroTermo || '').toLowerCase();
+    const lista = pmFuncionalidades.filter(f => !termo || [f.codigo, f.nome_comercial, f.descricao, f.area].join(' ').toLowerCase().includes(termo));
+    const porArea = {};
+    lista.forEach(f => { (porArea[f.area || '(sem área)'] = porArea[f.area || '(sem área)'] || []).push(f); });
+    const nomeModulo = (id) => id ? (pmModulos.find(m => m.id === id)?.nome || '(módulo removido)') : '';
+    const semNome = pmFuncionalidades.filter(f => f.ativo && !(f.nome_comercial || '').trim());
+    const tipoBadge = (t) => t === 'proativa' ? '📣' : t === 'conversacional' ? '💬' : '';
 
     c.innerHTML = `
-        <div class="flex items-center justify-between mb-3">
-            <p class="text-xs" style="color:var(--sage)">Toda ação/tela que pode ser ligada a um plano ou perfil</p>
+        <div class="flex items-center justify-between mb-3 gap-2">
+            <p class="text-xs" style="color:var(--sage)">${pmFuncionalidades.length} capacidades em ${Object.keys(porArea).length} áreas. O <b>nome comercial</b> é o que app e bot mostram.</p>
             ${pmBotaoToggle('func-form', "pmAbrirNovaFuncionalidade()")}
         </div>
+        ${semNome.length ? `<div class="mb-3 p-3 rounded-xl text-xs" style="background:var(--warning-bg);color:var(--warning)"><b>${semNome.length} sem nome comercial</b> — aparecem pelo código no app e no bot: ${semNome.map(f => f.codigo).join(', ')}</div>` : ''}
+        <input type="search" id="pm-func-busca" value="${pmEsc(pmFuncFiltroTermo || '')}" placeholder="Filtrar por código, nome ou área…" oninput="pmFuncFiltroTermo=this.value;pmRenderFuncionalidades();document.getElementById('pm-func-busca').focus()" class="w-full p-2 border rounded-lg text-sm mb-3">
         <div id="form-func-form-wrapper" class="hidden mb-4">${pmFormFuncionalidade()}</div>
-        ${Object.keys(porModulo).sort((a, b) => nomeModulo(a).localeCompare(nomeModulo(b))).map(chave => `
-            <p class="text-[10px] font-bold uppercase tracking-wide mt-4 mb-1.5" style="color:var(--sage)">${nomeModulo(chave)}</p>
+        ${Object.keys(porArea).sort().map(area => `
+            <p class="text-[10px] font-bold uppercase tracking-wide mt-4 mb-1.5" style="color:var(--sage)">${pmEsc(area)} <span class="font-normal">· ${porArea[area].length}</span></p>
             <div class="space-y-1.5">
-                ${porModulo[chave].map(f => `
+                ${porArea[area].map(f => `
                     <div class="flex items-center justify-between bg-slate-50 px-3 py-2 rounded-xl border-2 border-slate-300 cursor-pointer" onclick="pmAbrirEdicaoFuncionalidade('${f.codigo}')">
                         <div class="min-w-0 flex-1 pr-2">
-                            <p class="text-sm font-medium truncate" style="color:var(--ink)">${f.codigo}</p>
-                            <p class="text-xs truncate" style="color:var(--sage)">${f.descricao}</p>
+                            <p class="text-sm font-medium truncate" style="color:var(--ink)">${pmEsc(f.nome_comercial || '') || '<span style="color:var(--warning)">(sem nome comercial)</span>'} ${tipoBadge(f.tipo)}</p>
+                            <p class="text-[11px] truncate font-mono" style="color:var(--sage)">${f.codigo}${f.tipo_modulo_id ? ' · ' + pmEsc(nomeModulo(f.tipo_modulo_id)) : ''}</p>
                         </div>
                         <div class="flex items-center gap-2 flex-none">
-                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background:${f.ativo ? 'var(--success-bg)' : 'var(--danger-bg)'};color:${f.ativo ? 'var(--success)' : 'var(--danger)'}">${f.ativo ? 'ativo' : 'inativo'}</span>
+                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background:${f.ativo ? 'var(--success-bg)' : 'var(--danger-bg)'};color:${f.ativo ? 'var(--success)' : 'var(--danger)'}">${f.ativo ? 'Ativa' : 'Inativa'}</span>
                             ${pmIconeEditar()}
                             <button onclick="event.stopPropagation();pmExcluirFuncionalidade('${f.codigo}','${pmEsc(f.codigo)}')" title="Excluir">${pmIconeExcluir()}</button>
                         </div>
                     </div>
                 `).join('')}
             </div>
-        `).join('') || pmVazio('Nenhuma funcionalidade cadastrada ainda.')}
+        `).join('') || pmVazio('Nenhuma capacidade encontrada.')}
     `;
 }
+let pmFuncFiltroTermo = '';
 
 function pmFormFuncionalidade() {
     return `
@@ -361,8 +378,25 @@ function pmFormFuncionalidade() {
                 <input type="text" id="pm-func-area" required placeholder="ex.: imoveis" class="w-full p-2 border rounded mt-1 text-sm">
             </div>
             <div>
-                <label class="block text-xs font-bold text-gray-600">Descrição <span style="color:var(--danger)">*</span></label>
+                <label class="block text-xs font-bold text-gray-600">Nome comercial <span style="color:var(--danger)">*</span></label>
+                <input type="text" id="pm-func-nome-comercial" required placeholder="ex.: Dar baixa em aluguel" class="w-full p-2 border rounded mt-1 text-sm">
+                <p class="text-[10px] mt-1" style="color:var(--sage)">É o rótulo que o cliente vê: no app (cadeado com motivo, ⋮, ⚙️) e no bot (linha de menu). Sentence case, sem jargão.</p>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-gray-600">Descrição comercial</label>
+                <input type="text" id="pm-func-descricao-comercial" placeholder="1 linha, aparece embaixo do nome no bot" class="w-full p-2 border rounded mt-1 text-sm">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-gray-600">Descrição técnica <span style="color:var(--danger)">*</span></label>
                 <input type="text" id="pm-func-descricao" required class="w-full p-2 border rounded mt-1 text-sm">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-gray-600">Tipo</label>
+                <select id="pm-func-tipo" class="w-full p-2 border rounded mt-1 text-sm">
+                    <option value="passiva">Passiva (o usuário aciona)</option>
+                    <option value="conversacional">Conversacional (fluxo no bot)</option>
+                    <option value="proativa">Proativa (o sistema avisa)</option>
+                </select>
             </div>
             <label class="flex items-center gap-2 text-sm">
                 <input type="checkbox" id="pm-func-ativo" checked>
@@ -382,6 +416,9 @@ function pmAbrirNovaFuncionalidade() {
     document.getElementById('pm-func-modulo').value = '';
     document.getElementById('pm-func-area').value = '';
     document.getElementById('pm-func-descricao').value = '';
+    document.getElementById('pm-func-nome-comercial').value = '';
+    document.getElementById('pm-func-descricao-comercial').value = '';
+    document.getElementById('pm-func-tipo').value = 'passiva';
     document.getElementById('pm-func-ativo').checked = true;
     document.getElementById('pm-func-btn-salvar').textContent = 'Salvar funcionalidade';
 }
@@ -397,6 +434,9 @@ function pmAbrirEdicaoFuncionalidade(codigo) {
     document.getElementById('pm-func-modulo').value = f.tipo_modulo_id || '';
     document.getElementById('pm-func-area').value = f.area || '';
     document.getElementById('pm-func-descricao').value = f.descricao || '';
+    document.getElementById('pm-func-nome-comercial').value = f.nome_comercial || '';
+    document.getElementById('pm-func-descricao-comercial').value = f.descricao_comercial || '';
+    document.getElementById('pm-func-tipo').value = f.tipo || 'passiva';
     document.getElementById('pm-func-ativo').checked = !!f.ativo;
     document.getElementById('pm-func-btn-salvar').textContent = 'Salvar alterações';
     wrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -407,11 +447,14 @@ async function pmSalvarFuncionalidade() {
     const tipo_modulo_id = document.getElementById('pm-func-modulo').value || null;
     const area = document.getElementById('pm-func-area').value.trim();
     const descricao = document.getElementById('pm-func-descricao').value.trim();
+    const nome_comercial = document.getElementById('pm-func-nome-comercial').value.trim();
+    const descricao_comercial = document.getElementById('pm-func-descricao-comercial').value.trim() || null;
+    const tipo = document.getElementById('pm-func-tipo').value || 'passiva';
     const ativo = document.getElementById('pm-func-ativo').checked;
     const status = document.getElementById('pm-func-status');
-    if (!codigo || !area || !descricao) { status.textContent = 'Preencha código, área e descrição.'; return; }
+    if (!codigo || !area || !descricao || !nome_comercial) { status.textContent = 'Preencha código, área, nome comercial e descrição.'; return; }
 
-    const payload = { area, descricao, ativo, tipo_modulo_id };
+    const payload = { area, descricao, ativo, tipo_modulo_id, nome_comercial, descricao_comercial, tipo };
     const { error } = pmFuncEditCodigo
         ? await dbAuth.from('funcionalidades').update(payload).eq('codigo', pmFuncEditCodigo)
         : await dbAuth.from('funcionalidades').insert({ codigo, ...payload });

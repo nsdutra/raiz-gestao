@@ -1,6 +1,17 @@
 // ============================================================================
 // js/telas/parametros-perfis.js — Raiz Gestão
 //
+// v0.12.0 (07/09/2026) — E.2 (revisão pós-fatia 8): a matriz virou a tela
+// da REGRA DE PRODUTO. Linhas agrupadas por área (recolhíveis), cada uma
+// com o nome comercial e a faixa pela regra de sufixo (Ver / Operar /
+// Administrar / Zona vermelha / Plataforma / Proativa — PERFIS_E_ACESSOS
+// v1.0 §3, pfFaixaDe). Célula que diverge da regra fica âmbar com tooltip
+// do que a regra sugere; cabeçalho da área conta as divergências e tem
+// "Aplicar regra" (só as divergências, com confirmação e lista do que
+// muda; master e master_plataforma nunca são tocados — agora os DOIS são
+// protegidos na célula, antes só master). A caixa "Regra de autorização
+// proposta" virou a legenda das faixas. Mobile mostra faixa e área.
+//
 // v0.11.0 — Editar/excluir perfil (só existia criar, desde v0.10.0). Ícone
 // de editar/excluir por perfil: desktop no cabeçalho da matriz, mobile numa
 // linha abaixo das abas (mesmo padrão usado em Planos & Limites nesta
@@ -38,6 +49,65 @@
 
 const PF_PERFIS_PROTEGIDOS = ['master', 'master_plataforma'];
 
+
+// ----------------------------------------------------------------------------
+// v0.12.0 (E.2) — REGRA POR SUFIXO (PERFIS_E_ACESSOS_RAIZ v1.0 §3). A faixa
+// de cada código é consequência do verbo, não um campo. A matriz mostra a
+// faixa de cada linha, pinta a célula que DIVERGE da regra e oferece
+// "Aplicar regra" por área — é onde o Nicola faz o ajuste fino.
+// ----------------------------------------------------------------------------
+const PF_FAIXAS = {
+    ver:        { rotulo: 'Ver',           cor: 'var(--info)',    perfis: ['consulta', 'operador', 'admin', 'master', 'master_plataforma'] },
+    operar:     { rotulo: 'Operar',        cor: 'var(--success)', perfis: ['operador', 'admin', 'master', 'master_plataforma'] },
+    administrar:{ rotulo: 'Administrar',   cor: 'var(--warning)', perfis: ['admin', 'master', 'master_plataforma'] },
+    vermelha:   { rotulo: 'Zona vermelha', cor: 'var(--danger)',  perfis: ['master', 'master_plataforma'] },
+    plataforma: { rotulo: 'Plataforma',    cor: 'var(--ink)',     perfis: ['master_plataforma'] },
+    proativa:   { rotulo: 'Proativa',      cor: 'var(--sage)',    perfis: [] },
+    cota:       { rotulo: 'Cota técnica',  cor: 'var(--sage)',    perfis: ['consulta', 'operador', 'admin', 'master', 'master_plataforma'] },
+};
+function pfFaixaDe(codigo) {
+    const c = codigo || '';
+    if (/^(plataforma|gestao)\./.test(c)) return 'plataforma';
+    if (/^alertar\./.test(c)) return 'proativa';
+    if (c === 'storage.usar') return 'cota';
+    if (/^(dev\.|dados\.(limpar|apagar)|licenca\.editar)/.test(c)) return 'vermelha';
+    if (/\.excluir$/.test(c) || /^pessoas\./.test(c) || /^parametros\./.test(c) || /^(cofre\.(categorias|auditoria|ver_restrito|controles\.desativar)|imoveis\.divisao|repasses\.excluir)$/.test(c)) return 'administrar';
+    if (/\.ver$/.test(c) || /^relatorios\./.test(c) || /^(alertas\.consultar|cofre\.download|cofre\.baixar|cofre\.alertas\.ver|cofre\.controles\.ver)$/.test(c)) return 'ver';
+    if (/\.(criar|editar|registrar|baixar|estornar|gerar|upload|tratar|reagendar|resolver|importar|enviar|compartilhar|estender|reajustar|usar|analisar_ia)$/.test(c) || /^(cobrar|vitrine|minutas|saidas)\./.test(c)) return 'operar';
+    return null; // fora do padrão — mostra "?" e não sugere nada
+}
+function pfBadgeFaixa(codigo) {
+    const k = pfFaixaDe(codigo); const f = k ? PF_FAIXAS[k] : null;
+    return f ? `<span class="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style="border:1px solid ${f.cor};color:${f.cor}" title="Faixa pela regra de sufixo">${f.rotulo}</span>`
+             : `<span class="text-[9px] px-1.5 py-0.5 rounded-full" style="border:1px dashed var(--sage);color:var(--sage)" title="Código fora do padrão de sufixo — sem regra">?</span>`;
+}
+/** true/false/null (null = sem regra) */
+function pfRegraDiz(perfilCodigo, funcCodigo) {
+    const k = pfFaixaDe(funcCodigo); if (!k) return null;
+    return PF_FAIXAS[k].perfis.includes(perfilCodigo);
+}
+let pfAreasFechadas = new Set();
+function pfAlternarArea(area) { if (pfAreasFechadas.has(area)) pfAreasFechadas.delete(area); else pfAreasFechadas.add(area); pfRenderizar(); }
+async function pfAplicarRegraArea(area) {
+    const funcs = pmFuncionalidades.filter(f => (f.area || '(sem área)') === area);
+    const mudancas = [];
+    for (const f of funcs) for (const p of pmPerfis) {
+        if (PF_PERFIS_PROTEGIDOS.includes(p.codigo)) continue;
+        const regra = pfRegraDiz(p.codigo, f.codigo); if (regra === null) continue;
+        if (regra !== !!pfVinculo(p.codigo, f.codigo)) mudancas.push({ perfil: p.codigo, func: f.codigo, ativo: regra });
+    }
+    if (!mudancas.length) { alert('Área "' + area + '" já está igual à regra.'); return; }
+    const resumo = mudancas.map(m => `${m.ativo ? '+' : '−'} ${m.perfil} · ${m.func}`).join('\n');
+    if (!confirm(`Aplicar a regra de sufixo em "${area}"?\n\n${mudancas.length} mudança(s):\n${resumo}\n\nmaster e master_plataforma não são tocados.`)) return;
+    for (const m of mudancas) {
+        const { error } = await dbAuth.schema('gestao').rpc('fn_definir_perfil_funcionalidade', { p_perfil_codigo: m.perfil, p_funcionalidade_codigo: m.func, p_ativo: m.ativo });
+        if (error) { alert(`Parou em ${m.perfil} · ${m.func}: ${error.message}`); break; }
+        if (m.ativo) pmPerfilFuncionalidade.push({ perfil_codigo: m.perfil, funcionalidade_codigo: m.func });
+        else { const i = pmPerfilFuncionalidade.findIndex(x => x.perfil_codigo === m.perfil && x.funcionalidade_codigo === m.func); if (i >= 0) pmPerfilFuncionalidade.splice(i, 1); }
+    }
+    pfRenderizar(); pfRenderMobile();
+}
+
 async function parametrosPerfisInit() {
     const c = document.getElementById('pm-conteudo-area');
 
@@ -73,14 +143,9 @@ async function parametrosPerfisInit() {
         </div>
 
         <div class="p-4 rounded-2xl border-2" style="border-color:var(--line);background:#fff">
-            <div class="flex items-start gap-3">
-                <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-none" style="background:var(--info-bg);color:var(--info)">🛡️</div>
-                <div>
-                    <b class="text-sm" style="color:var(--ink)">Regra de autorização proposta</b>
-                    <p class="text-xs mt-1" style="color:var(--sage)">A UI deve liberar a ação somente se <b>plano contém a funcionalidade</b> E <b>perfil contém a funcionalidade</b>. Segurança real continua no banco/RPC/RLS; esconder botão não é controle de segurança.</p>
-                    <p class="text-xs mt-2" style="color:var(--warning)"><b>Observação (mantida desde a rodada anterior):</b> a função pública tem_acesso() hoje confere só o lado do perfil (perfil_funcionalidade) — não confere se o plano da empresa também tem a funcionalidade. Não alteramos essa função (é usada pelo app de Imóveis, fora do escopo do Gestão); fica registrado aqui pra decisão futura.</p>
-                </div>
-            </div>
+            <b class="text-sm" style="color:var(--ink)">Regra por sufixo (PERFIS_E_ACESSOS v1.0 §3)</b>
+            <p class="text-xs mt-1" style="color:var(--sage)">A faixa vem do verbo do código: <b>Ver</b> (*.ver, relatorios.*, alertas.consultar, cofre.download) → todos · <b>Operar</b> (*.criar/editar/registrar/baixar/estornar/gerar/upload/tratar…, cobrar.*, vitrine.*, minutas.*, saidas.*, ia.usar) → operador+ · <b>Administrar</b> (*.excluir, pessoas.*, parametros.*, cofre.categorias/auditoria/ver_restrito) → admin+ · <b>Zona vermelha</b> (dev.*, dados.limpar/apagar, licenca.editar) → master · <b>Plataforma</b> (plataforma.*, gestao.*) → master_plataforma · <b>Proativa</b> (alertar.*) → sem perfil.</p>
+            <p class="text-xs mt-2" style="color:var(--sage)">Célula com fundo âmbar = está diferente da regra (passe o mouse pra ver o que a regra sugere). "Aplicar regra" na área grava só as divergências, com confirmação; master e master_plataforma nunca são tocados.</p>
         </div>
     `;
 
@@ -215,8 +280,8 @@ function pfRenderMobile() {
         return `
         <div class="p-3 rounded-xl border flex items-center justify-between gap-2" style="border-color:var(--line)">
             <div class="min-w-0">
-                <b class="text-xs" style="color:var(--ink)">${f.codigo}</b>
-                <div class="text-[10px] truncate" style="color:var(--sage)">${f.nome_comercial || f.descricao}</div>
+                <div class="flex items-center gap-1.5"><b class="text-xs truncate" style="color:var(--ink)">${pmEsc(f.nome_comercial || f.codigo)}</b>${pfBadgeFaixa(f.codigo)}</div>
+                <div class="text-[10px] truncate font-mono" style="color:var(--sage)">${f.area || ''} · ${f.codigo}</div>
             </div>
             <input type="checkbox" ${v ? 'checked' : ''} class="flex-none" ${protegido ? 'disabled title="Perfil master é protegido"' : ''}
                 onchange="pfToggleMobile('${pfPerfilMobileAtivo}','${f.codigo}', this.checked)">
@@ -265,15 +330,34 @@ function pfRenderizar() {
                 </tr>
             </thead>
             <tbody>
-                ${pmFuncionalidades.map(f => `
-                    <tr>
-                        <td class="sticky left-0 bg-white p-2 border-b" style="border-color:var(--line)">
-                            <b style="color:var(--ink)">${f.codigo}</b>
-                            <div class="text-[9px]" style="color:var(--sage)">${f.nome_comercial || f.descricao}</div>
-                        </td>
-                        ${perfis.map(p => pfCelula(p.codigo, f.codigo)).join('')}
-                    </tr>
-                `).join('')}
+                ${(() => {
+                    const porArea = {};
+                    pmFuncionalidades.forEach(f => { const a = f.area || '(sem área)'; (porArea[a] = porArea[a] || []).push(f); });
+                    return Object.keys(porArea).sort().map(area => {
+                        const fechada = pfAreasFechadas.has(area);
+                        const diverg = porArea[area].reduce((n, f) => n + perfis.filter(p => !PF_PERFIS_PROTEGIDOS.includes(p.codigo) && pfRegraDiz(p.codigo, f.codigo) !== null && pfRegraDiz(p.codigo, f.codigo) !== !!pfVinculo(p.codigo, f.codigo)).length, 0);
+                        return `
+                        <tr style="background:var(--paper)">
+                            <td colspan="${perfis.length + 1}" class="p-2 border-b" style="border-color:var(--line)">
+                                <div class="flex items-center justify-between gap-2">
+                                    <button type="button" onclick="pfAlternarArea('${pmEsc(area)}')" class="text-[11px] font-bold uppercase tracking-wide" style="color:var(--pine)">${fechada ? '▸' : '▾'} ${pmEsc(area)} <span class="font-normal" style="color:var(--sage)">· ${porArea[area].length}</span></button>
+                                    <span class="flex items-center gap-2">
+                                        ${diverg ? `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background:var(--warning-bg);color:var(--warning)">${diverg} fora da regra</span>` : `<span class="text-[10px]" style="color:var(--success)">igual à regra</span>`}
+                                        ${diverg ? `<button type="button" onclick="pfAplicarRegraArea('${pmEsc(area)}')" class="text-[10px] font-bold px-2 py-0.5 rounded-full text-white" style="background:var(--pine)">Aplicar regra</button>` : ''}
+                                    </span>
+                                </div>
+                            </td>
+                        </tr>
+                        ${fechada ? '' : porArea[area].map(f => `
+                        <tr>
+                            <td class="sticky left-0 bg-white p-2 border-b" style="border-color:var(--line)">
+                                <div class="flex items-center gap-2"><b style="color:var(--ink)">${pmEsc(f.nome_comercial || f.codigo)}</b>${pfBadgeFaixa(f.codigo)}</div>
+                                <div class="text-[9px] font-mono" style="color:var(--sage)">${f.codigo}</div>
+                            </td>
+                            ${perfis.map(p => pfCelula(p.codigo, f.codigo)).join('')}
+                        </tr>`).join('')}`;
+                    }).join('');
+                })()}
             </tbody>
         </table>
     `;
@@ -281,9 +365,11 @@ function pfRenderizar() {
 
 function pfCelula(perfilCodigo, funcCodigo) {
     const v = !!pfVinculo(perfilCodigo, funcCodigo);
-    const protegido = perfilCodigo === 'master';
+    const protegido = PF_PERFIS_PROTEGIDOS.includes(perfilCodigo);
+    const regra = pfRegraDiz(perfilCodigo, funcCodigo);
+    const diverge = !protegido && regra !== null && regra !== v;
     return `
-        <td class="p-2 border-b text-center" style="border-color:var(--line)">
+        <td class="p-2 border-b text-center" style="border-color:var(--line)${diverge ? ';background:var(--warning-bg)' : ''}" ${diverge ? `title="Regra sugere: ${regra ? 'liberar' : 'não liberar'}"` : ''}>
             <input type="checkbox" ${v ? 'checked' : ''} ${protegido ? 'disabled title="Perfil master é protegido — não editável pela UI"' : ''}
                 onchange="pfToggle('${perfilCodigo}','${funcCodigo}', this.checked)">
         </td>
@@ -291,7 +377,7 @@ function pfCelula(perfilCodigo, funcCodigo) {
 }
 
 async function pfToggle(perfilCodigo, funcCodigo, marcado) {
-    if (perfilCodigo === 'master') return; // proteção extra, além do disabled no input
+    if (PF_PERFIS_PROTEGIDOS.includes(perfilCodigo)) return; // proteção extra, além do disabled no input
 
     // v0.10.0 — public.perfil_funcionalidade só teve policy de SELECT desde
     // sempre (nunca teve GRANT de INSERT/DELETE, nem pra authenticated nem
