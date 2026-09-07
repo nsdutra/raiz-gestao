@@ -5,9 +5,25 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
-   VERSÃO: v0.15.0
-   LINHAS: 827
+   VERSÃO: v0.16.0
+   LINHAS: 843
    DATA: 2026-09-07
+   TÍTULO: REVISÃO PÓS-FATIA 8 (§E) — ENTREGA 2: E.3 COTAS POR TIPO
+   NOVIDADES (v0.16.0):
+     - E.3 Planos & Limites (parametros-planos.js v0.12.0): seletor do tipo
+       de cota por funcionalidade (mensal / teto de estoque / MB usados —
+       funcionalidades.cota_tipo, aprovada pelo Nicola em 07/09) e texto de
+       aviso ao atingir por plano. No banco (migration e3_cota_tipo_e_uso_
+       por_tipo_v1): fn_uso_funcionalidade conta por tipo e passou a ser a
+       ÚNICA contagem dos gates (fn_funcionalidades_liberadas do app e
+       fn_checar_funcionalidade do bot). Antes tudo era log_acessos do
+       mês: cota de IA nunca debitava, estoque virava "criados no mês",
+       storage contava linhas. Agora: ia.usar lê ia_eventos_log (Gemini e
+       Claude = 1 uso cada); ativos/contratos/controles contam o que existe;
+       storage soma MB. Conferido: Rumo 49/50 ativos → avisar=true.
+     - E.4 (uso por código canônico/canal) fica pra próxima.
+   ------------------------------------------------------------------
+   VERSÃO ANTERIOR: v0.15.0 · 2026-09-07
    TÍTULO: REVISÃO PÓS-FATIA 8 (PENDÊNCIAS §E) — ENTREGA 1 DE 2: E.1, E.2, E.5, E.6
    NOVIDADES (v0.15.0):
      - E.1 Catálogo › Funcionalidades (parametros-master.js v0.9.0): agrupado
@@ -556,7 +572,7 @@
 <script>
     // Fonte única da versão exibida na tela — mantida em sincronia com o
     // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
-    const APP_VERSAO = 'v0.15.0';
+    const APP_VERSAO = 'v0.16.0';
 </script>
 
 <!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->

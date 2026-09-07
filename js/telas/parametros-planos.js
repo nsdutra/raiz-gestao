@@ -1,6 +1,13 @@
 // ============================================================================
 // js/telas/parametros-planos.js — Raiz Gestão
 //
+// v0.12.0 (07/09/2026) — E.3 (cotas): linha da funcionalidade mostra o nome
+// comercial e um seletor do TIPO DE COTA (mensal / teto de estoque / MB
+// usados → funcionalidades.cota_tipo, nova); célula ganhou o texto de
+// aviso ao atingir (plano_funcionalidade.aviso_padrao_funcionalidade, que
+// já existia e a tela não mostrava). Requer migration
+// e3_cota_tipo_e_uso_por_tipo_v1 (aplicada 07/09).
+//
 // v0.11.0 — matriz ganhou ícone de editar/excluir por plano (desktop: no
 // cabeçalho da coluna; mobile: linha abaixo das abas, pro plano ativo).
 // pmAbrirEdicaoPlano()/pmExcluirPlano() (parametros-master.js) JÁ EXISTIAM
@@ -213,8 +220,13 @@ function ppRenderizar() {
                     ${g.itens.map(f => `
                         <tr>
                             <td class="sticky left-0 bg-white p-2 border-b align-top" style="border-color:var(--line)">
-                                <b style="color:var(--ink)">${f.codigo}</b>
-                                <div class="text-[9px]" style="color:var(--sage)">${f.nome_comercial || f.descricao}</div>
+                                <b style="color:var(--ink)">${pmEsc(f.nome_comercial || f.codigo)}</b>
+                                <div class="text-[9px] font-mono" style="color:var(--sage)">${f.codigo}</div>
+                                <select onchange="ppAtualizarCotaTipo('${f.codigo}', this.value)" title="Como a cota é contada (E.3)" class="mt-1 p-0.5 border rounded text-[10px]" style="color:${f.cota_tipo === 'mensal' ? 'var(--sage)' : 'var(--pine)'}">
+                                    <option value="mensal" ${(f.cota_tipo || 'mensal') === 'mensal' ? 'selected' : ''}>cota mensal</option>
+                                    <option value="estoque" ${f.cota_tipo === 'estoque' ? 'selected' : ''}>teto de estoque</option>
+                                    <option value="bytes" ${f.cota_tipo === 'bytes' ? 'selected' : ''}>MB usados</option>
+                                </select>
                             </td>
                             ${planosOrdenados.map(p => ppCelula(p.codigo, f.codigo)).join('')}
                         </tr>
@@ -253,9 +265,22 @@ function ppCelula(planoCodigo, funcCodigo) {
                     <option value="">upsell —</option>
                     ${pmPlanos.map(p2 => `<option value="${p2.codigo}" ${v?.id_oferta_upsell === p2.codigo ? 'selected' : ''}>${p2.descricao}</option>`).join('')}
                 </select>
+                <textarea rows="2" placeholder="aviso ao atingir (texto que o cliente lê no app/bot; vazio = padrão)" onchange="ppAtualizarCampo('${planoCodigo}','${funcCodigo}','aviso_padrao_funcionalidade', this.value.trim() || null)" class="w-full p-1 border rounded text-[11px]">${pmEsc(v?.aviso_padrao_funcionalidade || '')}</textarea>
             </div>
         </td>
     `;
+}
+
+// v0.12.0 (E.3) — tipo de cota vive em funcionalidades.cota_tipo (coluna
+// aprovada 07/09) e é lido por fn_uso_funcionalidade, que alimenta os dois
+// gates (porta única do app e núcleo do bot). Mudar aqui muda a contagem
+// na hora: "mensal" = eventos do mês (ia.usar lê ia_eventos_log — Gemini e
+// Claude contam 1 cada), "estoque" = o que existe, "MB usados" = Storage.
+async function ppAtualizarCotaTipo(funcCodigo, valor) {
+    const { error } = await dbAuth.from('funcionalidades').update({ cota_tipo: valor }).eq('codigo', funcCodigo);
+    if (error) { alert('Erro ao mudar o tipo de cota: ' + error.message); return; }
+    const f = pmFuncionalidades.find(x => x.codigo === funcCodigo); if (f) f.cota_tipo = valor;
+    ppRenderizar();
 }
 
 async function ppToggle(planoCodigo, funcCodigo, marcado) {
