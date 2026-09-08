@@ -1,6 +1,11 @@
 // ============================================================================
 // js/telas/empresas.js — Raiz Gestão
 //
+// v0.14.0 (07/09/2026) — "Trocar plano" na ficha da empresa (fn_definir_
+// licenca, nova): agora dá pra criar/atribuir a licença de um cliente 100%
+// pelo app (ex.: atrelar um plano novo — Premium — a um cliente específico),
+// sem precisar de SQL manual.
+//
 // v0.13.0 (07/09/2026) — pedidos do Nicola após a v0.16.0:
 //   - Ficha › Uso & Consumo mostrava "0 / ∞" e "0 ações": fn_uso_empresa_resumo
 //     lia licencas.limite_imoveis/limite_contratos (colunas que não existem
@@ -263,11 +268,15 @@ async function empresasAbrirFicha(clienteId) {
                     <button onclick="empresasFecharFicha()" class="text-2xl leading-none" style="color:var(--sage)">&times;</button>
                 </div>
                 <div class="grid grid-cols-2 gap-3 mb-4">
-                    <div class="p-3 rounded-xl" style="background:var(--paper)"><p class="text-[10px]" style="color:var(--sage)">Plano</p><p class="text-sm font-bold">${f.plano_codigo || '—'}</p></div>
+                    <div class="p-3 rounded-xl" style="background:var(--paper)">
+                        <div class="flex items-center justify-between"><p class="text-[10px]" style="color:var(--sage)">Plano</p><button onclick="edAbrirTrocarPlano('${f.cliente_id}','${f.plano_codigo || ''}')" title="Trocar plano" style="color:var(--pine)">${pmIconeEditar()}</button></div>
+                        <p class="text-sm font-bold">${f.plano_codigo || '—'}</p>
+                    </div>
                     <div class="p-3 rounded-xl" style="background:var(--paper)"><p class="text-[10px]" style="color:var(--sage)">Status licença</p><p class="text-sm font-bold">${f.licenca_status || '—'}</p></div>
                     <div class="p-3 rounded-xl" style="background:var(--paper)"><p class="text-[10px]" style="color:var(--sage)">Uso 30d</p><p class="text-sm font-bold">${f.uso_30d} ações</p></div>
                     <div class="p-3 rounded-xl" style="background:var(--paper)"><p class="text-[10px]" style="color:var(--sage)">Nota média feedback (180d)</p><p class="text-sm font-bold">${f.nota_media_feedback ?? 'sem feedback'}</p></div>
                 </div>
+                <div id="ed-trocar-plano-wrapper" class="hidden mb-4"></div>
                 <p class="text-xs" style="color:var(--sage)">Cliente desde ${f.cliente_desde ? new Date(f.cliente_desde).toLocaleDateString('pt-BR') : '—'} · licença expira em ${f.data_expiracao ? new Date(f.data_expiracao).toLocaleDateString('pt-BR') : 'sem data'}</p>
 
                 <div class="mt-5 pt-4 border-t" style="border-color:var(--line)">

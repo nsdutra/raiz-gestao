@@ -5,9 +5,36 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
-   VERSÃO: v0.17.0
-   LINHAS: 867
+   VERSÃO: v0.18.0
+   LINHAS: 894
    DATA: 2026-09-07
+   TÍTULO: CORREÇÃO — categoria_licenca ERA MORTA; TROCAR PLANO NA FICHA
+   NOVIDADES (v0.18.0):
+     - ACHADO GRAVE corrigido: comercial.categoria_licenca (nome/item/
+       tipo_reset — mensal/anual/transação/nunca) já existia com UI pronta
+       nesta tela (o seletor "categoria/reset —" na célula), mas nenhuma
+       função do banco nunca lia plano_funcionalidade.id_categoria —
+       fn_checar_limite()/fn_uso_funcionalidade() ignoravam. O
+       funcionalidades.cota_tipo criado hoje mais cedo (E.3) resolveu o
+       efeito mas duplicou em vez de ligar. Migration
+       unificar_categoria_licenca_fn_uso_funcionalidade_v1: populou
+       id_categoria nos 18 plano_funcionalidade com limite, reescreveu
+       fn_uso_funcionalidade pra ler a categoria de verdade, e
+       fn_funcionalidades_liberadas passou a DERIVAR cota_tipo (mesmo
+       vocabulário — zero mudança no app v1.144.0). Coluna cota_tipo
+       (criada hoje) foi derrubada — fonte única agora é categoria_licenca.
+     - parametros-planos.js v0.14.0: removido o seletor morto de "tipo de
+       cota" por funcionalidade (escrevia numa coluna que não existe mais);
+       seletor de categoria (o certo, por plano×funcionalidade) agora
+       também no mobile, não só desktop; desktop e mobile agrupados por
+       ÁREA (como Catálogo e Perfis); cards com texto desatualizado
+       ("licencas.limite_imoveis", "só imóveis/contratos têm contador")
+       removidos — hoje as 5 funcionalidades com limite contam de verdade.
+     - empresas.js v0.14.0: "Trocar plano" na ficha da empresa
+       (gestao.fn_definir_licenca, nova, master-only) — dá pra atribuir um
+       plano novo a um cliente 100% pelo app, sem SQL manual.
+   ------------------------------------------------------------------
+   VERSÃO ANTERIOR: v0.17.0 · 2026-09-07
    TÍTULO: AJUSTES DO NICOLA PÓS-v0.16 — CÓDIGO, COTAS NA FICHA, PERFIS, PREÇO
    NOVIDADES (v0.17.0):
      - NOVA tela "Código" (js/telas/codigo.js v1.0.0, botão em Mais): o que
@@ -595,7 +622,7 @@
 <script>
     // Fonte única da versão exibida na tela — mantida em sincronia com o
     // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
-    const APP_VERSAO = 'v0.17.0';
+    const APP_VERSAO = 'v0.18.0';
 </script>
 
 <!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->

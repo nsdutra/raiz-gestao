@@ -1,40 +1,44 @@
 // ============================================================================
 // js/telas/parametros-planos.js — Raiz Gestão
 //
+// v0.14.0 (07/09/2026) — CORREÇÃO: `comercial.categoria_licenca` (nome, item,
+// tipo_reset: mensal/anual/transação/nunca) já existia com esta tela pronta
+// pra editar (o select "categoria/reset —" na célula), mas nenhuma função do
+// banco nunca leu `plano_funcionalidade.id_categoria` — fn_checar_limite()
+// (produção) e fn_uso_funcionalidade() ignoravam completamente. O
+// `funcionalidades.cota_tipo` criado hoje mais cedo (E.3) resolveu o efeito
+// mas duplicou esse mecanismo em vez de ligá-lo — corrigido na mesma sessão
+// (migration unificar_categoria_licenca_fn_uso_funcionalidade_v1): a
+// contagem agora lê a categoria de verdade, e `cota_tipo` (coluna) foi
+// derrubada — o texto do app continua saindo igual (a função devolve o
+// mesmo nome de campo, derivado). Nesta tela:
+//   - Removido o seletor de "tipo de cota" por FUNCIONALIDADE no cabeçalho
+//     da linha (escrevia numa coluna que não existe mais) — o controle
+//     certo é por PLANO×funcionalidade, na célula, e já existia.
+//   - Select de categoria adicionado também no mobile (só tinha no desktop).
+//   - Desktop e mobile agrupados por ÁREA (autenticar, cofre, contratos…),
+//     mesmo padrão de Catálogo (parametros-master.js) e Perfis & Acessos
+//     (parametros-perfis.js) — antes agrupava por módulo aqui, único lugar
+//     diferente das outras duas telas.
+//   - Cards "Regra de limites" e "Contador real implementado hoje" removidos
+//     — citavam licencas.limite_imoveis/limite_contratos (colunas que não
+//     existem) e diziam que só imóveis/contratos tinham contador real; hoje
+//     todas as 5 funcionalidades com limite contam de verdade.
+//
 // v0.12.0 (07/09/2026) — E.3 (cotas): linha da funcionalidade mostra o nome
-// comercial e um seletor do TIPO DE COTA (mensal / teto de estoque / MB
-// usados → funcionalidades.cota_tipo, nova); célula ganhou o texto de
-// aviso ao atingir (plano_funcionalidade.aviso_padrao_funcionalidade, que
-// já existia e a tela não mostrava). Requer migration
-// e3_cota_tipo_e_uso_por_tipo_v1 (aplicada 07/09).
+// comercial; célula ganhou o texto de aviso ao atingir
+// (plano_funcionalidade.aviso_padrao_funcionalidade, que já existia e a
+// tela não mostrava).
 //
 // v0.11.0 — matriz ganhou ícone de editar/excluir por plano (desktop: no
 // cabeçalho da coluna; mobile: linha abaixo das abas, pro plano ativo).
 // pmAbrirEdicaoPlano()/pmExcluirPlano() (parametros-master.js) JÁ EXISTIAM
-// desde antes — só nunca tinham um botão nesta tela que os chamasse. É a
-// causa real de "não sei onde renomear/excluir plano": o formulário de
-// edição sempre funcionou, só faltava o gatilho aqui. O nome comercial
-// ("Licença Master do Módulo de Gestão", "Plano padrão...", "Trial...")
-// mostrado nesta matriz vem de public.planos.descricao — editável a partir
-// de agora direto por aqui.
+// desde antes — só nunca tinham um botão nesta tela que os chamasse.
 //
-// v0.8.1 (novo arquivo) — "Planos & Limites": matriz plano × funcionalidade,
-// substituindo a lista com "abrir detalhe" da v0.7.0. Cada célula é um
-// toggle (vínculo em plano_funcionalidade); quando ligado, expande campos
-// de limite/limite_aviso/categoria/upsell — mesmos 4 campos que já existem
-// na tabela (plano_funcionalidade.limite, limite_aviso, id_categoria,
-// id_oferta_upsell), só que agora editáveis inline na matriz em vez de
-// numa lista expansível por plano.
-//
-// Autosave por célula (mesmo padrão da v0.7.0: onchange já salva, sem
-// botão "salvar tudo" — mais simples e sem risco de perder edição em
-// múltiplas células por esquecer de clicar salvar).
-//
-// "Contador real implementado hoje: imóveis e contratos" — bloco
-// informativo fixo, porque plano_funcionalidade.limite é só a DEFINIÇÃO
-// do teto; fn_verificar_limite() (produção) só mede consumo de verdade
-// pra imoveis.criar e contratos.criar. Não afirmamos "consumo" pras
-// demais linhas.
+// v0.8.1 (novo arquivo) — "Planos & Limites": matriz plano × funcionalidade.
+// Cada célula é um toggle (vínculo em plano_funcionalidade); quando ligado,
+// expande campos de limite/limite_aviso/categoria/upsell — mesmos 4 campos
+// que já existem na tabela. Autosave por célula (onchange já salva).
 // ============================================================================
 
 async function parametrosPlanosInit() {
@@ -57,7 +61,7 @@ async function parametrosPlanosInit() {
             ${gestaoCardMetricaLocal('Planos ativos', `${planosAtivos} / ${pmPlanos.length}`)}
             ${gestaoCardMetricaLocal('Funcionalidades', pmFuncionalidades.length)}
             ${gestaoCardMetricaLocal('Com limite definido', comLimite)}
-            ${gestaoCardMetricaLocal('Categorias', pmCategorias.length)}
+            ${gestaoCardMetricaLocal('Categorias de cota', pmCategorias.length)}
         </div>
 
         <!-- Mobile (<768px): plano primeiro, lista vertical (seção 6.1 do prompt v0.9.0) -->
@@ -81,27 +85,11 @@ async function parametrosPlanosInit() {
             <div class="overflow-x-auto" id="pp-matrix"></div>
         </div>
 
-        <div class="grid md:grid-cols-2 gap-4 mt-4">
-            <div class="p-4 rounded-2xl border-2" style="border-color:var(--line);background:#fff">
-                <b class="text-sm" style="color:var(--ink)">Regra de limites</b>
-                <p class="text-xs mt-1" style="color:var(--sage)">Limite do plano + override por empresa.</p>
-                <div class="bg-slate-50 border-2 border-slate-300 rounded-xl p-3 mt-3 text-xs">
-                    <b>Prioridade</b>
-                    <ol class="list-decimal pl-5 mt-2 space-y-1" style="color:var(--sage)">
-                        <li>Override na licença da empresa (licencas.limite_imoveis / limite_contratos)</li>
-                        <li>Limite em plano_funcionalidade</li>
-                        <li>Sem limite = acesso liberado</li>
-                    </ol>
-                </div>
-            </div>
-            <div class="p-4 rounded-2xl border-2" style="border-color:var(--line);background:#fff">
-                <b class="text-sm" style="color:var(--ink)">Contador real implementado hoje</b>
-                <p class="text-xs mt-1" style="color:var(--sage)">Não confundir definição de limite com medição de consumo — fn_verificar_limite() só mede estas duas:</p>
-                <div class="grid grid-cols-2 gap-2 mt-3">
-                    <div class="bg-slate-50 border-2 border-slate-300 rounded-xl p-3 text-xs"><b>Imóveis</b><div class="text-[10px] mt-1" style="color:var(--success)">contador implementado</div></div>
-                    <div class="bg-slate-50 border-2 border-slate-300 rounded-xl p-3 text-xs"><b>Contratos</b><div class="text-[10px] mt-1" style="color:var(--success)">contador implementado</div></div>
-                </div>
-                <p class="text-[10px] mt-2" style="color:var(--sage)">Para as demais funcionalidades, o limite abaixo é só a definição — ainda sem contador genérico de uso no banco.</p>
+        <div class="p-4 rounded-2xl border-2 mt-4" style="border-color:var(--line);background:#fff">
+            <b class="text-sm" style="color:var(--ink)">Como um limite funciona</b>
+            <p class="text-xs mt-1" style="color:var(--sage)">Cada funcionalidade com limite (célula marcada com número) tem uma <b>categoria de cota</b> (Configurações › Categorias de cota) que diz quando ela reseta — é o que decide se "criar ativo" conta o que existe hoje (nunca reseta) ou se "usar IA" conta eventos do mês (reseta todo dia 1). Mudar a categoria de uma célula muda a contagem na hora, sem deploy.</p>
+            <div class="flex flex-wrap gap-1.5 mt-3">
+                ${pmCategorias.map(cat => `<span class="text-[10px] font-bold px-2 py-1 rounded-full" style="background:var(--paper);color:var(--ink)">${pmEsc(cat.nome)} · ${pmEsc(cat.tipo_reset)}</span>`).join('') || '<span class="text-[10px]" style="color:var(--sage)">Nenhuma categoria cadastrada — ver Configurações › Categorias de cota.</span>'}
             </div>
         </div>
     `;
@@ -139,30 +127,47 @@ function ppRenderMobile() {
     if (!lista) return;
     if (!ppPlanoMobileAtivo) { lista.innerHTML = `<p class="text-xs text-center py-4" style="color:var(--sage)">Nenhum plano cadastrado ainda.</p>`; return; }
 
-    lista.innerHTML = pmFuncionalidades.map(f => {
-        const v = ppVinculo(ppPlanoMobileAtivo, f.codigo);
+    // v0.14.0 — agrupado por área (igual ao desktop e às outras 2 telas);
+    // célula ganhou o seletor de categoria de cota (só existia no desktop).
+    const porArea = {};
+    pmFuncionalidades.forEach(f => { const a = f.area || '(sem área)'; (porArea[a] = porArea[a] || []).push(f); });
+    lista.innerHTML = Object.keys(porArea).sort().map(area => {
+        const fechada = ppAreasFechadasMobile.has(area);
         return `
-        <div class="p-3 rounded-xl border" style="border-color:var(--line)">
-            <div class="flex items-center justify-between gap-2">
-                <div class="min-w-0">
-                    <b class="text-xs" style="color:var(--ink)">${f.codigo}</b>
-                    <div class="text-[10px] truncate" style="color:var(--sage)">${f.nome_comercial || f.descricao}</div>
+        <button type="button" onclick="ppAlternarAreaMobile('${pmEsc(area)}')" class="w-full flex items-center justify-between py-1.5">
+            <span class="text-[11px] font-bold uppercase tracking-wide" style="color:var(--pine)">${fechada ? '▸' : '▾'} ${pmEsc(area)} <span class="font-normal" style="color:var(--sage)">· ${porArea[area].length}</span></span>
+        </button>
+        ${fechada ? '' : porArea[area].map(f => {
+            const v = ppVinculo(ppPlanoMobileAtivo, f.codigo);
+            return `
+            <div class="p-3 rounded-xl border mb-1.5" style="border-color:var(--line)">
+                <div class="flex items-center justify-between gap-2">
+                    <div class="min-w-0">
+                        <b class="text-xs" style="color:var(--ink)">${pmEsc(f.nome_comercial || f.codigo)}</b>
+                        <div class="text-[10px] truncate font-mono" style="color:var(--sage)">${f.codigo}</div>
+                    </div>
+                    <input type="checkbox" ${v ? 'checked' : ''} class="flex-none" onchange="ppToggleMobile('${ppPlanoMobileAtivo}','${f.codigo}', this.checked)">
                 </div>
-                <input type="checkbox" ${v ? 'checked' : ''} class="flex-none" onchange="ppToggleMobile('${ppPlanoMobileAtivo}','${f.codigo}', this.checked)">
-            </div>
-            ${v ? `
-                <div class="mt-2 grid grid-cols-2 gap-1.5">
-                    <input type="number" placeholder="sem limite" value="${v.limite ?? ''}"
-                        onchange="ppAtualizarCampo('${ppPlanoMobileAtivo}','${f.codigo}','limite', this.value === '' ? null : Number(this.value))"
-                        class="w-full p-2 border rounded text-xs">
-                    <input type="number" placeholder="aviso a partir de" value="${v.limite_aviso ?? ''}"
-                        onchange="ppAtualizarCampo('${ppPlanoMobileAtivo}','${f.codigo}','limite_aviso', this.value === '' ? null : Number(this.value))"
-                        class="w-full p-2 border rounded text-xs">
-                </div>
-            ` : ''}
-        </div>`;
+                ${v ? `
+                    <div class="mt-2 grid grid-cols-2 gap-1.5">
+                        <input type="number" placeholder="sem limite" value="${v.limite ?? ''}"
+                            onchange="ppAtualizarCampo('${ppPlanoMobileAtivo}','${f.codigo}','limite', this.value === '' ? null : Number(this.value))"
+                            class="w-full p-2 border rounded text-xs">
+                        <input type="number" placeholder="aviso a partir de" value="${v.limite_aviso ?? ''}"
+                            onchange="ppAtualizarCampo('${ppPlanoMobileAtivo}','${f.codigo}','limite_aviso', this.value === '' ? null : Number(this.value))"
+                            class="w-full p-2 border rounded text-xs">
+                    </div>
+                    <select onchange="ppAtualizarCampo('${ppPlanoMobileAtivo}','${f.codigo}','id_categoria', this.value || null)" class="w-full p-2 border rounded text-xs mt-1.5">
+                        <option value="">categoria/reset —</option>
+                        ${pmCategorias.map(cat => `<option value="${cat.id_categoria_licenca}" ${v?.id_categoria === cat.id_categoria_licenca ? 'selected' : ''}>${pmEsc(cat.nome)} · ${pmEsc(cat.tipo_reset)}</option>`).join('')}
+                    </select>
+                ` : ''}
+            </div>`;
+        }).join('')}`;
     }).join('');
 }
+let ppAreasFechadasMobile = new Set();
+function ppAlternarAreaMobile(area) { if (ppAreasFechadasMobile.has(area)) ppAreasFechadasMobile.delete(area); else ppAreasFechadasMobile.add(area); ppRenderMobile(); }
 
 async function ppToggleMobile(planoCodigo, funcCodigo, marcado) {
     await ppToggle(planoCodigo, funcCodigo, marcado);
@@ -186,13 +191,12 @@ function ppRenderizar() {
     const el = document.getElementById('pp-matrix');
     const planosOrdenados = [...pmPlanos].sort((a, b) => (a.ativo === b.ativo) ? 0 : (a.ativo ? -1 : 1));
 
-    // Agrupa funcionalidades por módulo (tipo_modulo_id -> tipo_modulos.id).
-    const semModulo = { id: null, nome: 'Sem módulo' };
+    // v0.14.0 — agrupa por ÁREA (mesmo padrão de Catálogo e Perfis & Acessos),
+    // não mais por módulo.
     const grupos = new Map();
     pmFuncionalidades.forEach(f => {
-        const mod = pmModulos.find(m => m.id === f.tipo_modulo_id) || semModulo;
-        const chave = mod.id || '_sem_modulo';
-        if (!grupos.has(chave)) grupos.set(chave, { modulo: mod, itens: [] });
+        const chave = f.area || '(sem área)';
+        if (!grupos.has(chave)) grupos.set(chave, { area: chave, itens: [] });
         grupos.get(chave).itens.push(f);
     });
 
@@ -216,17 +220,12 @@ function ppRenderizar() {
             </thead>
             <tbody>
                 ${Array.from(grupos.values()).map(g => `
-                    <tr><td colspan="${planosOrdenados.length + 1}" class="p-2 pt-4 text-[10px] font-bold uppercase" style="color:var(--sage)">${g.modulo.nome}</td></tr>
+                    <tr><td colspan="${planosOrdenados.length + 1}" class="p-2 pt-4 text-[10px] font-bold uppercase" style="color:var(--sage)">${pmEsc(g.area)} <span class="font-normal">· ${g.itens.length}</span></td></tr>
                     ${g.itens.map(f => `
                         <tr>
                             <td class="sticky left-0 bg-white p-2 border-b align-top" style="border-color:var(--line)">
                                 <b style="color:var(--ink)">${pmEsc(f.nome_comercial || f.codigo)}</b>
                                 <div class="text-[9px] font-mono" style="color:var(--sage)">${f.codigo}</div>
-                                <select onchange="ppAtualizarCotaTipo('${f.codigo}', this.value)" title="Como a cota é contada (E.3)" class="mt-1 p-0.5 border rounded text-[10px]" style="color:${f.cota_tipo === 'mensal' ? 'var(--sage)' : 'var(--pine)'}">
-                                    <option value="mensal" ${(f.cota_tipo || 'mensal') === 'mensal' ? 'selected' : ''}>cota mensal</option>
-                                    <option value="estoque" ${f.cota_tipo === 'estoque' ? 'selected' : ''}>teto de estoque</option>
-                                    <option value="bytes" ${f.cota_tipo === 'bytes' ? 'selected' : ''}>MB usados</option>
-                                </select>
                             </td>
                             ${planosOrdenados.map(p => ppCelula(p.codigo, f.codigo)).join('')}
                         </tr>
@@ -269,18 +268,6 @@ function ppCelula(planoCodigo, funcCodigo) {
             </div>
         </td>
     `;
-}
-
-// v0.12.0 (E.3) — tipo de cota vive em funcionalidades.cota_tipo (coluna
-// aprovada 07/09) e é lido por fn_uso_funcionalidade, que alimenta os dois
-// gates (porta única do app e núcleo do bot). Mudar aqui muda a contagem
-// na hora: "mensal" = eventos do mês (ia.usar lê ia_eventos_log — Gemini e
-// Claude contam 1 cada), "estoque" = o que existe, "MB usados" = Storage.
-async function ppAtualizarCotaTipo(funcCodigo, valor) {
-    const { error } = await dbAuth.from('funcionalidades').update({ cota_tipo: valor }).eq('codigo', funcCodigo);
-    if (error) { alert('Erro ao mudar o tipo de cota: ' + error.message); return; }
-    const f = pmFuncionalidades.find(x => x.codigo === funcCodigo); if (f) f.cota_tipo = valor;
-    ppRenderizar();
 }
 
 async function ppToggle(planoCodigo, funcCodigo, marcado) {
