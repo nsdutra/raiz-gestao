@@ -1,6 +1,9 @@
 // ============================================================================
 // js/telas/parametros-perfis.js — Raiz Gestão
 //
+// v0.13.1 (09/09/2026) — desktop nunca mostrou a matriz: `hidden md:block`
+// perdia pro `.hidden{display:none!important}` do index. Agora `max-md:hidden`.
+//
 // v0.13.0 (07/09/2026) — pedidos do Nicola: (1) mobile agrupado por área
 // (recolhível), com faixa e divergência por linha, igual ao desktop;
 // (2) os 3 códigos "sem regra" ganharam faixa: autenticar.* → Ver,
@@ -144,7 +147,7 @@ async function parametrosPerfisInit() {
         </div>
 
         <!-- Desktop (≥768px): matriz comparativa -->
-        <div class="hidden md:block rounded-2xl border-2 overflow-hidden mb-4" style="border-color:var(--line);background:#fff">
+        <div class="max-md:hidden rounded-2xl border-2 overflow-hidden mb-4" style="border-color:var(--line);background:#fff">
             <div class="p-4 border-b" style="border-color:var(--line)">
                 <b class="text-sm" style="color:var(--ink)">Matriz perfil × funcionalidade</b>
                 <p class="text-[11px] mt-0.5" style="color:var(--sage)">Não é licença: é autorização do usuário dentro do que a empresa já possui.</p>

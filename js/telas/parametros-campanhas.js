@@ -1,6 +1,9 @@
 // ============================================================================
 // js/telas/parametros-campanhas.js — Raiz Gestão
 //
+// v0.8.3 (09/09/2026) — barra de etapas do desktop usava `hidden md:flex` e
+// perdia pro `.hidden{display:none!important}` do index. Agora `max-md:hidden`.
+//
 // v0.8.2 — regras de negócio da fase atual (definidas 19/08/2026):
 //   - Só 1 campanha ativa por vez (checklist da etapa 5 avisa; o bloqueio
 //     de verdade é no banco, gestao.fn_publicar_campanha()).
@@ -187,7 +190,7 @@ function pcRenderWizard() {
                     <span class="text-sm" style="color:var(--sage)"> · ${PC_NOMES_ETAPA[pcStep - 1]}</span>
                 </div>
                 <!-- Desktop (≥768px): indicador visual rico, tem espaço de sobra. -->
-                <div class="hidden md:flex items-center gap-2 mt-5 pb-1 min-w-0">
+                <div class="max-md:hidden flex items-center gap-2 mt-5 pb-1 min-w-0">
                     ${pcPasso(1, 'Oferta')}<div class="w-6 border-t flex-none" style="border-color:var(--line)"></div>
                     ${pcPasso(2, 'Condições')}<div class="w-6 border-t flex-none" style="border-color:var(--line)"></div>
                     ${pcPasso(3, 'Público')}<div class="w-6 border-t flex-none" style="border-color:var(--line)"></div>

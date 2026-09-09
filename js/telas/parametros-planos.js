@@ -1,6 +1,13 @@
 // ============================================================================
 // js/telas/parametros-planos.js — Raiz Gestão
 //
+// v0.15.1 (09/09/2026) — DESKTOP NUNCA MOSTROU A MATRIZ (print do Nicola):
+// o wrapper usava `hidden md:block`, mas o index.html do Gestão tem
+// `.hidden { display:none !important }` (linha ~729), que vence qualquer
+// `md:block`. Trocado por `max-md:hidden` (Tailwind v4: só esconde abaixo de
+// 768px, sem a classe .hidden). Mesmo bug em parametros-perfis.js e
+// parametros-campanhas.js, corrigidos juntos.
+//
 // v0.15.0 (09/09/2026) — A.11 (achado do Nicola no celular: "aparece a
 // coluna mas não tenho como escolher plano dentro de funcionalidade"): a
 // célula MOBILE não tinha o select "upsell —" (plano_funcionalidade.
@@ -82,7 +89,7 @@ async function parametrosPlanosInit() {
         </div>
 
         <!-- Desktop (≥768px): matriz comparativa -->
-        <div class="hidden md:block rounded-2xl border-2 overflow-hidden" style="border-color:var(--line);background:#fff">
+        <div class="max-md:hidden rounded-2xl border-2 overflow-hidden" style="border-color:var(--line);background:#fff">
             <div class="p-4 border-b flex items-center justify-between" style="border-color:var(--line)">
                 <div>
                     <b class="text-sm" style="color:var(--ink)">Matriz plano × funcionalidade</b>
