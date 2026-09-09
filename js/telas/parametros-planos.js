@@ -1,6 +1,13 @@
 // ============================================================================
 // js/telas/parametros-planos.js — Raiz Gestão
 //
+// v0.15.0 (09/09/2026) — A.11 (achado do Nicola no celular: "aparece a
+// coluna mas não tenho como escolher plano dentro de funcionalidade"): a
+// célula MOBILE não tinha o select "upsell —" (plano_funcionalidade.
+// id_oferta_upsell) nem o textarea do aviso — só o desktop. Agora os dois
+// aparecem nos 2 layouts; é o id_oferta_upsell que alimenta "Plano
+// sugerido" do modal de limite (app 1.148) e a mensagem ao comercial.
+//
 // v0.14.0 (07/09/2026) — CORREÇÃO: `comercial.categoria_licenca` (nome, item,
 // tipo_reset: mensal/anual/transação/nunca) já existia com esta tela pronta
 // pra editar (o select "categoria/reset —" na célula), mas nenhuma função do
@@ -161,6 +168,11 @@ function ppRenderMobile() {
                         <option value="">categoria/reset —</option>
                         ${pmCategorias.map(cat => `<option value="${cat.id_categoria_licenca}" ${v?.id_categoria === cat.id_categoria_licenca ? 'selected' : ''}>${pmEsc(cat.nome)} · ${pmEsc(cat.tipo_reset)}</option>`).join('')}
                     </select>
+                    <select onchange="ppAtualizarCampo('${ppPlanoMobileAtivo}','${f.codigo}','id_oferta_upsell', this.value || null)" class="w-full p-2 border rounded text-xs mt-1.5">
+                        <option value="">upsell — plano sugerido ao chegar no limite</option>
+                        ${pmPlanos.filter(p2 => p2.ativo && p2.codigo !== ppPlanoMobileAtivo).map(p2 => `<option value="${p2.codigo}" ${v?.id_oferta_upsell === p2.codigo ? 'selected' : ''}>${pmEsc(p2.descricao)}</option>`).join('')}
+                    </select>
+                    <textarea rows="2" placeholder="aviso ao atingir (texto que o cliente lê no app/bot; vazio = padrão)" onchange="ppAtualizarCampo('${ppPlanoMobileAtivo}','${f.codigo}','aviso_padrao_funcionalidade', this.value.trim() || null)" class="w-full p-2 border rounded text-xs mt-1.5">${pmEsc(v?.aviso_padrao_funcionalidade || '')}</textarea>
                 ` : ''}
             </div>`;
         }).join('')}`;
