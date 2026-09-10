@@ -5,10 +5,34 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
-   VERSÃO: v0.18.2
-   LINHAS: 915
+   VERSÃO: v0.19.0
+   LINHAS: 940
    DATA: 2026-09-09
-   TÍTULO: PLANOS & LIMITES — MATRIZ DESKTOP VOLTA; UPSELL NO MOBILE (A.11)
+   TÍTULO: MOTOR DOCUMENTAL NO GESTÃO (A.20 fase 4 — fecha A.12 e A.13)
+   NOVIDADES (v0.19.0):
+     - Configurações ganha o card "Motor Documental"
+       (parametros-documental.js 0.1.0), com 3 abas:
+       · CATÁLOGO — os subtipos globais que o motor lê em runtime:
+         categoria, titular, gera controle, guarda arquivo, complexidade,
+         antecedência/reforço/recorrência (A.13), campos, validações,
+         regra de vencimento, sinônimos, como reconhecer, prompt
+         específico e estratégia de IA (modelo por etapa + gatilhos do
+         revisor + limiar). Grava por fn_cofre_catalogo_upsert — a mesma
+         função do seed, sem caminho paralelo. Mudança vale na próxima
+         leitura, SEM deploy.
+       · VERSÕES DE PROMPT — histórico de cofre_prompt_versoes (snapshot
+         automático por trigger) com autor, motivo e "Restaurar".
+       · ASSERTIVIDADE — leituras, % confirmado sem edição, revisor
+         acionado, tempo médio, campos mais corrigidos e quebra por tipo.
+         Filtros: empresa · período · usuário · tipo · canal (D7).
+     - Migration `motor_doc_f4_funcoes_gestao_assertividade_versoes_v1`:
+       fn_gestao_extracoes_documental() e fn_gestao_prompt_versoes() —
+       SECURITY DEFINER com gate de master_plataforma, porque a RLS de
+       cofre_extracoes_documento é por tenant e o Gestão lê todos.
+     - Com isso o A.12 (categorias & padrões) e o A.13 (padrões de
+       ocorrência) ficam configuráveis por tela — as duas fases que
+       faltavam dessas frentes.
+   ------------------------------------------------------------------
    NOVIDADES (v0.18.2):
      - BUG (print do Nicola): no desktop, Planos & Limites mostrava só os
        cards — a matriz plano × funcionalidade nunca apareceu. Causa: o
@@ -643,7 +667,7 @@
 <script>
     // Fonte única da versão exibida na tela — mantida em sincronia com o
     // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
-    const APP_VERSAO = 'v0.18.2';
+    const APP_VERSAO = 'v0.19.0';
 </script>
 
 <!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->
@@ -890,6 +914,7 @@
     <script src="js/telas/parametros-master.js"></script>
     <script src="js/telas/parametros-campanhas.js"></script>
     <script src="js/telas/parametros-planos.js"></script>
+    <script src="js/telas/parametros-documental.js"></script>
     <script src="js/telas/parametros-perfis.js"></script>
     <script src="js/telas/bot-uso.js"></script>
     <script src="js/telas/comunicacoes.js"></script>

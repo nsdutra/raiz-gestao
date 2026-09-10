@@ -87,6 +87,7 @@ const PM_HUB = [
     { id: 'planos', icone: '🧩', titulo: 'Planos & Limites', desc: 'O que a empresa contrata: funcionalidades, limites e capacidade.', init: () => parametrosPlanosInit() },
     { id: 'perfis', icone: '🛡️', titulo: 'Perfis & Acessos', desc: 'O que cada pessoa pode fazer dentro do que a empresa contratou.', init: () => parametrosPerfisInit() },
     { id: 'catalogos', icone: '🧱', titulo: 'Catálogo Técnico', desc: 'Módulos, funcionalidades e categorias de limite.', init: () => pmRenderCatalogos() },
+    { id: 'documental', icone: '📄', titulo: 'Motor Documental', desc: 'Tipos de documento que a IA reconhece, prompts, versões e assertividade da leitura.', init: () => telaParametrosDocumentalInit() },
     { id: 'comercial', icone: '📣', titulo: 'Oferta & campanhas', desc: 'Preço, trial, pagamentos, público e landing ficam em Comercial.', redirecionaPara: 'comercial' }
 ];
 
