@@ -1,6 +1,11 @@
 // ============================================================================
 // js/telas/empresas.js — Raiz Gestão
 //
+// v0.13.0 (09/09/2026) — ficha vira TELA (era o único modal do módulo) e o
+// lápis de licença passa a abrir Licenças da empresa (ativa + histórico,
+// adiar data, status, motivo). edAbrirTrocarPlano() não existia: o clique
+// no lápis não fazia nada desde que a ficha foi escrita.
+//
 // v0.14.0 (07/09/2026) — "Trocar plano" na ficha da empresa (fn_definir_
 // licenca, nova): agora dá pra criar/atribuir a licença de um cliente 100%
 // pelo app (ex.: atrelar um plano novo — Premium — a um cliente específico),
@@ -255,28 +260,33 @@ async function empresasAbrirFicha(clienteId) {
     const u = (uso && uso[0]) || {};
     if (eUso) console.warn('Uso & Consumo indisponível:', eUso.message);
 
-    const modal = document.getElementById('empresas-modal');
-    modal.classList.remove('hidden');
+    // v0.13.0 — a ficha vira TELA, no lugar do conteúdo da aba (era um modal
+    // sobreposto, único no módulo — todas as outras funções do Gestão são tela).
+    const modal = document.getElementById('ed-conteudo');
+    document.getElementById('empresas-modal').classList.add('hidden');
     modal.innerHTML = `
-        <div class="fixed inset-0 z-50 flex items-end md:items-center justify-center p-3" style="background:rgba(15,23,42,.48)" onclick="if(event.target===this) empresasFecharFicha()">
-            <div class="w-full max-w-lg max-h-[90vh] overflow-auto rounded-2xl p-6" style="background:#fff">
+        <div>
+            <div class="p-0">
+                <button onclick="edMudarSubAba('lista')" class="text-xs font-bold mb-3 flex items-center gap-1" style="color:var(--sage)">&larr; Voltar para a lista</button>
                 <div class="flex items-start justify-between mb-4">
                     <div>
                         <h3 class="text-lg font-extrabold" style="color:var(--ink)">${f.nome_empresa}</h3>
                         <p class="text-xs" style="color:var(--sage)">${f.cidade || '—'}${f.uf ? '/' + f.uf : ''} · ${f.cnpj || 'sem CNPJ cadastrado'}</p>
                     </div>
-                    <button onclick="empresasFecharFicha()" class="text-2xl leading-none" style="color:var(--sage)">&times;</button>
                 </div>
                 <div class="grid grid-cols-2 gap-3 mb-4">
                     <div class="p-3 rounded-xl" style="background:var(--paper)">
-                        <div class="flex items-center justify-between"><p class="text-[10px]" style="color:var(--sage)">Plano</p><button onclick="edAbrirTrocarPlano('${f.cliente_id}','${f.plano_codigo || ''}')" title="Trocar plano" style="color:var(--pine)">${pmIconeEditar()}</button></div>
+                        <div class="flex items-center justify-between"><p class="text-[10px]" style="color:var(--sage)">Plano</p><button onclick="edAbrirLicencas('${clienteId}')" title="Licenças da empresa" style="color:var(--pine)">${pmIconeEditar()}</button></div>
                         <p class="text-sm font-bold">${f.plano_codigo || '—'}</p>
                     </div>
-                    <div class="p-3 rounded-xl" style="background:var(--paper)"><p class="text-[10px]" style="color:var(--sage)">Status licença</p><p class="text-sm font-bold">${f.licenca_status || '—'}</p></div>
+                    <div class="p-3 rounded-xl" style="background:var(--paper)">
+                        <div class="flex items-center justify-between"><p class="text-[10px]" style="color:var(--sage)">Status licença</p><button onclick="edAbrirLicencas('${clienteId}')" title="Ver licenças e adiar data" style="color:var(--pine)">${pmIconeEditar()}</button></div>
+                        <p class="text-sm font-bold">${f.licenca_status || '—'}</p>
+                    </div>
                     <div class="p-3 rounded-xl" style="background:var(--paper)"><p class="text-[10px]" style="color:var(--sage)">Uso 30d</p><p class="text-sm font-bold">${f.uso_30d} ações</p></div>
                     <div class="p-3 rounded-xl" style="background:var(--paper)"><p class="text-[10px]" style="color:var(--sage)">Nota média feedback (180d)</p><p class="text-sm font-bold">${f.nota_media_feedback ?? 'sem feedback'}</p></div>
                 </div>
-                <div id="ed-trocar-plano-wrapper" class="hidden mb-4"></div>
+                <div id="ed-licencas-wrapper" class="hidden mb-4"></div>
                 <p class="text-xs" style="color:var(--sage)">Cliente desde ${f.cliente_desde ? new Date(f.cliente_desde).toLocaleDateString('pt-BR') : '—'} · licença expira em ${f.data_expiracao ? new Date(f.data_expiracao).toLocaleDateString('pt-BR') : 'sem data'}</p>
 
                 <div class="mt-5 pt-4 border-t" style="border-color:var(--line)">
@@ -314,7 +324,7 @@ async function empresasAbrirFicha(clienteId) {
                 </div>
 
                 <p class="text-[11px] mt-4 p-3 rounded-xl" style="background:var(--info-bg);color:var(--info)">
-                    "Entrar nesta empresa" e "gerenciar licença" ficam pendentes de decisão de arquitetura (mecanismo de troca de empresa do master) — ver MODULO_GESTAO_ESTRATEGIA_ARQUITETURA.md, seção 8.
+                    "Entrar nesta empresa" segue pendente de decisão de arquitetura (mecanismo de troca de empresa do master) — ver MODULO_GESTAO_ESTRATEGIA_ARQUITETURA.md, seção 8. Licença já é gerenciável aqui (lápis em Plano ou Status licença).
                 </p>
             </div>
         </div>
@@ -324,4 +334,76 @@ async function empresasAbrirFicha(clienteId) {
 function empresasFecharFicha() {
     document.getElementById('empresas-modal').classList.add('hidden');
     document.getElementById('empresas-modal').innerHTML = '';
+    edMudarSubAba('lista');
+}
+
+// ============================================================================
+// LICENÇAS DA EMPRESA (v0.13.0) — ativa + histórico, com adiar data e mudar
+// status. O lápis do card "Plano" apontava pra edAbrirTrocarPlano(), função
+// que NUNCA existiu (clique não fazia nada). Agora abre este bloco.
+// Banco: fn_gestao_licencas_empresa() / fn_gestao_licenca_ajustar()
+// (SECURITY DEFINER, gate de master_plataforma, com rastro em log_acessos).
+// ============================================================================
+async function edAbrirLicencas(clienteId) {
+    const w = document.getElementById('ed-licencas-wrapper');
+    w.classList.remove('hidden');
+    w.innerHTML = `<p class="text-xs" style="color:var(--sage)">Carregando licenças…</p>`;
+    const { data, error } = await dbAuth.rpc('fn_gestao_licencas_empresa', { p_cliente_id: clienteId });
+    if (error) { w.innerHTML = `<p class="text-xs" style="color:var(--danger)">${pmEsc(error.message)}</p>`; return; }
+    const linhas = data || [];
+    const hoje = new Date().toISOString().slice(0, 10);
+    w.innerHTML = `
+        <div class="border-2 rounded-xl p-3" style="border-color:var(--line);background:#fff">
+            <div class="flex items-center justify-between mb-2">
+                <p class="text-xs font-extrabold" style="color:var(--ink)">Licenças desta empresa</p>
+                <button onclick="document.getElementById('ed-licencas-wrapper').classList.add('hidden')" class="text-xs" style="color:var(--sage)">fechar</button>
+            </div>
+            ${linhas.length ? linhas.map(l => {
+                const venc = l.data_expiracao ? new Date(l.data_expiracao).toISOString().slice(0, 10) : '';
+                const dias = l.dias_para_expirar;
+                const cor = l.status !== 'ativo' ? 'var(--sage)' : (dias === null ? 'var(--pine)' : dias < 0 ? 'var(--danger)' : dias <= 15 ? 'var(--warning)' : 'var(--pine)');
+                const rotuloPrazo = dias === null ? 'sem data de expiração' : dias < 0 ? `expirou há ${Math.abs(dias)} dia(s)` : `expira em ${dias} dia(s)`;
+                return `
+                <div class="p-2.5 rounded-xl mb-2" style="background:var(--paper)">
+                    <div class="flex items-center justify-between">
+                        <p class="text-xs font-bold" style="color:var(--ink)">${pmEsc(l.plano_codigo)} <span class="text-[10px] font-normal" style="color:var(--sage)">· ${pmEsc(l.modulo || '—')}${l.plano_pagamento ? ' · ' + pmEsc(l.plano_pagamento) : ''}</span></p>
+                        <span class="text-[10px] font-bold" style="color:${cor}">${pmEsc(l.status)} · ${rotuloPrazo}</span>
+                    </div>
+                    <p class="text-[10px] mb-2" style="color:var(--sage)">início ${l.data_inicio ? new Date(l.data_inicio).toLocaleDateString('pt-BR') : '—'}${l.atualizado_em ? ' · alterada em ' + new Date(l.atualizado_em).toLocaleDateString('pt-BR') : ''}</p>
+                    <div class="flex flex-wrap items-end gap-2">
+                        <div><label class="text-[10px] block" style="color:var(--sage)">Nova expiração</label>
+                            <input type="date" id="ed-lic-data-${l.id}" value="${venc}" min="" class="p-1.5 border rounded text-[11px]"></div>
+                        <div><label class="text-[10px] block" style="color:var(--sage)">Status</label>
+                            <select id="ed-lic-status-${l.id}" class="p-1.5 border rounded text-[11px]">
+                                ${['ativo', 'suspenso', 'cancelado', 'expirado'].map(x => `<option value="${x}" ${l.status === x ? 'selected' : ''}>${x}</option>`).join('')}
+                            </select></div>
+                        <div class="flex-1 min-w-[140px]"><label class="text-[10px] block" style="color:var(--sage)">Motivo (fica no log)</label>
+                            <input type="text" id="ed-lic-motivo-${l.id}" placeholder="ex.: prorrogação comercial" class="w-full p-1.5 border rounded text-[11px]"></div>
+                        <button onclick="edSalvarLicenca('${l.id}','${clienteId}')" class="px-3 py-1.5 rounded-lg text-[11px] font-bold text-white" style="background:var(--pine)">Salvar</button>
+                        <button onclick="edAdiarLicenca('${l.id}', 30)" class="px-2 py-1.5 rounded-lg text-[11px] font-bold" style="background:#f1f5f9">+30 dias</button>
+                    </div>
+                </div>`;
+            }).join('') : `<p class="text-xs" style="color:var(--sage)">Esta empresa não tem licença cadastrada.</p>`}
+            <p class="text-[10px] mt-1" style="color:var(--sage)">Hoje é ${new Date(hoje).toLocaleDateString('pt-BR')}. Adiar a data zera o ciclo de aviso — as mensagens de "licença vencendo" recomeçam a contar. Toda alteração fica registrada em log_acessos (gestao.licenca_ajustada).</p>
+        </div>`;
+}
+
+function edAdiarLicenca(licencaId, dias) {
+    const el = document.getElementById(`ed-lic-data-${licencaId}`);
+    const base = el.value ? new Date(el.value + 'T00:00:00') : new Date();
+    const alvo = base < new Date() ? new Date() : base;
+    alvo.setDate(alvo.getDate() + dias);
+    el.value = alvo.toISOString().slice(0, 10);
+}
+
+async function edSalvarLicenca(licencaId, clienteId) {
+    const data = document.getElementById(`ed-lic-data-${licencaId}`).value || null;
+    const status = document.getElementById(`ed-lic-status-${licencaId}`).value;
+    const motivo = document.getElementById(`ed-lic-motivo-${licencaId}`).value.trim() || null;
+    const { error } = await dbAuth.rpc('fn_gestao_licenca_ajustar', {
+        p_licenca_id: licencaId, p_nova_expiracao: data, p_status: status, p_motivo: motivo
+    });
+    if (error) { alert('Não consegui salvar: ' + error.message); return; }
+    await edAbrirLicencas(clienteId);
+    empresasAbrirFicha(clienteId);
 }

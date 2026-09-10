@@ -1,6 +1,6 @@
 // ============================================================================
 // js/telas/parametros-documental.js — Motor Documental no Raiz Gestão
-// Versão: 0.1.0 · 09/09/2026
+// Versão: 0.1.1 · 09/09/2026
 //
 // v0.1.0 — FASE 4 do Motor Documental (A.20), que fecha junto as fases que
 // faltavam do A.12 (categorias & padrões) e A.13 (padrões de ocorrência).
@@ -22,7 +22,7 @@
 // muda o comportamento sem deploy.
 // ============================================================================
 
-const PD_VERSAO = '0.1.0';
+const PD_VERSAO = '0.1.1';
 let pdAba = 'catalogo';
 let pdSubtipos = [];
 let pdCategorias = [];
@@ -46,7 +46,25 @@ async function telaParametrosDocumentalInit() {
         <div class="rz-chips mt-3" id="pd-abas"></div>
         <div id="pd-conteudo" class="mt-3"><p class="text-xs" style="color:var(--sage)">Carregando…</p></div>`;
     pdRenderAbas();
-    await pdCarregarCatalogo();
+    // v0.1.1 — erro visível: a v0.1.0 engolia qualquer falha e a tela ficava
+    // muda ("não carrega nada"). Agora mostra a causa, que na maioria das
+    // vezes é RLS/permissão ou o arquivo não ter subido.
+    try {
+        await pdCarregarCatalogo();
+        if (!pdSubtipos.length) {
+            document.getElementById('pd-conteudo').innerHTML = `
+                <div class="p-4 rounded-xl text-xs" style="background:var(--info-bg);color:var(--info)">
+                    Nenhum subtipo global voltou do banco. Isso costuma ser um destes:<br>
+                    1) sua conta não está em <b>plataforma_operadores</b> (o Gestão lê o catálogo global como operador da plataforma);<br>
+                    2) o catálogo ainda não foi semeado (fase 1 do Motor Documental).<br>
+                    Se o erro for outro, ele aparece no console do navegador.
+                </div>`;
+            return;
+        }
+    } catch (err) {
+        document.getElementById('pd-conteudo').innerHTML = `<div class="p-4 rounded-xl text-xs" style="background:#fee2e2;color:#991b1b">Não consegui carregar o catálogo: ${pdEsc(err.message || String(err))}</div>`;
+        return;
+    }
     pdRenderAba();
 }
 
@@ -70,13 +88,15 @@ function pdRenderAba() {
 
 // ---------------------------------------------------------------- CATÁLOGO
 async function pdCarregarCatalogo() {
+    if (typeof dbAuth === 'undefined') throw new Error('cliente Supabase (dbAuth) não disponível nesta tela.');
     const [rs, rc] = await Promise.all([
         dbAuth.from('cofre_controle_subtipos').select('*').is('cliente_id', null).order('tipo').order('ordem', { nullsFirst: false }).order('nome'),
         dbAuth.from('cofre_categorias').select('id, codigo, nome, grupo').is('cliente_id', null).order('ordem'),
     ]);
+    if (rs.error) throw new Error(rs.error.message);
     pdSubtipos = rs.data || [];
     pdCategorias = rc.data || [];
-    if (rs.error) console.error('[documental] catálogo:', rs.error.message);
+    if (rc.error) console.warn('[documental] categorias:', rc.error.message);
 }
 
 function pdRenderCatalogo() {

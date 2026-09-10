@@ -5,10 +5,28 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
-   VERSÃO: v0.19.0
-   LINHAS: 940
+   VERSÃO: v0.19.1
+   LINHAS: 958
    DATA: 2026-09-09
-   TÍTULO: MOTOR DOCUMENTAL NO GESTÃO (A.20 fase 4 — fecha A.12 e A.13)
+   TÍTULO: LICENÇAS NA FICHA DA EMPRESA · FICHA VIRA TELA · MOTOR DOC 0.1.1
+   NOVIDADES (v0.19.1):
+     - EMPRESAS: a ficha era o ÚNICO lugar do módulo que abria num modal
+       sobreposto — virou tela, dentro da própria aba, com "Voltar para a
+       lista" (empresas.js 0.13.0).
+     - LÁPIS DA LICENÇA CORRIGIDO: chamava edAbrirTrocarPlano(), função
+       que nunca existiu — clicar não fazia nada. Agora abre "Licenças
+       desta empresa": ativa + histórico, com dias para expirar, adiar a
+       data (campo ou botão +30 dias), mudar status (ativo/suspenso/
+       cancelado/expirado) e motivo. Toda alteração fica em log_acessos
+       (gestao.licenca_ajustada) com o operador. Sai do rodapé o aviso de
+       "gerenciar licença pendente de arquitetura" — agora existe.
+       Migration: fn_gestao_licencas_empresa() e fn_gestao_licenca_ajustar().
+       Adiar a data zera data_aviso: o ciclo de "licença vencendo" recomeça.
+     - MOTOR DOCUMENTAL 0.1.1: a tela ficava muda quando algo falhava
+       (era o caso — o .js não tinha sido copiado no deploy, porque
+       faltava a linha no $Manifesto; corrigido no Deploy_Raiz.ps1 v2.19).
+       Agora mostra a causa em vez de tela em branco.
+   ------------------------------------------------------------------
    NOVIDADES (v0.19.0):
      - Configurações ganha o card "Motor Documental"
        (parametros-documental.js 0.1.0), com 3 abas:
@@ -667,7 +685,7 @@
 <script>
     // Fonte única da versão exibida na tela — mantida em sincronia com o
     // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
-    const APP_VERSAO = 'v0.19.0';
+    const APP_VERSAO = 'v0.19.1';
 </script>
 
 <!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->
