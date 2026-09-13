@@ -1,6 +1,18 @@
 // ============================================================================
 // js/telas/suporte-backlog.js — Raiz Gestão
-// Versão: 0.1.1 · 13/09/2026
+// Versão: 0.2.0 · 13/09/2026
+//
+// v0.2.0 — pedido do Nicola: "tem algum filtro... previsão de entrada...
+// sem criar campo novo?". A previsão já existia no banco (a data do
+// acompanhamento — fn_demanda_acompanhamento_criar) — só a tela nunca
+// deixava escolher, sempre mandava hoje. Agora "Agendar acompanhamento"
+// tem campo de data (vira a previsão real — o item passa a aparecer como
+// vencendo/atrasado sozinho). Nova seção "Acompanhamentos" na ficha,
+// com Concluir/Cancelar/Reagendar por item (fn_demanda_acompanhamento_
+// tratar/reagendar, já existentes, só não usadas ainda). Chips de
+// situação ganham "Atrasadas" e "Sem previsão" (= sem_prazo, situação já
+// calculada pelo banco). Sem categoria própria — dica de usar prefixo no
+// título + busca, já que não dá pra criar campo novo.
 //
 // v0.1.1 — CORREÇÃO (achada ao ler PLANO_TECNICO_SISTEMA_DEMANDAS_RAIZ
 // v2.0.0 na íntegra, que eu não tinha lido antes de construir v0.1.0):
@@ -93,11 +105,14 @@ async function supRenderLista() {
             <p class="text-xs mt-0.5" style="color:var(--sage)">Chamados de suporte, serviços contratados e backlog do produto — tudo num lugar só.</p>
         </div>
 
-        <div class="grid grid-cols-3 gap-2 mb-3">
+        <div class="grid grid-cols-4 gap-2 mb-3">
             ${gestaoCardMetrica('Abertas', c.abertas ?? 0, 'ink')}
             ${gestaoCardMetrica('Atrasadas', c.atrasadas ?? 0, (c.atrasadas > 0 ? 'red' : 'ink'))}
-            ${gestaoCardMetrica('Vencendo', c.vencendo ?? 0, (c.vencendo > 0 ? 'amber' : 'ink'))}
+            ${gestaoCardMetrica('Sem prev.', c.sem_prazo ?? 0, 'ink', 'Demandas sem nenhum acompanhamento/previsão marcada ainda')}
+            ${gestaoCardMetrica('Encerradas', c.encerradas ?? 0, 'ink')}
         </div>
+
+        <p class="text-[11px] mb-2" style="color:var(--sage)">💡 Sem campo de categoria próprio — pra agrupar por assunto, use um prefixo no título (ex.: <code>[Fiscal]</code>, <code>[Bot]</code>) e depois busque por ele.</p>
 
         <div class="flex flex-wrap gap-1.5 mb-2">
             <select id="sup-select-empresa" onchange="supMudarEmpresa(this.value)"
@@ -112,6 +127,8 @@ async function supRenderLista() {
         </div>
         <div class="flex flex-wrap gap-1.5 mb-3">
             ${chipSituacao('abertas', 'Em aberto')}
+            ${chipSituacao('atrasadas', 'Atrasadas')}
+            ${chipSituacao('sem_prazo', 'Sem previsão')}
             ${chipSituacao('todas', 'Todas')}
             ${chipSituacao('encerradas', 'Encerradas')}
         </div>
@@ -202,10 +219,37 @@ async function supRenderFicha() {
 
         ${d.ativo ? `
         <div class="p-3 rounded-xl border-2 mb-3" style="border-color:var(--line);background:#fff">
-            <p class="text-xs font-bold mb-1.5" style="color:var(--ink)">Registrar acompanhamento</p>
-            <textarea id="sup-novo-acomp" rows="2" placeholder="O que aconteceu ou o que foi feito..."
-                class="w-full text-xs p-2 rounded-lg border-2" style="border-color:var(--line)"></textarea>
-            <button onclick="supRegistrarAcompanhamento()" class="mt-1.5 text-xs font-bold px-3 py-1.5 rounded-lg text-white" style="background:var(--pine)">Registrar</button>
+            <p class="text-xs font-bold mb-1.5" style="color:var(--ink)">Agendar acompanhamento</p>
+            <p class="text-[11px] mb-1.5" style="color:var(--sage)">A data vira a previsão desta demanda — é o que faz ela aparecer como "vencendo"/"atrasada".</p>
+            <div class="flex gap-1.5 mb-1.5">
+                <input id="sup-novo-acomp-data" type="date" value="${new Date().toISOString().slice(0, 10)}"
+                    class="text-xs p-2 rounded-lg border-2" style="border-color:var(--line)">
+                <textarea id="sup-novo-acomp" rows="2" placeholder="O que precisa acontecer até essa data..."
+                    class="flex-1 min-w-0 text-xs p-2 rounded-lg border-2" style="border-color:var(--line)"></textarea>
+            </div>
+            <button onclick="supRegistrarAcompanhamento()" class="text-xs font-bold px-3 py-1.5 rounded-lg text-white" style="background:var(--pine)">Agendar</button>
+        </div>` : ''}
+
+        ${(d.ocorrencias || []).length > 0 ? `
+        <p class="text-xs font-bold mb-1.5" style="color:var(--ink)">Acompanhamentos</p>
+        <div class="space-y-2 mb-3">
+            ${d.ocorrencias.map(o => {
+                const corSt = o.status === 'aberto' ? (o.dias !== null && o.dias < 0 ? 'var(--danger)' : 'var(--warning)') : 'var(--sage)';
+                const rotSt = o.status === 'aberto' ? (o.dias !== null && o.dias < 0 ? `atrasado ${Math.abs(o.dias)}d` : `em ${o.dias}d`) : (o.status === 'concluido' ? 'concluído' : 'cancelado');
+                return `<div class="p-2.5 rounded-lg border-2 text-xs" style="border-color:var(--line);background:#fff">
+                    <div class="flex justify-between gap-2">
+                        <span style="color:var(--ink)">${new Date(o.data + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+                        <span class="font-bold" style="color:${corSt}">${rotSt}</span>
+                    </div>
+                    <p class="mt-0.5" style="color:var(--ink)">${supEsc(o.descricao)}</p>
+                    ${o.resultado ? `<p class="mt-0.5" style="color:var(--sage)">${supEsc(o.resultado)}</p>` : ''}
+                    ${o.status === 'aberto' && d.ativo ? `<div class="flex gap-1.5 mt-1.5">
+                        <button onclick="supTratarAcompanhamento('${o.id}','concluir')" class="text-[11px] font-bold px-2 py-1 rounded-lg border-2" style="border-color:var(--success);color:var(--success)">Concluir</button>
+                        <button onclick="supTratarAcompanhamento('${o.id}','cancelar')" class="text-[11px] font-bold px-2 py-1 rounded-lg border-2" style="border-color:var(--danger);color:var(--danger)">Cancelar</button>
+                        <button onclick="supReagendar('${o.id}')" class="text-[11px] font-bold px-2 py-1 rounded-lg border-2" style="border-color:var(--line);color:var(--ink)">Reagendar</button>
+                    </div>` : ''}
+                </div>`;
+            }).join('')}
         </div>` : ''}
 
         <p class="text-xs font-bold mb-1.5" style="color:var(--ink)">Linha do tempo</p>
@@ -233,14 +277,43 @@ function supRotuloAcao(acao) {
 
 async function supRegistrarAcompanhamento() {
     const campo = document.getElementById('sup-novo-acomp');
+    const campoData = document.getElementById('sup-novo-acomp-data');
     const texto = campo.value.trim();
+    const dataEscolhida = campoData.value;
     if (!texto) return;
+    if (!dataEscolhida) { alert('Escolha uma data.'); return; }
     const { data, error } = await dbAuth.rpc('fn_demanda_acompanhamento_criar', {
-        p_item_id: supDemandaAtual, p_data: new Date().toISOString().slice(0, 10), p_descricao: texto,
+        p_item_id: supDemandaAtual, p_data: dataEscolhida, p_descricao: texto,
         p_alerta: true, p_chave_idempotencia: null, p_pessoa_id: null, p_canal: null,
     });
     if (error) { alert('Erro: ' + error.message); return; }
     if (!data.ok) { alert(data.mensagem || 'Não foi possível registrar.'); return; }
+    await supRenderFicha();
+}
+
+// acao: 'concluir' | 'cancelar' — cancelar pede motivo (exigido pela RPC).
+async function supTratarAcompanhamento(ocorrenciaId, acao) {
+    let texto = null;
+    if (acao === 'cancelar') {
+        texto = prompt('Motivo do cancelamento:');
+        if (!texto || !texto.trim()) return;
+    }
+    const { data, error } = await dbAuth.rpc('fn_demanda_acompanhamento_tratar', {
+        p_ocorrencia_id: ocorrenciaId, p_acao: acao, p_texto: texto, p_pessoa_id: null, p_canal: null,
+    });
+    if (error) { alert('Erro: ' + error.message); return; }
+    if (!data.ok) { alert(data.mensagem || 'Não foi possível.'); return; }
+    await supRenderFicha();
+}
+
+async function supReagendar(ocorrenciaId) {
+    const novaData = prompt('Nova data (AAAA-MM-DD):', new Date().toISOString().slice(0, 10));
+    if (!novaData) return;
+    const { data, error } = await dbAuth.rpc('fn_demanda_acompanhamento_reagendar', {
+        p_ocorrencia_id: ocorrenciaId, p_nova_data: novaData, p_motivo: null, p_pessoa_id: null, p_canal: null,
+    });
+    if (error) { alert('Erro: ' + error.message); return; }
+    if (!data.ok) { alert(data.mensagem || 'Não foi possível reagendar.'); return; }
     await supRenderFicha();
 }
 
