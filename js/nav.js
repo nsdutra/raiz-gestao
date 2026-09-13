@@ -1,6 +1,11 @@
 // ============================================================================
 // js/nav.js — Raiz Gestão
 //
+// v0.11.4 (13/09/2026) — SISTEMA DE DEMANDAS, Fase 1: tela "Suporte" deixa
+// de ser telaEmConstrucaoInit() e vira "Suporte & Backlog", apontando pra
+// telaSuporteInit() (js/telas/suporte.js, novo). Só a linha do menu mudou
+// aqui — a tela em si mora no arquivo novo.
+//
 // v0.11.3 — gestaoLerFiltroPeriodo() não cai mais no padrão de N dias
 // quando um campo de data fica em branco: cada lado (início/fim) agora é
 // lido independente — em branco vira null (sem limite naquele lado), não
@@ -32,7 +37,7 @@ const GESTAO_TELAS = [
     { id: 'saude', label: 'Saúde', icone: '⚡', mobilePrimario: false, init: () => telaSaudeInit() },
     { id: 'bot-uso', label: 'Bot · Uso', icone: '🤖', mobilePrimario: false, init: () => telaBotUsoInit() },
     { id: 'comunicacoes', label: 'Comunicações', icone: '📨', mobilePrimario: false, init: () => telaComunicacoesInit() },
-    { id: 'suporte', label: 'Suporte', icone: '🎧', mobilePrimario: false, init: () => telaEmConstrucaoInit('Suporte', 'Existe feedback (nota + comentário) real no banco — usado hoje na ficha da empresa e no Cockpit (alerta de nota baixa) — mas ainda não existe um sistema de tickets com prioridade/SLA. Fica para a fase seguinte.') },
+    { id: 'suporte', label: 'Suporte & Backlog', icone: '🎧', mobilePrimario: false, init: () => telaSuporteInit() },
     { id: 'codigo', label: 'Código', icone: '🧩', mobilePrimario: false, init: () => telaCodigoInit() }, // v0.17.0
     { id: 'parametros', label: 'Configurações', icone: '⚙️', mobilePrimario: false, init: () => telaParametrosMasterInit() }
 ];
