@@ -5,10 +5,25 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
-   VERSÃO: v0.20.0
-   LINHAS: 959
+   VERSÃO: v0.20.1
+   LINHAS: 966
    DATA: 2026-09-13
-   TÍTULO: SISTEMA DE DEMANDAS — FASE 1 (BACKLOG DE PRODUTO)
+   TÍTULO: CORREÇÃO DA v0.20.0 — NOME DO ARQUIVO E CONTEXTO DA EMPRESA
+   NOVIDADES (v0.20.1):
+     - Corrigido depois de ler PLANO_TECNICO_SISTEMA_DEMANDAS_RAIZ_v2_0_0.md
+       na íntegra (não lido antes da v0.20.0): arquivo renomeado suporte.js
+       → suporte-backlog.js (nome que o manifesto real espera — a v0.20.0
+       nunca chegava a carregar via Deploy_Raiz.ps1 2.24, ficava no
+       placeholder). Empresa padrão deixou de ser resolvida por nome
+       (ILIKE 'RAIZ PATRIMONIO MATRIZ') e passou a usar
+       gestao.fn_demandas_contexto() (nova, consulta pela licença do
+       módulo gestao) — o valor já saía certo, só o método violava a
+       regra "nunca por nome ou ID fixo" do Guia do Claude (§13 do plano).
+     - Pendente, registrado não escondido: indicadores da tela deveriam
+       ser "abertos · atrasados · sem acompanhamento · encerrados no
+       período" (hoje mostra abertas/atrasadas/vencendo) e falta o filtro
+       de período — ficam para uma próxima entrega.
+   ------------------------------------------------------------------
    NOVIDADES (v0.20.0):
      - Nova tela "Suporte & Backlog" (js/telas/suporte.js) — antes era
        placeholder ("ainda não disponível"). Lista, cria, trata e encerra
@@ -696,7 +711,7 @@
 <script>
     // Fonte única da versão exibida na tela — mantida em sincronia com o
     // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
-    const APP_VERSAO = 'v0.20.0';
+    const APP_VERSAO = 'v0.20.1';
 </script>
 
 <!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->
@@ -947,7 +962,7 @@
     <script src="js/telas/parametros-perfis.js"></script>
     <script src="js/telas/bot-uso.js"></script>
     <script src="js/telas/comunicacoes.js"></script>
-    <script src="js/telas/suporte.js"></script>
+    <script src="js/telas/suporte-backlog.js"></script>
     <script>
         window.addEventListener('load', function () {
             if (window.lucide) lucide.createIcons();
