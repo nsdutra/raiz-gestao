@@ -1,6 +1,10 @@
 // ============================================================================
 // js/telas/parametros-master.js — Raiz Gestão
 //
+// v0.9.1 (15/09/2026) — PLANO_IMPLEMENTACAO v1.0, etapa E14.3, Onda 12.
+// PM_HUB ganha o card "Partes padrão" (js/telas/partes-padrao.js, novo) —
+// catálogo de prefeituras/órgãos recolhedores por subtipo de controle.
+//
 // v0.9.0 (07/09/2026) — E.1 (revisão pós-fatia 8): Catálogo › Funcionalidades
 // reescrito pra falar a língua do app e do bot: agrupado por ÁREA (não por
 // módulo), cada linha com o NOME COMERCIAL em destaque e o código embaixo;
@@ -88,6 +92,7 @@ const PM_HUB = [
     { id: 'perfis', icone: '🛡️', titulo: 'Perfis & Acessos', desc: 'O que cada pessoa pode fazer dentro do que a empresa contratou.', init: () => parametrosPerfisInit() },
     { id: 'catalogos', icone: '🧱', titulo: 'Catálogo Técnico', desc: 'Módulos, funcionalidades e categorias de limite.', init: () => pmRenderCatalogos() },
     { id: 'documental', icone: '📄', titulo: 'Motor Documental', desc: 'Tipos de documento que a IA reconhece, prompts, versões e assertividade da leitura.', init: () => telaParametrosDocumentalInit() },
+    { id: 'partes-padrao', icone: '🏛️', titulo: 'Partes padrão', desc: 'Prefeituras e órgãos recolhedores por subtipo de controle — vale pra todas as empresas.', init: () => telaPartesPadraoInit() },
     { id: 'comercial', icone: '📣', titulo: 'Oferta & campanhas', desc: 'Preço, trial, pagamentos, público e landing ficam em Comercial.', redirecionaPara: 'comercial' }
 ];
 
