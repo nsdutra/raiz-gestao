@@ -1,6 +1,19 @@
 // ============================================================================
 // js/supabase-client.js — Raiz Gestão
 //
+// v0.6.1 (18/09/2026) — Bug achado testando a Onda 2: voltar pra aba depois
+// de um tempo (o Chrome descarta aba inativa por memória e recarrega a
+// página do zero ao focar de novo) sempre caía na tela de login, mesmo com
+// sessão válida. Causa: o listener de auth só tratava o evento SIGNED_IN,
+// mas o supabase-js v2 dispara INITIAL_SESSION (não SIGNED_IN) quando a
+// página carrega já com uma sessão existente no localStorage — SIGNED_IN só
+// acontece num login novo de verdade. Sem tratar INITIAL_SESSION, nada
+// chamava verificarAcessoGestao() nesse caso, e a tela ficava presa em
+// area-login (que já nasce visível por padrão), mesmo com token bom por
+// baixo. Corrigido tratando os dois eventos, com guarda pra só reverificar
+// quando a tela ainda está fechada (evita nova consulta ao banco à toa num
+// TOKEN_REFRESHED com a área já aberta).
+//
 // v0.6.0 — entrarNaGestao() passou a abrir o shell de navegação
 // (gestaoNavInit(), js/nav.js) em vez de ir direto pra Parâmetros Master.
 // Único trecho alterado nesta versão; resto do arquivo é v0.5.0, sem
@@ -122,7 +135,15 @@ async function fazerLogoutGestao() {
     location.reload();
 }
 
-// Se já existe uma sessão válida (recarregou a página), pula direto o login.
+// Se já existe uma sessão válida (recarregou a página, ou o Chrome descartou
+// a aba inativa e recarregou ao voltar o foco), pula direto o login.
+// INITIAL_SESSION = sessão existente restaurada do localStorage no boot da
+// página; SIGNED_IN = login novo de verdade (fazerLoginGestao). A guarda no
+// "hidden" evita reverificar à toa quando a área já está aberta (ex.:
+// TOKEN_REFRESHED, que não muda o estado de tela).
 dbAuth.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_IN' && session) verificarAcessoGestao();
+    if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session) {
+        const areaApp = document.getElementById('area-app');
+        if (areaApp && areaApp.classList.contains('hidden')) verificarAcessoGestao();
+    }
 });
