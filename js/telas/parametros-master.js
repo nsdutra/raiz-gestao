@@ -1,6 +1,12 @@
 // ============================================================================
 // js/telas/parametros-master.js — Raiz Gestão
 //
+// v0.9.2 (18/09/2026) — Onda 2 da PROPOSTA_CATALOGO_GESTAO v1.3.0. PM_HUB
+// ganha o card "Catálogo do patrimônio" (js/telas/catalogo-patrimonio.js,
+// novo) — os dois eixos do catálogo global (ativo: categoria + tipo;
+// controle: natureza → subtipo → aplicabilidade → calendário), ao lado de
+// "Motor Documental" e "Partes padrão".
+//
 // v0.9.1 (15/09/2026) — PLANO_IMPLEMENTACAO v1.0, etapa E14.3, Onda 12.
 // PM_HUB ganha o card "Partes padrão" (js/telas/partes-padrao.js, novo) —
 // catálogo de prefeituras/órgãos recolhedores por subtipo de controle.
@@ -92,6 +98,7 @@ const PM_HUB = [
     { id: 'perfis', icone: '🛡️', titulo: 'Perfis & Acessos', desc: 'O que cada pessoa pode fazer dentro do que a empresa contratou.', init: () => parametrosPerfisInit() },
     { id: 'catalogos', icone: '🧱', titulo: 'Catálogo Técnico', desc: 'Módulos, funcionalidades e categorias de limite.', init: () => pmRenderCatalogos() },
     { id: 'documental', icone: '📄', titulo: 'Motor Documental', desc: 'Tipos de documento que a IA reconhece, prompts, versões e assertividade da leitura.', init: () => telaParametrosDocumentalInit() },
+    { id: 'catalogo-patrimonio', icone: '🗂️', titulo: 'Catálogo do patrimônio', desc: 'Os dois eixos do catálogo global: o que o ativo é (categoria + tipo) e o que se controla sobre ele (natureza → subtipo → aplicabilidade → calendário).', init: () => telaCatalogoPatrimonioInit() },
     { id: 'partes-padrao', icone: '🏛️', titulo: 'Partes padrão', desc: 'Prefeituras e órgãos recolhedores por subtipo de controle — vale pra todas as empresas.', init: () => telaPartesPadraoInit() },
     { id: 'comercial', icone: '📣', titulo: 'Oferta & campanhas', desc: 'Preço, trial, pagamentos, público e landing ficam em Comercial.', redirecionaPara: 'comercial' }
 ];

@@ -1,6 +1,21 @@
 // ============================================================================
 // js/telas/parametros-documental.js — Motor Documental no Raiz Gestão
-// Versão: 0.1.1 · 09/09/2026
+// Versão: 0.2.0 · 18/09/2026
+//
+// v0.2.0 — CAN-05 (Onda 2 da PROPOSTA_CATALOGO_GESTAO v1.3.0): a aba
+// Catálogo perde os campos ESTRUTURAIS do subtipo — categoria, titular,
+// tipos de ativo aplicáveis, antecedência/reforço/recorrência, parcelamento
+// padrão, gera controle, guarda arquivo, ativo. Esses campos migraram pra
+// aba Subtipos de js/telas/catalogo-patrimonio.js (novo), que passa a ser a
+// ÚNICA porta de edição deles. Esta tela fica só com a LENTE DE IA: prompt
+// específico, sinônimos, como reconhecer, estratégia (classificador/
+// extrator/revisor/limiar/gatilhos), complexidade, campos, validações e
+// regra de vencimento — mais "no classificador" (ia_reconhece), que decide
+// se o subtipo entra no prompt do classificador, e é uma decisão de IA, não
+// estrutural. Uma porta de escrita (fn_cofre_catalogo_upsert — CONTINUA a
+// mesma função, sem caminho paralelo), duas lentes, sem convivência: esta
+// tela só manda no payload as chaves que edita, então os campos que saíram
+// do formulário não são tocados (a função faz coalesce por chave presente).
 //
 // v0.1.0 — FASE 4 do Motor Documental (A.20), que fecha junto as fases que
 // faltavam do A.12 (categorias & padrões) e A.13 (padrões de ocorrência).
@@ -22,7 +37,7 @@
 // muda o comportamento sem deploy.
 // ============================================================================
 
-const PD_VERSAO = '0.1.1';
+const PD_VERSAO = '0.2.0';
 let pdAba = 'catalogo';
 let pdSubtipos = [];
 let pdCategorias = [];
@@ -163,29 +178,13 @@ function pdFormSubtipo(s) {
     const sel = (v, opts, id) => `<select id="${id}" class="w-full p-1.5 border rounded text-[11px]">${opts.map(o => `<option value="${o.v}" ${v === o.v ? 'selected' : ''}>${pdEsc(o.r)}</option>`).join('')}</select>`;
     return `
     <div class="p-3 border-t space-y-3" style="border-color:var(--line);background:#faf9f5">
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-            <div><label class="text-[10px] font-semibold">Categoria</label>
-                ${sel(s.categoria_codigo, [{ v: '', r: '— nenhuma —' }].concat(pdCategorias.map(c => ({ v: c.codigo, r: `${c.grupo} › ${c.nome}` }))), `pd-cat-${s.codigo}`)}</div>
-            <div><label class="text-[10px] font-semibold">Titular</label>
-                ${sel(s.titular_escopo, [{ v: '', r: '—' }, { v: 'pessoa', r: 'pessoa' }, { v: 'ativo', r: 'ativo' }, { v: 'contrato', r: 'contrato' }], `pd-tit-${s.codigo}`)}</div>
+        <p class="text-[11px] p-2 rounded-lg" style="background:#f1f5f9;color:#475569">Categoria, titular, tipos de ativo aplicáveis, antecedência/reforço/recorrência, parcelamento, "gera controle", "guarda arquivo" e "ativo" mudaram de lugar — edite em <b>Configurações › Catálogo do patrimônio › Subtipos</b>. Aqui fica só a lente de IA.</p>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
             <div><label class="text-[10px] font-semibold">Complexidade</label>
                 ${sel(s.complexidade, [{ v: 'padrao', r: 'padrão' }, { v: 'semi_estruturado', r: 'semi-estruturado' }, { v: 'complexo', r: 'complexo' }], `pd-cx-${s.codigo}`)}</div>
             <div class="flex flex-col gap-1 justify-end pb-1">
-                <label class="text-[11px] flex items-center gap-1"><input type="checkbox" id="pd-ativo-${s.codigo}" ${s.ativo ? 'checked' : ''}> ativo</label>
                 <label class="text-[11px] flex items-center gap-1"><input type="checkbox" id="pd-ia-${s.codigo}" ${s.ia_reconhece ? 'checked' : ''}> no classificador</label>
             </div>
-        </div>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-            <div><label class="text-[10px] font-semibold">Antecedência (dias)</label><input type="number" id="pd-ant-${s.codigo}" value="${s.antecedencia_padrao_dias ?? ''}" class="w-full p-1.5 border rounded text-[11px]"></div>
-            <div><label class="text-[10px] font-semibold">Reforço (dias)</label><input type="number" id="pd-ref-${s.codigo}" value="${s.repeticao_padrao_dias ?? ''}" class="w-full p-1.5 border rounded text-[11px]"></div>
-            <div><label class="text-[10px] font-semibold">Repete a cada</label><input type="number" id="pd-rec-${s.codigo}" value="${s.recorrencia_padrao_intervalo ?? ''}" class="w-full p-1.5 border rounded text-[11px]" placeholder="vazio = não repete"></div>
-            <div><label class="text-[10px] font-semibold">Unidade</label>
-                ${sel(s.recorrencia_padrao_unidade, [{ v: '', r: '—' }, { v: 'dia', r: 'dia(s)' }, { v: 'semana', r: 'semana(s)' }, { v: 'mes', r: 'mês(es)' }, { v: 'ano', r: 'ano(s)' }], `pd-recu-${s.codigo}`)}</div>
-        </div>
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
-            <label class="text-[11px] flex items-center gap-1"><input type="checkbox" id="pd-ctl-${s.codigo}" ${s.gera_controle_padrao ? 'checked' : ''}> gera item de controle</label>
-            <label class="text-[11px] flex items-center gap-1"><input type="checkbox" id="pd-arq-${s.codigo}" ${s.manter_arquivo_padrao ? 'checked' : ''}> guarda o arquivo por padrão</label>
-            <div><label class="text-[10px] font-semibold">Tipos de ativo (vírgula)</label><input id="pd-ta-${s.codigo}" value="${pdEsc((s.tipo_ativo_aplicavel || []).join(','))}" class="w-full p-1.5 border rounded text-[11px]"></div>
         </div>
         <div><label class="text-[10px] font-semibold">Sinônimos (vírgula) — entram no prompt do classificador</label>
             <input id="pd-sin-${s.codigo}" value="${pdEsc((s.sinonimos || []).join(', '))}" class="w-full p-1.5 border rounded text-[11px]"></div>
@@ -228,16 +227,15 @@ async function pdSalvarSubtipo(codigo) {
         st.textContent = '⚠️ JSON inválido em campos/validações/regra — corrija antes de salvar.'; st.style.color = 'var(--danger)'; return;
     }
     const lista = v => String(v || '').split(',').map(x => x.trim()).filter(Boolean);
+    // v0.2.0 (CAN-05) — payload só manda as chaves desta lente (IA). Campo
+    // estrutural (categoria/titular/tipos de ativo/antecedência/parcelamento/
+    // gera controle/guarda arquivo/ativo) NÃO entra aqui de propósito: a
+    // ausência da chave faz fn_cofre_catalogo_upsert preservar o valor atual
+    // (coalesce), que só é editado agora por catalogo-patrimonio.js.
     const payload = {
         codigo, tipo: s.tipo, nome: s.nome,
-        categoria_codigo: g('pd-cat').value || null,
-        titular_escopo: g('pd-tit').value || null,
         complexidade: g('pd-cx').value,
-        ativo: g('pd-ativo').checked,
         ia_reconhece: g('pd-ia').checked,
-        gera_controle_padrao: g('pd-ctl').checked,
-        manter_arquivo_padrao: g('pd-arq').checked,
-        tipo_ativo_aplicavel: lista(g('pd-ta').value),
         sinonimos: lista(g('pd-sin').value),
         como_reconhecer: g('pd-rec2').value.trim() || null,
         prompt_especifico: g('pd-prompt').value.trim() || null,

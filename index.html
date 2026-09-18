@@ -5,11 +5,40 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
-   VERSÃO: v0.21.0
-   LINHAS: 992
-   DATA: 2026-09-17
-   TÍTULO: bc9df144 — DESMONTE DO APP-DEV: EMPRESAS GANHA "APAGAR EMPRESA E
-   ACESSOS"; COMUNICAÇÕES GANHA MODO "PESSOAS"
+   VERSÃO: v0.22.0
+   LINHAS: 1057
+   DATA: 2026-09-18
+   TÍTULO: f5d2c6b9 — ONDA 2 DA PROPOSTA_CATALOGO_GESTAO: TELA "CATÁLOGO DO
+   PATRIMÔNIO" NO HUB DE CONFIGURAÇÕES
+   NOVIDADES (v0.22.0):
+     - Script novo js/telas/catalogo-patrimonio.js v1.0.0 — os dois eixos do
+       catálogo global que a Onda 1 (M1–M12, sessão anterior) reorganizou:
+       eixo do ATIVO (categoria macro + tipo de ativo) e eixo do CONTROLE/
+       DOCUMENTO (natureza → subtipo → aplicabilidade → calendário). 6 abas:
+       Subtipos · Aplicabilidade · Tipos de ativo · Campos do tipo ·
+       Calendário & partes · Conciliação. Card novo no PM_HUB
+       (parametros-master.js v0.9.2), ao lado de "Motor Documental" e
+       "Partes padrão". Toda escrita passa pelas RPCs de catalogo_upsert_v4
+       (fn_sou_master() + log_acessos) — nenhum INSERT/UPDATE direto.
+     - CAN-05 (absorção): parametros-documental.js v0.2.0 — o Motor
+       Documental › Catálogo perde os campos ESTRUTURAIS do subtipo
+       (categoria, titular, tipos de ativo aplicáveis, antecedência/
+       reforço/recorrência, gera controle, guarda arquivo, ativo), que
+       migram pra aba Subtipos da tela nova. Fica só com a lente de IA
+       (prompt, sinônimos, como reconhecer, estratégia, complexidade,
+       campos, validações, regra de vencimento). Uma porta de escrita
+       (fn_cofre_catalogo_upsert), duas lentes, sem convivência.
+     - Catálogo de classes `.rz-chip`/`.rz-chips`/`.rz-on`/`.rz-badge` CSS
+       adicionado no bloco de estilo global deste arquivo — parametros-documental.js (desde
+       a v0.1.0) já usava essas classes nas abas do Motor Documental, mas
+       elas nunca tinham sido definidas: os botões de aba renderizavam sem
+       nenhum estilo. QUA-01 (mesmo padrão, corrigido na causa): a tela
+       nova ia herdar o mesmo bug, então a definição entrou aqui em vez de
+       reescrever a marcação das duas telas.
+     - `APP_VERSAO` (linha ~757) estava em 'v0.20.2', uma versão atrás do
+       que o cabeçalho deste arquivo já dizia (v0.21.0 antes desta entrega)
+       — corrigido junto, já que os dois deveriam andar sempre juntos.
+   ------------------------------------------------------------------
    NOVIDADES (v0.21.0):
      - js/telas/empresas.js v0.15.0: ficha da empresa ganha "Ações
        administrativas" com "Apagar Empresa e Acessos" (migrado do App,
@@ -734,7 +763,7 @@
 <script>
     // Fonte única da versão exibida na tela — mantida em sincronia com o
     // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
-    const APP_VERSAO = 'v0.20.2';
+    const APP_VERSAO = 'v0.22.0';
 </script>
 
 <!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->
@@ -892,6 +921,24 @@
     .gestao-mais-item.ativo { background: var(--paper); color: var(--pine); }
     @media (min-width: 900px) { .gestao-mais-sheet { display: none !important; } }
 
+    /* v0.22.0 — Catálogo de classes rz-chip/rz-chips/rz-badge. Já eram
+       usadas por parametros-documental.js desde a v0.1.0 (abas do Motor
+       Documental) sem nunca terem sido definidas aqui — os botões de aba
+       renderizavam sem nenhum estilo. Definidas agora porque
+       catalogo-patrimonio.js (v1.0.0) usa o mesmo padrão pras suas 6
+       abas; corrigir aqui resolve as duas telas de uma vez (QUA-01). */
+    .rz-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+    .rz-chips::-webkit-scrollbar { display: none; }
+    .rz-chip {
+        flex: none; padding: 6px 14px; border-radius: 999px; font-size: 12px; font-weight: 700;
+        white-space: nowrap; border: 1px solid var(--line); background: #fff; color: var(--sage);
+    }
+    .rz-chip.rz-on { background: var(--pine); border-color: var(--pine); color: #fff; }
+    .rz-badge {
+        display: inline-block; padding: 1px 8px; border-radius: 999px;
+        font-size: 10px; font-weight: 700; line-height: 1.6; white-space: nowrap;
+    }
+
     /* Ícone informativo (tooltip clicável) — Saúde/Financeiro/Comercial/Empresas */
     .gestao-info-icone {
         color: var(--sage); font-size: 12px; line-height: 1; cursor: pointer;
@@ -984,6 +1031,7 @@
     <script src="js/telas/parametros-documental.js"></script>
     <script src="js/telas/parametros-perfis.js"></script>
     <script src="js/telas/partes-padrao.js"></script>
+    <script src="js/telas/catalogo-patrimonio.js"></script>
     <script src="js/telas/bot-uso.js"></script>
     <script src="js/telas/comunicacoes.js"></script>
     <script src="js/telas/suporte-backlog.js"></script>
