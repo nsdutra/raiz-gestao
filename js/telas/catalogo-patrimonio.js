@@ -1,6 +1,17 @@
 // ============================================================================
 // js/telas/catalogo-patrimonio.js — Raiz Gestão
-// Versão: 1.1.0 · 18/09/2026
+// Versão: 1.2.0 · 18/09/2026
+//
+// v1.2.0 — Item 2 do feedback do Nicola (rodada 2): a aba Aplicabilidade
+// trocou a lista de chips (flex-wrap, quebrava/amontoava quando um subtipo
+// tinha vínculo com muitas categorias — caso extremo: "Não classificado",
+// 8/8) por uma matriz de largura fixa (sempre 8 células, uma por categoria
+// macro — nunca quebra linha, nada escondido ou resumido). Célula vazia =
+// clique cria o vínculo direto (cpAplAdicionarRapido, sem abrir formulário);
+// célula preenchida = clique remove (com confirmação). Vínculos por código
+// (tipo de ativo específico, não a categoria toda) continuam raros e ficam
+// como chips numa linha compacta abaixo da matriz. Combinado com o Nicola:
+// não esconder/resumir dado, só mudar o formato.
 //
 // v1.1.0 — Feedback do Nicola testando a Onda 2: a aba Conciliação saiu
 // daqui e virou tela própria (js/telas/conciliacao-catalogo.js) — não tem
@@ -56,7 +67,7 @@
 // objeto, toast no passado, vazio num formato só, sentence case).
 // ============================================================================
 
-const CP_VERSAO = '1.1.0';
+const CP_VERSAO = '1.2.0';
 let cpAba = 'subtipos';
 
 // ---- estado por aba --------------------------------------------------------
@@ -97,6 +108,13 @@ const CP_CATEGORIA_ATIVO_LABEL = {
     imovel_predial: 'imóvel predial', imovel_territorial: 'imóvel territorial',
     veiculo: 'veículo', embarcacao: 'embarcação', aeronave: 'aeronave',
     vida: 'vida', bem_valor: 'bem de valor', outro: 'outro',
+};
+// Abreviação de 4 letras pra caber na matriz de aplicabilidade (largura fixa,
+// nunca quebra linha — ver changelog v1.2.0).
+const CP_CATEGORIA_ATIVO_ABREV = {
+    imovel_predial: 'Pred', imovel_territorial: 'Terr',
+    veiculo: 'Veíc', embarcacao: 'Emb', aeronave: 'Aero',
+    vida: 'Vida', bem_valor: 'Bem', outro: 'Outro',
 };
 const CP_NATUREZAS = [
     { v: 'documento', r: 'documento' },
@@ -366,23 +384,71 @@ function cpRenderAplicabilidade() {
 function cpLinhaAplicabilidade(s) {
     const vinculos = cpAplicabilidade.filter(a => a.subtipo_id === s.id);
     const aberto = cpAplicSubtipoAberto === s.id;
-    const chips = vinculos.map(a => `
-        <span class="rz-badge inline-flex items-center gap-1" style="background:${a.ativo ? (a.override ? '#fef3c7' : '#e0e7ff') : '#f1f5f9'};color:${a.ativo ? (a.override ? '#92400e' : '#3730a3') : '#94a3b8'}">
-            ${a.escopo_tipo === 'categoria' ? cpEsc(CP_CATEGORIA_ATIVO_LABEL[a.escopo_valor] || a.escopo_valor) : cpEsc(cpNomeTipoAtivo(a.escopo_valor))}${a.override ? ' (override)' : ''}
-            <button type="button" onclick="cpAplRemover('${a.id}')" title="Remover" style="line-height:1">×</button>
-        </span>`).join(' ');
+    // v1.2.0 — matriz de largura fixa (8 categorias macro, sempre 8 células)
+    // no lugar da lista de chips que quebrava linha e amontoava quando um
+    // subtipo (ex.: "Não classificado") tinha vínculo com todas as 8
+    // categorias. Nada é escondido/resumido — GAP + proposta discutidos com
+    // o Nicola em 18/09/2026; ele preferiu isso a truncar em "+N" ou colapsar
+    // pra "todas as categorias". Clique numa célula vazia cria o vínculo de
+    // categoria direto (sem abrir o formulário); clique numa célula
+    // preenchida remove (com confirmação, igual já era com os chips).
+    // Vínculos escopo_tipo='codigo' (tipo de ativo específico, não a
+    // categoria toda) são raros — ficam numa segunda linha compacta abaixo
+    // da matriz, sem entrar na grade de 8 colunas.
+    const porCategoria = {};
+    vinculos.filter(a => a.escopo_tipo === 'categoria').forEach(a => { porCategoria[a.escopo_valor] = a; });
+    const vinculosCodigo = vinculos.filter(a => a.escopo_tipo === 'codigo');
+
+    const matriz = `
+        <div class="grid grid-cols-4 sm:grid-cols-8 gap-1 mt-1.5" role="group" aria-label="Categorias macro aplicáveis a ${cpEsc(s.nome)}">
+            ${CP_CATEGORIAS_ATIVO.map(cat => {
+                const v = porCategoria[cat];
+                const rotulo = CP_CATEGORIA_ATIVO_LABEL[cat] || cat;
+                const abrev = CP_CATEGORIA_ATIVO_ABREV[cat] || cat.slice(0, 4);
+                let bg = '#fff', fg = 'var(--sage)', border = 'var(--line)', titulo = `${rotulo} — clique pra vincular`;
+                if (v && v.ativo) {
+                    if (v.override) { bg = '#fef3c7'; fg = '#92400e'; border = '#f2d98a'; titulo = `${rotulo} — override (clique pra remover)`; }
+                    else { bg = '#e0e7ff'; fg = '#3730a3'; border = '#c7d2fe'; titulo = `${rotulo} — vinculado (clique pra remover)`; }
+                } else if (v && !v.ativo) {
+                    bg = '#f1f5f9'; fg = '#94a3b8'; border = '#e2e8f0'; titulo = `${rotulo} — vínculo inativo`;
+                }
+                const acao = v ? `cpAplRemover('${v.id}')` : `cpAplAdicionarRapido('${s.id}','${cat}')`;
+                return `<button type="button" onclick="event.stopPropagation();${acao}" title="${cpEsc(titulo)}"
+                    class="rounded-lg text-[10px] font-bold py-1.5 text-center" style="background:${bg};color:${fg};border:1px solid ${border}">${abrev}</button>`;
+            }).join('')}
+        </div>
+        ${vinculosCodigo.length ? `<div class="flex flex-wrap gap-1 mt-1.5">${vinculosCodigo.map(a => `
+            <span class="rz-badge inline-flex items-center gap-1" style="background:${a.ativo ? (a.override ? '#fef3c7' : '#e0e7ff') : '#f1f5f9'};color:${a.ativo ? (a.override ? '#92400e' : '#3730a3') : '#94a3b8'}">
+                ${cpEsc(cpNomeTipoAtivo(a.escopo_valor))}${a.override ? ' (override)' : ''}
+                <button type="button" onclick="event.stopPropagation();cpAplRemover('${a.id}')" title="Remover" style="line-height:1">×</button>
+            </span>`).join(' ')}</div>` : ''}`;
+
+    // Nota: o cabeçalho é um <div> clicável (não <button>) porque contém a
+    // matriz, que tem os próprios <button> de célula — <button> dentro de
+    // <button> é HTML inválido e quebra o parser. As células chamam
+    // event.stopPropagation() pra não disparar o toggle do subtipo junto.
     return `
     <div class="border rounded-xl overflow-hidden" style="border-color:var(--line)">
-        <button type="button" onclick="cpAplToggleSubtipo('${s.id}')" class="w-full text-left p-3 flex items-start justify-between gap-2" style="background:${aberto ? '#faf9f5' : '#fff'}">
-            <div class="min-w-0">
+        <div role="button" tabindex="0" onclick="cpAplToggleSubtipo('${s.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();cpAplToggleSubtipo('${s.id}')}" class="w-full text-left p-3 flex items-start justify-between gap-2 cursor-pointer" style="background:${aberto ? '#faf9f5' : '#fff'}">
+            <div class="min-w-0 flex-1">
                 <p class="text-sm font-bold" style="color:var(--ink)">${cpEsc(s.nome)}</p>
                 <p class="text-[11px] font-mono" style="color:var(--sage)">${cpEsc(s.codigo)} · ${vinculos.length ? vinculos.length + ' vínculo(s)' : 'sem vínculo'}</p>
-                ${vinculos.length ? `<div class="flex flex-wrap gap-1 mt-1">${chips}</div>` : ''}
+                ${matriz}
             </div>
-            <span class="text-xs" style="color:var(--sage)">${aberto ? '▲' : '▼'}</span>
-        </button>
+            <span class="text-xs flex-none" style="color:var(--sage)">${aberto ? '▲' : '▼'}</span>
+        </div>
         ${aberto ? cpFormAplicabilidade(s) : ''}
     </div>`;
+}
+
+// Atalho de 1 clique pra vincular subtipo × categoria macro direto na
+// matriz — cobre o caso comum (sem override, sem tipo de ativo específico).
+// Pra override ou vínculo por código, abre o subtipo e usa o formulário.
+async function cpAplAdicionarRapido(subtipoId, categoria) {
+    const { error } = await dbAuth.rpc('fn_cofre_aplicabilidade_upsert', { r: { subtipo_id: subtipoId, escopo_tipo: 'categoria', escopo_valor: categoria, override: false } });
+    if (error) { alert('Erro: ' + error.message); return; }
+    await cpCarregarTudo();
+    cpRenderAplicabilidade();
 }
 
 function cpAplToggleSubtipo(id) { cpAplicSubtipoAberto = cpAplicSubtipoAberto === id ? null : id; cpAplicNovoAberto = false; cpRenderAplicabilidade(); }
