@@ -1,6 +1,19 @@
 // ============================================================================
 // js/telas/catalogo-patrimonio.js — Raiz Gestão
-// Versão: 1.2.0 · 18/09/2026
+// Versão: 1.3.0 · 18/09/2026 (rodada 3)
+//
+// v1.3.0 — Demanda 34f5d60f: campo de filtro nas 5 abas (pedido explícito
+// do Nicola, adiado da rodada 2 de propósito pra não misturar com leiaute/
+// menu). Subtipos: mantém a busca por nome/código, ganha dropdown de
+// Natureza. Aplicabilidade: busca por nome/código do subtipo (agrupamento
+// por subtipo continua, só filtra QUAIS subtipos aparecem). Tipos de
+// ativo: busca por nome/código (agrupamento por categoria continua).
+// Campos do tipo: mantém o dropdown de categoria, ganha busca por chave/
+// rótulo. Calendário & partes: busca por subtipo/UF/município (não tinha
+// filtro nenhum antes). Nenhuma mudança de comportamento de escrita —
+// só filtra o que já carrega (cpCarregarTudo continua trazendo tudo de
+// uma vez, sem paginação — mesmo volume de hoje, ~dezenas de linhas por
+// aba, não precisa de filtro server-side ainda).
 //
 // v1.2.0 — Item 2 do feedback do Nicola (rodada 2): a aba Aplicabilidade
 // trocou a lista de chips (flex-wrap, quebrava/amontoava quando um subtipo
@@ -67,7 +80,7 @@
 // objeto, toast no passado, vazio num formato só, sentence case).
 // ============================================================================
 
-const CP_VERSAO = '1.2.0';
+const CP_VERSAO = '1.3.0';
 let cpAba = 'subtipos';
 
 // ---- estado por aba --------------------------------------------------------
@@ -82,23 +95,28 @@ let cpPartesPadrao = [];
 let cpSubtipoAberto = null;
 let cpSubtipoNovo = false;
 let cpFiltroSubtipo = '';
+let cpFiltroNaturezaSubtipo = ''; // v1.3.0 — demanda 34f5d60f
 
 let cpCategoriaEditCodigo = null;
 let cpCategoriaNova = false;
 
 let cpTipoAtivoEditId = null;
 let cpTipoAtivoNovo = false;
+let cpFiltroTipoAtivo = ''; // v1.3.0 — demanda 34f5d60f
 
 let cpCampoEditId = null;
 let cpCampoNovo = false;
 let cpFiltroCategoriaCampo = '';
+let cpFiltroTextoCampo = ''; // v1.3.0 — demanda 34f5d60f
 
 let cpAplicSubtipoAberto = null;
 let cpAplicNovoAberto = false;
+let cpFiltroAplic = ''; // v1.3.0 — demanda 34f5d60f
 
 let cpCalendarioEditId = null;
 let cpCalendarioNovo = false;
 let cpCalendarioSubtipoAberto = null;
+let cpFiltroCalendario = ''; // v1.3.0 — demanda 34f5d60f
 
 const CP_CATEGORIAS_ATIVO = ['imovel_predial', 'imovel_territorial', 'veiculo', 'embarcacao', 'aeronave', 'vida', 'bem_valor', 'outro'];
 // Rótulo amigável do eixo do ATIVO (ativo_tipos.categoria — CHECK fixo, 8
@@ -116,6 +134,14 @@ const CP_CATEGORIA_ATIVO_ABREV = {
     veiculo: 'Veíc', embarcacao: 'Emb', aeronave: 'Aero',
     vida: 'Vida', bem_valor: 'Bem', outro: 'Outro',
 };
+// Critério taxa vs. tributo (demanda e6bad120, fechada 18/09/2026): tributo é
+// cobrança fiscal cujo valor deriva de uma característica do próprio bem
+// (valor venal, cilindrada) ou da atividade econômica — ex.: IPTU, IPVA,
+// "Taxa de licenciamento anual" (apesar do nome). Taxa é cobrança vinculada
+// a uma contraprestação específica (poder de polícia ou serviço divisível),
+// valor tipicamente fixo por evento/período — ex.: TUF, condomínio, multa.
+// O nome do subtipo e a categoria do eixo documento/controle podem enganar;
+// texto completo em COMMENT ON COLUMN cofre_controle_subtipos.tipo.
 const CP_NATUREZAS = [
     { v: 'documento', r: 'documento' },
     { v: 'manutencao', r: 'manutenção' },
@@ -219,7 +245,7 @@ function cpNomeTipoAtivo(codigo) { const t = cpTiposAtivo.find(x => x.codigo ===
 function cpRenderSubtipos() {
     const cont = document.getElementById('cp-conteudo');
     const t = cpFiltroSubtipo.toLowerCase();
-    const lista = cpSubtipos.filter(s => !t || s.nome.toLowerCase().includes(t) || s.codigo.includes(t));
+    const lista = cpSubtipos.filter(s => (!t || s.nome.toLowerCase().includes(t) || s.codigo.includes(t)) && (!cpFiltroNaturezaSubtipo || s.tipo === cpFiltroNaturezaSubtipo));
     const semAplicabilidade = cpSubtipos.filter(s => !cpAplicabilidade.some(a => a.subtipo_id === s.id)).length;
     const semAntecedencia = cpSubtipos.filter(s => s.tipo !== 'documento' && s.antecedencia_padrao_dias == null).length;
 
@@ -230,8 +256,14 @@ function cpRenderSubtipos() {
             ${gestaoCardMetrica('Sem aplicabilidade', semAplicabilidade, semAplicabilidade ? 'amber' : null, 'Subtipo sem nenhuma linha em cofre_subtipo_aplicabilidade — não aparece como sugestão em nenhum ativo.')}
             ${gestaoCardMetrica('Sem antecedência', semAntecedencia, semAntecedencia ? 'amber' : null, 'Vale só pra taxa/tributo/seguro/manutenção — documento não tem vencimento fixo.')}
         </div>
-        <div class="flex items-center justify-between gap-2 mb-2">
-            <input id="cp-sub-busca" value="${cpEsc(cpFiltroSubtipo)}" oninput="cpBuscarSubtipo(this.value)" placeholder="Buscar por nome ou código…" class="flex-1 min-w-[160px] p-2 border rounded-lg text-xs">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div class="flex flex-wrap gap-2 flex-1 min-w-[220px]">
+                <input id="cp-sub-busca" value="${cpEsc(cpFiltroSubtipo)}" oninput="cpBuscarSubtipo(this.value)" placeholder="Buscar por nome ou código…" class="flex-1 min-w-[160px] p-2 border rounded-lg text-xs">
+                <select onchange="cpFiltrarNaturezaSubtipo(this.value)" class="p-2 border rounded-lg text-xs">
+                    <option value="">Todas as naturezas</option>
+                    ${CP_NATUREZAS.map(n => `<option value="${n.v}" ${cpFiltroNaturezaSubtipo === n.v ? 'selected' : ''}>${cpEsc(n.r)}</option>`).join('')}
+                </select>
+            </div>
             ${pmBotaoToggle('cp-sub-novo', 'cpAbrirSubtipoNovo()')}
         </div>
         ${cpSubtipoNovo ? cpFormSubtipo(null) : ''}
@@ -239,6 +271,7 @@ function cpRenderSubtipos() {
 }
 
 function cpBuscarSubtipo(v) { cpFiltroSubtipo = v; const foco = document.activeElement?.id; cpRenderSubtipos(); if (foco === 'cp-sub-busca') { const el = document.getElementById('cp-sub-busca'); el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
+function cpFiltrarNaturezaSubtipo(v) { cpFiltroNaturezaSubtipo = v; cpRenderSubtipos(); }
 
 function cpAbrirSubtipoNovo() { cpSubtipoNovo = !cpSubtipoNovo; cpSubtipoAberto = null; cpRenderSubtipos(); }
 
@@ -362,6 +395,8 @@ async function cpSalvarSubtipo(id, novo) {
 function cpRenderAplicabilidade() {
     const cont = document.getElementById('cp-conteudo');
     const semAplic = cpSubtipos.filter(s => !cpAplicabilidade.some(a => a.subtipo_id === s.id));
+    const t = cpFiltroAplic.toLowerCase();
+    const listaSubtipos = cpSubtipos.filter(s => !t || s.nome.toLowerCase().includes(t) || s.codigo.includes(t));
     cont.innerHTML = `
         <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
             ${gestaoCardMetrica('Vínculos', cpAplicabilidade.length)}
@@ -369,17 +404,20 @@ function cpRenderAplicabilidade() {
             ${gestaoCardMetrica('Subtipos sem aplicabilidade', semAplic.length, semAplic.length ? 'amber' : null)}
             ${gestaoCardMetrica('Inativos', cpAplicabilidade.filter(a => !a.ativo).length)}
         </div>
-        <div class="flex items-center justify-between gap-2 mb-2">
-            <p class="text-xs" style="color:var(--sage)">Agrupado por subtipo — abra um subtipo pra ver e editar a quais categorias/tipos de ativo ele se aplica.</p>
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <input id="cp-apl-busca" value="${cpEsc(cpFiltroAplic)}" oninput="cpBuscarAplic(this.value)" placeholder="Buscar subtipo por nome ou código…" class="flex-1 min-w-[220px] p-2 border rounded-lg text-xs">
             ${pmBotaoToggle('cp-apl-novo', 'cpAplAbrirNovo()')}
         </div>
+        <p class="text-xs mb-2" style="color:var(--sage)">Agrupado por subtipo — abra um subtipo pra ver e editar a quais categorias/tipos de ativo ele se aplica.</p>
         ${cpAplicNovoAberto ? cpFormAplicabilidade(null) : ''}
-        <div class="space-y-2">${cpSubtipos.map(cpLinhaAplicabilidade).join('') || pmVazio('Nenhum subtipo cadastrado ainda.')}</div>`;
+        <div class="space-y-2">${listaSubtipos.map(cpLinhaAplicabilidade).join('') || pmVazio('Nenhum subtipo encontrado com esse filtro.')}</div>`;
     // innerHTML-inserted script não executa — popula os seletores de valor
     // aqui, depois do DOM estar montado, em vez de embutir script no HTML.
     if (cpAplicNovoAberto) cpAplAtualizarValores('novo');
     if (cpAplicSubtipoAberto) cpAplAtualizarValores(cpAplicSubtipoAberto);
 }
+
+function cpBuscarAplic(v) { cpFiltroAplic = v; const foco = document.activeElement?.id; cpRenderAplicabilidade(); if (foco === 'cp-apl-busca') { const el = document.getElementById('cp-apl-busca'); el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
 
 function cpLinhaAplicabilidade(s) {
     const vinculos = cpAplicabilidade.filter(a => a.subtipo_id === s.id);
@@ -516,22 +554,26 @@ async function cpAplRemover(id) {
 // ========================================================= 3. TIPOS DE ATIVO
 function cpRenderTiposAtivo() {
     const cont = document.getElementById('cp-conteudo');
+    const termo = cpFiltroTipoAtivo.toLowerCase();
+    const tiposFiltrados = cpTiposAtivo.filter(x => !termo || x.nome.toLowerCase().includes(termo) || x.codigo.includes(termo));
     cont.innerHTML = `
-        <div class="flex items-center justify-between mb-2">
-            <p class="text-xs" style="color:var(--sage)">${cpTiposAtivo.length} tipo(s) de ativo, em ${CP_CATEGORIAS_ATIVO.length} categorias macro fixas.</p>
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <input id="cp-ta-busca" value="${cpEsc(cpFiltroTipoAtivo)}" oninput="cpBuscarTipoAtivo(this.value)" placeholder="Buscar por nome ou código…" class="flex-1 min-w-[220px] p-2 border rounded-lg text-xs">
             ${pmBotaoToggle('cp-ta-novo', 'cpTaAbrirNovo()')}
         </div>
+        <p class="text-xs mb-2" style="color:var(--sage)">${tiposFiltrados.length} de ${cpTiposAtivo.length} tipo(s) de ativo, em ${CP_CATEGORIAS_ATIVO.length} categorias macro fixas.</p>
         ${cpTipoAtivoNovo ? cpFormTipoAtivo(null) : ''}
         <div class="space-y-3">${CP_CATEGORIAS_ATIVO.map(cat => {
-        const tipos = cpTiposAtivo.filter(t => t.categoria === cat);
+        const tipos = tiposFiltrados.filter(t => t.categoria === cat);
         if (!tipos.length) return '';
         return `<div>
                 <p class="text-[11px] font-bold uppercase tracking-wide mb-1" style="color:var(--sage)">${cpEsc(cat)}</p>
                 <div class="space-y-1.5">${tipos.map(cpLinhaTipoAtivo).join('')}</div>
             </div>`;
-    }).join('') || pmVazio('Nenhum tipo de ativo cadastrado ainda.')}</div>`;
+    }).join('') || pmVazio('Nenhum tipo de ativo encontrado com esse filtro.')}</div>`;
 }
 
+function cpBuscarTipoAtivo(v) { cpFiltroTipoAtivo = v; const foco = document.activeElement?.id; cpRenderTiposAtivo(); if (foco === 'cp-ta-busca') { const el = document.getElementById('cp-ta-busca'); el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
 function cpTaAbrirNovo() { cpTipoAtivoNovo = !cpTipoAtivoNovo; cpTipoAtivoEditId = null; cpRenderTiposAtivo(); }
 
 function cpLinhaTipoAtivo(t) {
@@ -589,16 +631,21 @@ async function cpTaSalvar(id, novo) {
 // ========================================================= 4. CAMPOS DO TIPO
 function cpRenderCamposTipo() {
     const cont = document.getElementById('cp-conteudo');
+    const t = cpFiltroTextoCampo.toLowerCase();
+    const lista = cpCamposTipo.filter(c => (!cpFiltroCategoriaCampo || c.categoria === cpFiltroCategoriaCampo) && (!t || c.chave.toLowerCase().includes(t) || c.label.toLowerCase().includes(t)));
     cont.innerHTML = `
         <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
-            <select onchange="cpFiltrarCategoriaCampo(this.value)" class="p-2 border rounded-lg text-xs">
-                <option value="">Todas as categorias</option>
-                ${CP_CATEGORIAS_ATIVO.map(c => `<option value="${c}" ${cpFiltroCategoriaCampo === c ? 'selected' : ''}>${cpEsc(c)}</option>`).join('')}
-            </select>
+            <div class="flex flex-wrap gap-2 flex-1 min-w-[220px]">
+                <input id="cp-campo-busca" value="${cpEsc(cpFiltroTextoCampo)}" oninput="cpBuscarCampo(this.value)" placeholder="Buscar por chave ou rótulo…" class="flex-1 min-w-[160px] p-2 border rounded-lg text-xs">
+                <select onchange="cpFiltrarCategoriaCampo(this.value)" class="p-2 border rounded-lg text-xs">
+                    <option value="">Todas as categorias</option>
+                    ${CP_CATEGORIAS_ATIVO.map(c => `<option value="${c}" ${cpFiltroCategoriaCampo === c ? 'selected' : ''}>${cpEsc(c)}</option>`).join('')}
+                </select>
+            </div>
             ${pmBotaoToggle('cp-campo-novo', 'cpCampoAbrirNovo()')}
         </div>
         ${cpCampoNovo ? cpFormCampo(null) : ''}
-        <div class="space-y-1.5">${cpCamposTipo.filter(c => !cpFiltroCategoriaCampo || c.categoria === cpFiltroCategoriaCampo).map(cpLinhaCampo).join('') || pmVazio('Nenhum campo cadastrado com esse filtro.')}</div>`;
+        <div class="space-y-1.5">${lista.map(cpLinhaCampo).join('') || pmVazio('Nenhum campo cadastrado com esse filtro.')}</div>`;
     // innerHTML-inserted script não executa — popula o seletor de tipo
     // de ativo aqui, depois do DOM estar montado.
     if (cpCampoNovo) cpCampoAtualizarTipos('novo', null);
@@ -609,6 +656,7 @@ function cpRenderCamposTipo() {
 }
 
 function cpFiltrarCategoriaCampo(v) { cpFiltroCategoriaCampo = v; cpRenderCamposTipo(); }
+function cpBuscarCampo(v) { cpFiltroTextoCampo = v; const foco = document.activeElement?.id; cpRenderCamposTipo(); if (foco === 'cp-campo-busca') { const el = document.getElementById('cp-campo-busca'); el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
 function cpCampoAbrirNovo() { cpCampoNovo = !cpCampoNovo; cpCampoEditId = null; cpRenderCamposTipo(); }
 
 function cpLinhaCampo(c) {
@@ -697,20 +745,24 @@ async function cpCampoSalvar(id, novo) {
 function cpRenderCalendario() {
     const cont = document.getElementById('cp-conteudo');
     const subtiposComCalendario = [...new Set(cpCalendario.map(c => c.subtipo_id))];
+    const t = cpFiltroCalendario.toLowerCase();
+    const lista = cpCalendario.filter(c => !t || cpNomeSubtipo(c.subtipo_id).toLowerCase().includes(t) || (c.uf || '').toLowerCase().includes(t) || String(c.municipio_ibge || '').includes(t));
     cont.innerHTML = `
         <div class="grid grid-cols-2 md:grid-cols-3 gap-2 mb-3">
             ${gestaoCardMetrica('Calendários', cpCalendario.length)}
             ${gestaoCardMetrica('Subtipos com calendário', subtiposComCalendario.length)}
             ${gestaoCardMetrica('Partes padrão cadastradas', cpPartesPadrao.length, null, 'Gerencie o cadastro completo (nome, WhatsApp, e-mail) no card "Partes padrão".')}
         </div>
-        <div class="flex items-center justify-between gap-2 mb-2">
-            <p class="text-xs" style="color:var(--sage)">Prioridade sobre o subtipo (fn_parte_padrao_resolver): calendário por município → calendário por UF → padrão do subtipo.</p>
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <input id="cp-cal-busca" value="${cpEsc(cpFiltroCalendario)}" oninput="cpBuscarCalendario(this.value)" placeholder="Buscar por subtipo, UF ou município…" class="flex-1 min-w-[220px] p-2 border rounded-lg text-xs">
             ${pmBotaoToggle('cp-cal-novo', 'cpCalAbrirNovo()')}
         </div>
+        <p class="text-xs mb-2" style="color:var(--sage)">Prioridade sobre o subtipo (fn_parte_padrao_resolver): calendário por município → calendário por UF → padrão do subtipo.</p>
         ${cpCalendarioNovo ? cpFormCalendario(null) : ''}
-        <div class="space-y-2">${cpCalendario.map(cpLinhaCalendario).join('') || pmVazio('Nenhum calendário de tributo cadastrado ainda.')}</div>`;
+        <div class="space-y-2">${lista.map(cpLinhaCalendario).join('') || pmVazio('Nenhum calendário encontrado com esse filtro.')}</div>`;
 }
 
+function cpBuscarCalendario(v) { cpFiltroCalendario = v; const foco = document.activeElement?.id; cpRenderCalendario(); if (foco === 'cp-cal-busca') { const el = document.getElementById('cp-cal-busca'); el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
 function cpCalAbrirNovo() { cpCalendarioNovo = !cpCalendarioNovo; cpCalendarioEditId = null; cpRenderCalendario(); }
 
 function cpLinhaCalendario(c) {

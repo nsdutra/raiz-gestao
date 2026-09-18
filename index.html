@@ -5,11 +5,23 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
-   VERSÃO: v0.23.0
+   VERSÃO: v0.24.0
    LINHAS: 1069
-   DATA: 2026-09-18
-   TÍTULO: FEEDBACK DO NICOLA NA ONDA 2 — CONCILIAÇÃO VIRA MENU PRÓPRIO,
-   PM_HUB PERDE CARD REDUNDANTE
+   DATA: 2026-09-18 (rodada 3)
+   TÍTULO: COCKPIT REAL + FILTROS NO CATÁLOGO
+   NOVIDADES (v0.24.0):
+     - js/telas/cockpit.js v0.7.0 → v1.0.0 — cockpit real, leiaute do
+       protótipo HTML aprovado pelo Nicola (fila de atenção com toggle
+       Urgência/Área + grade de 10 cards por área, clicáveis). Fontes reais
+       novas: Catálogo—Aplicabilidade, Catálogo—Tipos&campos, Conciliação
+       (fn_gestao_conciliacao_visao), Calendário&partes, Saúde do cliente
+       (feedback_baixo, já existia em fn_cockpit_atencao mas não tinha
+       card). Motor Documental/Suporte&Backlog/Comercial ficam "sem
+       indicador" — sem RPC confirmada, mesma pergunta em aberto que o
+       protótipo já registrava pro Nicola.
+     - js/telas/catalogo-patrimonio.js v1.2.0 → v1.3.0 — demanda 34f5d60f:
+       campo de filtro nas 5 abas (texto e/ou dropdown conforme o campo).
+   ------------------------------------------------------------------
    NOVIDADES (v0.23.0):
      - Script novo js/telas/conciliacao-catalogo.js v1.0.0 — a aba
        Conciliação saiu de dentro de "Catálogo do patrimônio"
