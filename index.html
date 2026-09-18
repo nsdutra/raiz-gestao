@@ -5,10 +5,27 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
-   VERSÃO: v0.20.2
+   VERSÃO: v0.21.0
    LINHAS: 992
-   DATA: 2026-09-15
-   TÍTULO: PARTES PADRÃO (E14.3) — TELA NOVA NO HUB DE CONFIGURAÇÕES
+   DATA: 2026-09-17
+   TÍTULO: bc9df144 — DESMONTE DO APP-DEV: EMPRESAS GANHA "APAGAR EMPRESA E
+   ACESSOS"; COMUNICAÇÕES GANHA MODO "PESSOAS"
+   NOVIDADES (v0.21.0):
+     - js/telas/empresas.js v0.15.0: ficha da empresa ganha "Ações
+       administrativas" com "Apagar Empresa e Acessos" (migrado do App,
+       app-dev/apagarEmpresaCompleta() — mesma fn_apagar_empresa_completa,
+       cerca respeitada). "Importar Carga Inicial" e "Limpar Sistema desta
+       Empresa" NÃO migraram — eliminadas do App sem substituto (uma delas
+       já estava quebrada em produção contra o modelo de dados atual);
+       reconstrução é demanda 2fb2153a.
+     - js/telas/comunicacoes.js v0.4.0: novo 3º modo "👤 Pessoas" — disparo
+       manual de e-mail, config de envio automático (dia01/dia15/ativo) e
+       preferências de comunicação proativa por pessoa, tudo por empresa.
+       Precisou de migration nova (gestao_comunicacoes_pessoas_v1, 4 RPCs
+       SECURITY DEFINER) porque a RLS de clientes/pessoas/pessoa_
+       preferencias_comunicacao não libera essas 3 tabelas cross-empresa
+       pro login de equipe do Gestão.
+   ------------------------------------------------------------------
    NOVIDADES (v0.20.2):
      - PLANO_IMPLEMENTACAO v1.0, etapa E14.3 ("A15"), Onda 12. Script novo
        js/telas/partes-padrao.js registrado — CRUD do catálogo de partes

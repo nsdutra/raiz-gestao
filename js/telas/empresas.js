@@ -1,6 +1,15 @@
 // ============================================================================
 // js/telas/empresas.js — Raiz Gestão
 //
+// v0.15.0 (bc9df144, item 9, 17/09/2026) — ficha ganha "Ações
+// administrativas": "Apagar Empresa e Acessos" migrou do App
+// (app-dev/apagarEmpresaCompleta()) pra cá, ver edApagarEmpresaCompleta()
+// mais abaixo. "Importar Carga Inicial" e "Limpar Sistema desta Empresa"
+// NÃO migraram — foram eliminadas do App sem substituto (decisão do
+// Nicola, 17/09: dependiam de saveAll()/estado em memória do App e uma
+// delas já estava quebrada em produção contra o modelo atual; reconstrução
+// fica pra demanda 2fb2153a).
+//
 // v0.13.0 (09/09/2026) — ficha vira TELA (era o único modal do módulo) e o
 // lápis de licença passa a abrir Licenças da empresa (ativa + histórico,
 // adiar data, status, motivo). edAbrirTrocarPlano() não existia: o clique
@@ -326,9 +335,49 @@ async function empresasAbrirFicha(clienteId) {
                 <p class="text-[11px] mt-4 p-3 rounded-xl" style="background:var(--info-bg);color:var(--info)">
                     "Entrar nesta empresa" segue pendente de decisão de arquitetura (mecanismo de troca de empresa do master) — ver MODULO_GESTAO_ESTRATEGIA_ARQUITETURA.md, seção 8. Licença já é gerenciável aqui (lápis em Plano ou Status licença).
                 </p>
+
+                <div class="mt-5 pt-4 border-t" style="border-color:var(--line)">
+                    <h4 class="text-sm font-extrabold mb-3" style="color:var(--danger)">Ações administrativas</h4>
+                    <div class="p-3 rounded-xl border-2" style="border-color:var(--danger);background:var(--danger-bg)">
+                        <p class="text-xs font-bold mb-1" style="color:var(--danger)">Apagar empresa e acessos</p>
+                        <p class="text-[11px] mb-2" style="color:var(--ink)">Apaga PERMANENTEMENTE esta empresa e todos os logins/usuários vinculados a ela. Não pode ser desfeito.</p>
+                        <button onclick="edApagarEmpresaCompleta('${clienteId}')" class="px-3 py-2 rounded-lg text-xs font-bold text-white" style="background:var(--danger)">Apagar empresa e acessos</button>
+                    </div>
+                </div>
             </div>
         </div>
     `;
+}
+
+// v0.15.0 (bc9df144, item 9, 17/09/2026) — "Apagar Empresa e Acessos" MIGROU
+// do App (app-dev, apagarEmpresaCompleta()) pra cá. Mesma RPC de sempre
+// (fn_apagar_empresa_completa — cerca respeitada, só chamada, nunca
+// modificada), agora parametrizada pelo clienteId da ficha em vez dos
+// globais implícitos que o App usava (CLIENTE_ID_SUPABASE/CONFIG_CLIENTE).
+// A checagem de "imóveis/contratos já limpos" que o App fazia no
+// front-end (só um aviso amigável, não uma trava de verdade) SAIU daqui
+// de propósito: a RPC já faz a checagem real no banco, e o caminho
+// "Limpar Sistema desta Empresa" que aquele aviso mandava rodar antes foi
+// ELIMINADO do App nesta mesma sessão (achado técnico: já estava quebrado
+// em produção — ver CAN-05 em index.html do App) — apontar pra um
+// caminho que não existe mais seria pior que não avisar nada.
+async function edApagarEmpresaCompleta(clienteId) {
+    const emp = empresasCache.find(e => e.cliente_id === clienteId);
+    const nome = emp ? emp.nome_empresa : clienteId;
+
+    if (!confirm(`⚠️ Isso apaga PERMANENTEMENTE a empresa "${nome}" e todos os acessos/usuários vinculados a ela. Não pode ser desfeito. Continuar?`)) return;
+
+    const digitado = prompt(`Para confirmar de vez, digite exatamente o nome da empresa: ${nome}`);
+    if (digitado !== nome) { alert('Nome não bateu — nada foi apagado.'); return; }
+
+    if (!confirm('Última confirmação: tem mesmo certeza? Essa empresa e todos os logins vinculados a ela vão sumir de vez.')) return;
+
+    const { error } = await dbAuth.rpc('fn_apagar_empresa_completa', { p_cliente_id: clienteId });
+    if (error) { alert('❌ Falha ao apagar empresa: ' + error.message); return; }
+
+    alert('✅ Empresa apagada.');
+    empresasCache = empresasCache.filter(e => e.cliente_id !== clienteId);
+    empresasFecharFicha();
 }
 
 function empresasFecharFicha() {

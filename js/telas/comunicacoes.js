@@ -1,6 +1,20 @@
 // ============================================================================
 // js/telas/comunicacoes.js — Raiz Gestão
 //
+// v0.4.0 (bc9df144, itens 5/6, 17/09/2026) — NOVO 3º modo "Pessoas"
+// (cmModo='pessoas', botão "👤 Pessoas" ao lado de Uso/Configuração): migra
+// do App (app-dev) o disparo manual de e-mail, a config de envio
+// automático (dia01/dia15/ativo) e as preferências de comunicação
+// proativa por pessoa. Não confundir com os "planos"/"mensagens" das
+// outras 2 abas — são sistemas de comunicação diferentes (aquele é a
+// central de marketing/produto; este é config operacional por
+// empresa/pessoa). Precisou de 4 RPCs novas (migration
+// gestao_comunicacoes_pessoas_v1) porque a RLS de clientes/pessoas/
+// pessoa_preferencias_comunicacao não libera leitura/escrita cross-empresa
+// pro login de equipe do Gestão (ver comentário completo antes de
+// cmPessoasEmpresas, mais abaixo). Disparo manual em si não usa RPC —
+// fetch direto pro Apps Script (GOOGLE_API_URL_EMAIL), igual o App já fazia.
+//
 // v0.3.0 (30/08/2026) — pedido explícito do Nicola: testando a v0.2.0, uma
 // mensagem (onboarding_adocao_contrato_v1) não apareceu pra ele numa
 // empresa de teste — investigando, a causa era a regra de perfil
@@ -73,9 +87,45 @@ let cmPlanoAtualId = null;
 let cmEmpresas = [];
 let cmClienteId = '';
 let cmMensagensDoPlano = []; // cache pra abrir o JSON/editar sem nova consulta
-let cmModo = 'uso'; // 'uso' | 'config'
+let cmModo = 'uso'; // 'uso' | 'config' | 'pessoas'
 let cmCanalEditandoId = null; // id do canal com o form de edição aberto (null = nenhum)
 let cmPerfis = []; // NOVO v0.3.0 — {codigo, descricao}, pra montar os checkboxes de "quem vê"
+
+// ----------------------------------------------------------------------------
+// v0.4.0 (bc9df144, itens 5/6, 17/09/2026) — 3º modo "Pessoas": comunicações
+// por PESSOA de uma empresa (não confundir com os planos/mensagens acima,
+// que são a central de marketing/produto). MIGROU do App (app-dev):
+// disparo manual de e-mail (dev_dispararEmailManual), envio automático de
+// e-mail (dev_verificarStatusEnvioAutomatico/dev_salvarDiasEmail/
+// dev_toggleEnvioAutomatico) e as preferências de comunicação proativa por
+// pessoa (a mesma seção "Comunicações (avisos automáticos)" que já existe
+// em App > Conta > Pessoas via js/comum-pessoas.js).
+//
+// Achado técnico (verificado direto no banco antes de escrever isto): o
+// login do Gestão usa a chave anon normal, e a RLS de clientes/pessoas/
+// pessoa_preferencias_comunicacao só libera linhas via meus_clientes()
+// (pessoas.user_id = auth.uid()) — a equipe Raiz não tem esse vínculo em
+// nenhuma empresa cliente. Por isso as 2 pontas que precisam ler/gravar
+// essas tabelas cross-empresa passam por RPC nova (gestao.fn_config_email_
+// automatico_obter/_definir, gestao.fn_pessoa_comunicacoes_obter/_definir —
+// migration gestao_comunicacoes_pessoas_v1, SECURITY DEFINER, gate
+// fn_sou_master(), log em gestao.log_acoes — mesmo padrão de
+// fn_pessoas_empresa/fn_gestao_licenca_ajustar). O disparo manual em si
+// não precisa de RPC: é um fetch direto pro mesmo Apps Script que o App já
+// usava (GOOGLE_API_URL_EMAIL), só trocando quem chama.
+//
+// Lista de empresas desta seção usa gestao.fn_lista_empresas() (mesma RPC
+// que empresas.js já usa) em vez do `cmEmpresas` do modo Uso acima — aquele
+// é populado por um SELECT direto em `clientes`, que sofre do MESMO
+// problema de RLS descrito acima (só volta algo se a RLS deixar); não
+// dependo dele pra não herdar um bug pré-existente que não é desta
+// demanda.
+let cmPessoasEmpresas = []; // {cliente_id, nome_empresa, ...} — cache próprio, carregado 1x
+let cmPessoasClienteId = '';
+let cmPessoasLista = []; // pessoas da empresa escolhida (gestao.fn_pessoas_empresa)
+let cmPessoaSelecionadaId = '';
+let cmEmailCfgAtual = { dia01: 1, dia15: 15, ativo: false }; // snapshot do último render, pra "Salvar dias" não perder o ativo/inativo atual
+const GOOGLE_API_URL_EMAIL = "https://script.google.com/macros/s/AKfycbyIcM2uVKmaQqghY6ur-34dfXYCF_9Q7PNeMH9jly8Le_5K-VtxJpj8NivpNBtc1_Kt/exec"; // mesma URL já pública em index.html do App
 
 async function telaComunicacoesInit() {
     const area = document.getElementById('area-conteudo');
@@ -130,6 +180,10 @@ async function telaComunicacoesInit() {
                 class="text-xs font-bold px-3 py-1.5 rounded-lg" style="color:var(--sage)">
                 ⚙️ Configuração
             </button>
+            <button onclick="cmTrocarModo('pessoas')" id="cm-modo-pessoas"
+                class="text-xs font-bold px-3 py-1.5 rounded-lg" style="color:var(--sage)">
+                👤 Pessoas
+            </button>
         </div>
 
         <div id="cm-area-uso">
@@ -165,6 +219,19 @@ async function telaComunicacoesInit() {
             <h2 class="text-sm font-extrabold mb-3" style="color:var(--ink)">Mensagens do plano</h2>
             <div id="cm-mensagens" class="space-y-3 mb-6"></div>
         </div>
+
+        <!-- v0.4.0 (bc9df144, itens 5/6) — "Pessoas": por empresa, config de
+             e-mail (automático + disparo manual) e avisos proativos por
+             pessoa. Ver changelog completo no topo do arquivo. -->
+        <div id="cm-area-pessoas" class="hidden">
+            <div class="flex flex-col gap-1 mb-4 w-fit">
+                <span class="text-[10px] font-bold uppercase" style="color:var(--sage)">Empresa</span>
+                <select id="cm-pessoas-empresa" onchange="cmPessoasMudarEmpresa()" class="text-xs font-bold p-2 rounded-lg border-2" style="border-color:var(--line);min-width:240px">
+                    <option value="">Carregando empresas...</option>
+                </select>
+            </div>
+            <div id="cm-pessoas-conteudo"></div>
+        </div>
     `;
 
     cmAplicarModoNaTela();
@@ -190,14 +257,16 @@ function cmTrocarModo(modo) {
     cmCarregar();
 }
 
+// v0.4.0 — generalizado de 2 pra 3 modos (uso/config/pessoas), mesma
+// mecânica de sempre (1 área visível, botão ativo em destaque).
 function cmAplicarModoNaTela() {
-    const ehUso = cmModo === 'uso';
-    document.getElementById('cm-area-uso').classList.toggle('hidden', !ehUso);
-    document.getElementById('cm-area-config').classList.toggle('hidden', ehUso);
-    document.getElementById('cm-modo-uso').style.background = ehUso ? '#fff' : 'transparent';
-    document.getElementById('cm-modo-uso').style.color = ehUso ? 'var(--pine)' : 'var(--sage)';
-    document.getElementById('cm-modo-config').style.background = ehUso ? 'transparent' : '#fff';
-    document.getElementById('cm-modo-config').style.color = ehUso ? 'var(--sage)' : 'var(--pine)';
+    ['uso', 'config', 'pessoas'].forEach(modo => {
+        const ativo = cmModo === modo;
+        document.getElementById('cm-area-' + modo).classList.toggle('hidden', !ativo);
+        const btn = document.getElementById('cm-modo-' + modo);
+        btn.style.background = ativo ? '#fff' : 'transparent';
+        btn.style.color = ativo ? 'var(--pine)' : 'var(--sage)';
+    });
 }
 
 // CORRIGIDO (v0.2.0) — antes buscava as 5 RPCs sempre, mesmo mostrando só
@@ -206,6 +275,10 @@ function cmAplicarModoNaTela() {
 // menos chamada, menos espera, sem trazer dado de configuração toda vez
 // que alguém só quer olhar o funil, e vice-versa.
 async function cmCarregar() {
+    // v0.4.0 — "Pessoas" não depende de plano nenhum (não é sobre a central
+    // de marketing/produto) — sai antes de mexer em cm-plano-objetivo.
+    if (cmModo === 'pessoas') { cmPessoasCarregar(); return; }
+
     if (!cmPlanoAtualId) return;
     const plano = cmPlanos.find(p => p.id === cmPlanoAtualId);
     document.getElementById('cm-plano-objetivo').textContent = plano?.objetivo || '';
@@ -686,4 +759,206 @@ function cmRenderizarPreview(canal, formato, titulo, mensagem, conteudo) {
             <p class="text-xs whitespace-pre-wrap" style="color:var(--ink)">${cmEscTexto(mensagem)}</p>
         </div>
     `;
+}
+
+// ============================================================================
+// MODO "PESSOAS" (v0.4.0, bc9df144, itens 5/6, 17/09/2026) — ver changelog
+// completo no topo do arquivo (RPCs novas + porquê).
+// ============================================================================
+
+// Lazy: só busca a lista de empresas na 1ª vez que a pessoa entra neste
+// modo (não no boot da tela toda) — mesmo espírito de cmCarregar() de só
+// buscar o que o modo atual precisa.
+async function cmPessoasCarregar() {
+    const sel = document.getElementById('cm-pessoas-empresa');
+    if (!sel) return;
+    if (cmPessoasEmpresas.length === 0) {
+        const { data, error } = await dbAuth.schema('gestao').rpc('fn_lista_empresas');
+        if (error) { sel.innerHTML = '<option value="">Erro ao carregar</option>'; document.getElementById('cm-pessoas-conteudo').innerHTML = `<p class="text-sm" style="color:var(--danger)">Erro ao listar empresas: ${pmEsc(error.message)}</p>`; return; }
+        cmPessoasEmpresas = (data || []).slice().sort((a, b) => (a.nome_empresa || '').localeCompare(b.nome_empresa || ''));
+    }
+    sel.innerHTML = '<option value="">Escolha uma empresa</option>' +
+        cmPessoasEmpresas.map(e => `<option value="${e.cliente_id}" ${e.cliente_id === cmPessoasClienteId ? 'selected' : ''}>${pmEsc(e.nome_empresa)}</option>`).join('');
+    if (cmPessoasClienteId) cmPessoasRenderConteudo();
+}
+
+async function cmPessoasMudarEmpresa() {
+    cmPessoasClienteId = document.getElementById('cm-pessoas-empresa').value;
+    cmPessoaSelecionadaId = '';
+    cmPessoasLista = [];
+    await cmPessoasRenderConteudo();
+}
+
+async function cmPessoasRenderConteudo() {
+    const el = document.getElementById('cm-pessoas-conteudo');
+    if (!el) return;
+    if (!cmPessoasClienteId) { el.innerHTML = ''; return; }
+    el.innerHTML = `<p class="text-sm" style="color:var(--sage)">Carregando...</p>`;
+
+    const [{ data: pessoas, error: eP }, { data: emailCfg, error: eE }] = await Promise.all([
+        dbAuth.schema('gestao').rpc('fn_pessoas_empresa', { p_cliente_id: cmPessoasClienteId }),
+        dbAuth.schema('gestao').rpc('fn_config_email_automatico_obter', { p_cliente_id: cmPessoasClienteId }),
+    ]);
+    if (eP) { el.innerHTML = `<p class="text-sm" style="color:var(--danger)">Erro ao listar pessoas: ${pmEsc(eP.message)}</p>`; return; }
+    cmPessoasLista = pessoas || [];
+    cmEmailCfgAtual = (emailCfg && emailCfg[0]) || { dia01: 1, dia15: 15, ativo: false };
+    if (eE) console.warn('[comunicacoes] Config de e-mail automático indisponível:', eE.message);
+
+    el.innerHTML = `
+        <div class="rounded-2xl border-2 p-3 mb-4" style="border-color:var(--line);background:#fff">
+            <h4 class="text-sm font-extrabold mb-2" style="color:var(--ink)">Envio automático de e-mails (extrato)</h4>
+            <p class="text-[11px] mb-2" style="color:var(--sage)">⚠️ Só guarda a preferência — o disparo de verdade no dia certo depende de um agendador rodando no servidor, que ainda não existe (mesmo aviso que já existia no App).</p>
+            <div class="flex flex-wrap gap-2 items-end mb-2">
+                <label class="flex flex-col gap-1"><span class="text-[10px] font-bold uppercase" style="color:var(--sage)">Dia 1</span>
+                    <input type="number" min="1" max="28" id="cm-email-dia01" value="${cmEmailCfgAtual.dia01 ?? 1}" class="p-2 border-2 rounded-lg text-xs w-20" style="border-color:var(--line)"></label>
+                <label class="flex flex-col gap-1"><span class="text-[10px] font-bold uppercase" style="color:var(--sage)">Dia 2</span>
+                    <input type="number" min="1" max="28" id="cm-email-dia15" value="${cmEmailCfgAtual.dia15 ?? 15}" class="p-2 border-2 rounded-lg text-xs w-20" style="border-color:var(--line)"></label>
+                <button onclick="cmSalvarConfigEmail()" class="text-xs font-bold px-3 py-2 rounded-lg text-white" style="background:var(--pine)">Salvar dias</button>
+                <button onclick="cmToggleEmailAutomatico()" class="text-xs font-bold px-3 py-2 rounded-lg" style="background:${cmEmailCfgAtual.ativo ? '#fee2e2' : '#dcfce7'};color:${cmEmailCfgAtual.ativo ? 'var(--danger)' : 'var(--success)'}">${cmEmailCfgAtual.ativo ? '🔴 Desativar' : '🟢 Ativar'}</button>
+            </div>
+            <p id="cm-email-status" class="text-[11px] font-bold"></p>
+        </div>
+
+        <div class="flex flex-col gap-1 mb-4 w-fit">
+            <span class="text-[10px] font-bold uppercase" style="color:var(--sage)">Pessoa</span>
+            <select id="cm-pessoa-select" onchange="cmPessoaMudarSelecionada()" class="text-xs font-bold p-2 rounded-lg border-2" style="border-color:var(--line);min-width:220px">
+                <option value="">Escolha uma pessoa</option>
+                ${cmPessoasLista.map(p => `<option value="${p.pessoa_id}">${pmEsc(p.nome)}</option>`).join('')}
+            </select>
+            ${cmPessoasLista.length === 0 ? `<span class="text-[11px]" style="color:var(--sage)">Esta empresa não tem pessoa cadastrada ainda.</span>` : ''}
+        </div>
+
+        <div id="cm-pessoa-bloco" class="hidden">
+            <div class="rounded-2xl border-2 p-3 mb-4" style="border-color:var(--line);background:#fff">
+                <h4 class="text-sm font-extrabold mb-1" style="color:var(--ink)">Disparo manual de e-mail</h4>
+                <p id="cm-email-disparo-nome" class="text-[11px] mb-2" style="color:var(--sage)"></p>
+                <div class="flex flex-wrap gap-2 items-end">
+                    <label class="flex flex-col gap-1"><span class="text-[10px] font-bold uppercase" style="color:var(--sage)">Tipo</span>
+                        <select id="cm-email-tipo" class="text-xs font-bold p-2 rounded-lg border-2" style="border-color:var(--line)">
+                            <option value="extrato_mensal">Extrato mensal</option>
+                            <option value="boas_vindas">Boas-vindas</option>
+                        </select>
+                    </label>
+                    <button onclick="cmDispararEmailManual()" class="text-xs font-bold px-3 py-2 rounded-lg text-white" style="background:var(--pine)">Disparar</button>
+                </div>
+                <p id="cm-email-disparo-status" class="text-[11px] font-bold mt-2"></p>
+                <p class="text-[10px] mt-1" style="color:var(--sage)">Lista de tipos provisória — confirme os códigos de rota aceitos pelo Apps Script antes de usar em produção pra valer.</p>
+            </div>
+
+            <div class="rounded-2xl border-2 p-3" style="border-color:var(--line);background:#fff">
+                <h4 class="text-sm font-extrabold mb-2" style="color:var(--ink)">Avisos automáticos (avisos proativos)</h4>
+                <div id="cm-pessoa-comunicacoes-lista"></div>
+            </div>
+        </div>
+    `;
+}
+
+function cmPessoaMudarSelecionada() {
+    cmPessoaSelecionadaId = document.getElementById('cm-pessoa-select').value;
+    const bloco = document.getElementById('cm-pessoa-bloco');
+    if (!cmPessoaSelecionadaId) { bloco.classList.add('hidden'); return; }
+    bloco.classList.remove('hidden');
+    const p = cmPessoasLista.find(x => x.pessoa_id === cmPessoaSelecionadaId);
+    document.getElementById('cm-email-disparo-nome').textContent = p
+        ? (p.email ? `Enviando para: ${p.email}` : '⚠️ Esta pessoa não tem e-mail cadastrado.')
+        : '';
+    document.getElementById('cm-email-disparo-status').textContent = '';
+    cmCarregarComunicacoesPessoa();
+}
+
+async function cmCarregarComunicacoesPessoa() {
+    const el = document.getElementById('cm-pessoa-comunicacoes-lista');
+    if (!el) return;
+    el.innerHTML = '<p class="text-xs" style="color:var(--sage)">Carregando...</p>';
+    const { data, error } = await dbAuth.schema('gestao').rpc('fn_pessoa_comunicacoes_obter', { p_pessoa_id: cmPessoaSelecionadaId });
+    if (error) { el.innerHTML = `<p class="text-xs" style="color:var(--danger)">${pmEsc(error.message)}</p>`; return; }
+    const proativas = data || [];
+    if (proativas.length === 0) {
+        el.innerHTML = `<p class="text-xs" style="color:var(--sage)">Esta empresa não tem nenhum aviso automático liberado na licença.</p>`;
+        return;
+    }
+    const opcoesFreq = ['diario', 'semanal', 'quinzenal', 'mensal', 'trimestral'];
+    el.innerHTML = proativas.map(f => `
+        <div class="flex items-start justify-between gap-2 py-1.5 border-t" style="border-color:var(--line)">
+            <label class="flex items-start gap-1.5 text-xs flex-1 min-w-0" style="color:var(--ink)">
+                <input type="checkbox" class="cm-pref-habilitado mt-0.5" data-codigo="${f.funcionalidade_codigo}" ${f.habilitado ? 'checked' : ''}>
+                <span>${cmEscTexto(f.descricao)}</span>
+            </label>
+            <select class="cm-pref-frequencia text-[11px] border-2 rounded px-1 py-1 flex-none" style="border-color:var(--line)" data-codigo="${f.funcionalidade_codigo}">
+                ${opcoesFreq.map(v => `<option value="${v}" ${f.frequencia === v ? 'selected' : ''}>${v}</option>`).join('')}
+            </select>
+        </div>`).join('') +
+        `<button onclick="cmSalvarComunicacoesPessoa()" class="mt-2 text-xs font-bold px-3 py-2 rounded-lg text-white" style="background:var(--pine)">Salvar avisos</button>
+         <span id="cm-pref-status" class="text-[11px] font-bold ml-2"></span>`;
+}
+
+async function cmSalvarComunicacoesPessoa() {
+    const status = document.getElementById('cm-pref-status');
+    const container = document.getElementById('cm-pessoa-comunicacoes-lista');
+    const preferencias = Array.from(container.querySelectorAll('.cm-pref-habilitado')).map(chk => {
+        const codigo = chk.dataset.codigo;
+        const freqEl = container.querySelector(`.cm-pref-frequencia[data-codigo="${codigo}"]`);
+        return { codigo, habilitado: chk.checked, frequencia: freqEl ? freqEl.value : 'semanal' };
+    });
+    status.textContent = 'Salvando...'; status.style.color = 'var(--sage)';
+    const { error } = await dbAuth.schema('gestao').rpc('fn_pessoa_comunicacoes_definir', {
+        p_pessoa_id: cmPessoaSelecionadaId, p_preferencias: preferencias
+    });
+    if (error) { status.textContent = 'Erro: ' + error.message; status.style.color = 'var(--danger)'; return; }
+    status.textContent = '✓ Salvo'; status.style.color = 'var(--success)';
+    setTimeout(() => { if (status) status.textContent = ''; }, 2500);
+}
+
+async function cmSalvarConfigEmail() {
+    const status = document.getElementById('cm-email-status');
+    const dia01 = parseInt(document.getElementById('cm-email-dia01').value, 10);
+    const dia15 = parseInt(document.getElementById('cm-email-dia15').value, 10);
+    status.textContent = 'Salvando...'; status.style.color = 'var(--sage)';
+    const { error } = await dbAuth.schema('gestao').rpc('fn_config_email_automatico_definir', {
+        p_cliente_id: cmPessoasClienteId, p_dia01: dia01, p_dia15: dia15, p_ativo: cmEmailCfgAtual.ativo
+    });
+    if (error) { status.textContent = 'Erro: ' + error.message; status.style.color = 'var(--danger)'; return; }
+    cmEmailCfgAtual.dia01 = dia01;
+    cmEmailCfgAtual.dia15 = dia15;
+    status.textContent = '✓ Dias salvos.'; status.style.color = 'var(--success)';
+}
+
+async function cmToggleEmailAutomatico() {
+    const dia01 = parseInt(document.getElementById('cm-email-dia01').value, 10) || cmEmailCfgAtual.dia01 || 1;
+    const dia15 = parseInt(document.getElementById('cm-email-dia15').value, 10) || cmEmailCfgAtual.dia15 || 15;
+    const novoValor = !cmEmailCfgAtual.ativo;
+    const { error } = await dbAuth.schema('gestao').rpc('fn_config_email_automatico_definir', {
+        p_cliente_id: cmPessoasClienteId, p_dia01: dia01, p_dia15: dia15, p_ativo: novoValor
+    });
+    if (error) { alert('Erro: ' + error.message); return; }
+    cmPessoasRenderConteudo();
+}
+
+// v0.4.0 — mesmo fetch direto que dev_dispararEmailManual() já fazia no
+// App (Apps Script legado, fora do Supabase) — só troca quem chama.
+async function cmDispararEmailManual() {
+    const status = document.getElementById('cm-email-disparo-status');
+    const p = cmPessoasLista.find(x => x.pessoa_id === cmPessoaSelecionadaId);
+    const tipo = document.getElementById('cm-email-tipo').value;
+    if (!p) { status.textContent = 'Escolha uma pessoa.'; status.style.color = 'var(--danger)'; return; }
+    if (!p.email || !p.email.includes('@')) { status.textContent = 'Esta pessoa não tem e-mail válido cadastrado.'; status.style.color = 'var(--danger)'; return; }
+    status.textContent = 'Disparando...'; status.style.color = 'var(--sage)';
+    try {
+        const resp = await fetch(GOOGLE_API_URL_EMAIL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ rota: 'dev_email_manual', tipo, destino: p.email, nomeSimulado: p.nome || 'Pessoa' })
+        });
+        const corpo = await resp.json();
+        if (corpo && corpo.status === 'sucesso') {
+            status.textContent = '✅ E-mail disparado para ' + p.email;
+            status.style.color = 'var(--success)';
+        } else {
+            status.textContent = '⚠️ Erro ao disparar: ' + (corpo?.mensagem || 'desconhecido');
+            status.style.color = 'var(--danger)';
+        }
+    } catch (err) {
+        status.textContent = '❌ Falha de conexão.';
+        status.style.color = 'var(--danger)';
+    }
 }
