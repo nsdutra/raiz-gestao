@@ -5,11 +5,22 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
-   VERSÃO: v0.22.0
-   LINHAS: 1057
+   VERSÃO: v0.23.0
+   LINHAS: 1069
    DATA: 2026-09-18
-   TÍTULO: f5d2c6b9 — ONDA 2 DA PROPOSTA_CATALOGO_GESTAO: TELA "CATÁLOGO DO
-   PATRIMÔNIO" NO HUB DE CONFIGURAÇÕES
+   TÍTULO: FEEDBACK DO NICOLA NA ONDA 2 — CONCILIAÇÃO VIRA MENU PRÓPRIO,
+   PM_HUB PERDE CARD REDUNDANTE
+   NOVIDADES (v0.23.0):
+     - Script novo js/telas/conciliacao-catalogo.js v1.0.0 — a aba
+       Conciliação saiu de dentro de "Catálogo do patrimônio"
+       (catalogo-patrimonio.js v1.0.0 → v1.1.0, agora com 5 abas) e virou
+       card próprio no PM_HUB: não tem relação com categoria/subtipo do
+       patrimônio, é outro assunto (regras de conciliação bancária). Mesmo
+       código, mesma RPC (fn_gestao_conciliacao_visao), só endereço novo.
+     - PM_HUB (parametros-master.js v0.9.3) perde o card "Oferta &
+       campanhas" — redundante com o menu Comercial, que já é destino
+       principal da navegação.
+   ------------------------------------------------------------------
    NOVIDADES (v0.22.0):
      - Script novo js/telas/catalogo-patrimonio.js v1.0.0 — os dois eixos do
        catálogo global que a Onda 1 (M1–M12, sessão anterior) reorganizou:
@@ -1032,6 +1043,7 @@
     <script src="js/telas/parametros-perfis.js"></script>
     <script src="js/telas/partes-padrao.js"></script>
     <script src="js/telas/catalogo-patrimonio.js"></script>
+    <script src="js/telas/conciliacao-catalogo.js"></script>
     <script src="js/telas/bot-uso.js"></script>
     <script src="js/telas/comunicacoes.js"></script>
     <script src="js/telas/suporte-backlog.js"></script>

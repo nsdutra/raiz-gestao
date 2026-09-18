@@ -1,6 +1,13 @@
 // ============================================================================
 // js/telas/catalogo-patrimonio.js — Raiz Gestão
-// Versão: 1.0.0 · 18/09/2026
+// Versão: 1.1.0 · 18/09/2026
+//
+// v1.1.0 — Feedback do Nicola testando a Onda 2: a aba Conciliação saiu
+// daqui e virou tela própria (js/telas/conciliacao-catalogo.js) — não tem
+// relação com categoria/subtipo do patrimônio, é outro assunto (regras de
+// conciliação bancária). 5 abas agora: Subtipos · Aplicabilidade · Tipos de
+// ativo · Campos do tipo · Calendário & partes. Nenhuma mudança de
+// comportamento nas abas que ficaram.
 //
 // v1.0.0 — Onda 2 da PROPOSTA_CATALOGO_GESTAO v1.3.0 (§12.11), depois da
 // Onda 1 (M1–M12) reorganizar o catálogo em dois eixos: ativo (categoria
@@ -49,7 +56,7 @@
 // objeto, toast no passado, vazio num formato só, sentence case).
 // ============================================================================
 
-const CP_VERSAO = '1.0.0';
+const CP_VERSAO = '1.1.0';
 let cpAba = 'subtipos';
 
 // ---- estado por aba --------------------------------------------------------
@@ -60,10 +67,6 @@ let cpSubtipos = [];
 let cpAplicabilidade = [];
 let cpCalendario = [];
 let cpPartesPadrao = [];
-let cpConciliacaoFontes = [];
-let cpConciliacaoRegras = [];
-let cpConciliacaoVisao = null;
-let cpConciliacaoFiltro = { de: '', ate: '' };
 
 let cpSubtipoAberto = null;
 let cpSubtipoNovo = false;
@@ -145,7 +148,6 @@ function cpRenderAbas() {
         { id: 'tipos-ativo', rotulo: 'Tipos de ativo' },
         { id: 'campos-tipo', rotulo: 'Campos do tipo' },
         { id: 'calendario', rotulo: 'Calendário & partes' },
-        { id: 'conciliacao', rotulo: 'Conciliação' },
     ];
     document.getElementById('cp-abas').innerHTML = abas.map(a =>
         `<button type="button" onclick="cpTrocarAba('${a.id}')" class="rz-chip ${cpAba === a.id ? 'rz-on' : ''}">${a.rotulo}</button>`).join('');
@@ -163,8 +165,7 @@ function cpRenderAba() {
     if (cpAba === 'aplicabilidade') return cpRenderAplicabilidade();
     if (cpAba === 'tipos-ativo') return cpRenderTiposAtivo();
     if (cpAba === 'campos-tipo') return cpRenderCamposTipo();
-    if (cpAba === 'calendario') return cpRenderCalendario();
-    return cpRenderConciliacao();
+    return cpRenderCalendario();
 }
 
 async function cpCarregarTudo() {
@@ -714,70 +715,7 @@ async function cpCalSalvar(id, novo) {
 
 // ===================================================== 6. CONCILIAÇÃO
 // Fecha d9937a2b. Só leitura por ora — ver nota no cabeçalho do arquivo.
-async function cpRenderConciliacao() {
-    const cont = document.getElementById('cp-conteudo');
-    cont.innerHTML = `<p class="text-xs" style="color:var(--sage)">Carregando visão de conciliação…</p>`;
-    try {
-        if (!cpConciliacaoFontes.length && !cpConciliacaoRegras.length) {
-            const [rf, rr] = await Promise.all([
-                dbAuth.from('conciliacao_fontes').select('*').order('emissor_tipo').order('tipo_documento'),
-                dbAuth.from('conciliacao_regras').select('*').order('prioridade'),
-            ]);
-            if (rf.error) throw new Error(rf.error.message);
-            if (rr.error) throw new Error(rr.error.message);
-            cpConciliacaoFontes = rf.data || [];
-            cpConciliacaoRegras = rr.data || [];
-        }
-        const f = cpConciliacaoFiltro;
-        const { data, error } = await dbAuth.rpc('fn_gestao_conciliacao_visao', { p_data_inicio: f.de || null, p_data_fim: f.ate || null });
-        if (error) throw new Error(error.message);
-        cpConciliacaoVisao = data || [];
-    } catch (err) {
-        cont.innerHTML = `<div class="p-4 rounded-xl text-xs" style="background:#fee2e2;color:#991b1b">Não consegui carregar: ${cpEsc(err.message || String(err))}</div>`;
-        return;
-    }
-    cpRenderConciliacaoConteudo();
-}
-
-function cpRenderConciliacaoConteudo() {
-    const cont = document.getElementById('cp-conteudo');
-    const v = cpConciliacaoVisao || [];
-    const totalQtd = v.reduce((a, x) => a + (x.quantidade || 0), 0);
-    const semRegra = v.filter(x => !x.regra_codigo || x.regra_codigo === '—').reduce((a, x) => a + (x.quantidade || 0), 0);
-    const f = cpConciliacaoFiltro;
-    cont.innerHTML = `
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-2 mb-3">
-            ${gestaoCardMetrica('Fontes cadastradas', cpConciliacaoFontes.length, null, 'conciliacao_fontes — todas globais e master-only.')}
-            ${gestaoCardMetrica('Regras cadastradas', cpConciliacaoRegras.length, null, 'conciliacao_regras — todas globais e master-only.')}
-            ${gestaoCardMetrica('Lançamentos sem regra', semRegra, semRegra ? 'amber' : null, 'No período filtrado — fingerprint que caiu em nenhuma regra ativa.')}
-        </div>
-        <div class="flex flex-wrap gap-2 mb-3">
-            <input type="date" value="${f.de}" onchange="cpConciliacaoFiltroData('de', this.value)" class="p-2 border rounded-lg text-xs">
-            <input type="date" value="${f.ate}" onchange="cpConciliacaoFiltroData('ate', this.value)" class="p-2 border rounded-lg text-xs">
-        </div>
-        <div class="border rounded-xl p-3 mb-3" style="border-color:var(--line)">
-            <p class="text-xs font-bold mb-2">Visão por empresa × regra (${totalQtd} lançamento(s))</p>
-            <div class="space-y-1 max-h-64 overflow-auto">${v.length ? v.map(x => `
-                <div class="flex items-center justify-between text-[11px] gap-2">
-                    <span class="truncate">${cpEsc(x.nome_empresa)} · <span class="font-mono">${cpEsc(x.regra_codigo || '—')}</span> · ${cpEsc(x.status_conciliacao)}</span>
-                    <span class="flex-none" style="color:var(--sage)">${x.quantidade} · ${gestaoFormatarMoedaBR(x.valor_total)}</span>
-                </div>`).join('') : `<p class="text-[11px]" style="color:var(--sage)">Sem lançamentos no período.</p>`}</div>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div class="border rounded-xl p-3" style="border-color:var(--line)">
-                <p class="text-xs font-bold mb-2">Fontes (${cpConciliacaoFontes.length})</p>
-                <div class="space-y-1 max-h-64 overflow-auto">${cpConciliacaoFontes.map(x => `
-                    <div class="text-[11px]"><span class="font-mono">${cpEsc(x.codigo)}</span> — ${cpEsc(x.emissor_nome || x.emissor_tipo)} · ${cpEsc(x.tipo_documento)}
-                        <span class="rz-badge ml-1" style="background:${x.status === 'ativo' ? '#dcfce7' : '#f1f5f9'};color:${x.status === 'ativo' ? '#166534' : '#64748b'}">${cpEsc(x.status)}</span></div>`).join('') || pmVazio('Nenhuma fonte cadastrada.')}</div>
-            </div>
-            <div class="border rounded-xl p-3" style="border-color:var(--line)">
-                <p class="text-xs font-bold mb-2">Regras (${cpConciliacaoRegras.length})</p>
-                <div class="space-y-1 max-h-64 overflow-auto">${cpConciliacaoRegras.map(x => `
-                    <div class="text-[11px]"><span class="font-mono">${cpEsc(x.codigo)}</span> — ${cpEsc(x.nome)} · prioridade ${x.prioridade}
-                        <span class="rz-badge ml-1" style="background:${x.ativa ? '#dcfce7' : '#fee2e2'};color:${x.ativa ? '#166534' : '#991b1b'}">${x.ativa ? 'ativa' : 'inativa'}</span></div>`).join('') || pmVazio('Nenhuma regra cadastrada.')}</div>
-            </div>
-        </div>
-        <p class="text-[10px] mt-3" style="color:var(--sage)">Edição de fontes e regras ainda não está nesta tela — fica pra uma entrega futura (nota em d9937a2b). Por ora, cadastro é só por SQL Editor, sempre com fn_sou_master().</p>`;
-}
-
-function cpConciliacaoFiltroData(chave, valor) { cpConciliacaoFiltro[chave] = valor; cpRenderConciliacao(); }
+// Conciliação saiu daqui — agora é tela própria (js/telas/conciliacao-catalogo.js,
+// telaConciliacaoCatalogoInit), a pedido do Nicola: não tem relação com
+// categoria/subtipo do patrimônio, é outro assunto (regras de conciliação
+// bancária). Ver changelog v1.1.0 acima.

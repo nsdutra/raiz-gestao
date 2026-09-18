@@ -1,6 +1,13 @@
 // ============================================================================
 // js/telas/parametros-master.js — Raiz Gestão
 //
+// v0.9.3 (18/09/2026) — Feedback do Nicola testando a Onda 2: PM_HUB ganha
+// o card "Conciliação" (js/telas/conciliacao-catalogo.js, novo) — a aba
+// saiu de dentro de "Catálogo do patrimônio" porque não tem relação com
+// categoria/subtipo, é outro assunto. E perde o card "Oferta & campanhas"
+// — redundante com o menu Comercial, que já é destino principal da
+// navegação (rodapé do app).
+//
 // v0.9.2 (18/09/2026) — Onda 2 da PROPOSTA_CATALOGO_GESTAO v1.3.0. PM_HUB
 // ganha o card "Catálogo do patrimônio" (js/telas/catalogo-patrimonio.js,
 // novo) — os dois eixos do catálogo global (ativo: categoria + tipo;
@@ -100,7 +107,7 @@ const PM_HUB = [
     { id: 'documental', icone: '📄', titulo: 'Motor Documental', desc: 'Tipos de documento que a IA reconhece, prompts, versões e assertividade da leitura.', init: () => telaParametrosDocumentalInit() },
     { id: 'catalogo-patrimonio', icone: '🗂️', titulo: 'Catálogo do patrimônio', desc: 'Os dois eixos do catálogo global: o que o ativo é (categoria + tipo) e o que se controla sobre ele (natureza → subtipo → aplicabilidade → calendário).', init: () => telaCatalogoPatrimonioInit() },
     { id: 'partes-padrao', icone: '🏛️', titulo: 'Partes padrão', desc: 'Prefeituras e órgãos recolhedores por subtipo de controle — vale pra todas as empresas.', init: () => telaPartesPadraoInit() },
-    { id: 'comercial', icone: '📣', titulo: 'Oferta & campanhas', desc: 'Preço, trial, pagamentos, público e landing ficam em Comercial.', redirecionaPara: 'comercial' }
+    { id: 'conciliacao', icone: '🔄', titulo: 'Conciliação', desc: 'Fontes e regras de conciliação automática, e a visão por empresa × regra — global, master-only.', init: () => telaConciliacaoCatalogoInit() }
 ];
 
 async function telaParametrosMasterInit() {
