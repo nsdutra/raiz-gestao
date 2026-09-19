@@ -1,6 +1,23 @@
 // ============================================================================
 // js/telas/cockpit.js — Raiz Gestão
-// Versão: 1.0.0 · 18/09/2026 (rodada 3)
+// Versão: 1.1.0 · 18/09/2026 (rodada 7)
+//
+// v1.1.0 — achado real do Nicola, tela Cockpit: "o contador de
+// aplicabilidade não está desconsiderando quando subtipo se aplica a
+// empresa. Precisa ajustar o alerta" — o card "Catálogo — Aplicabilidade"
+// (Fila de atenção + grade) contava TODO subtipo global sem vínculo em
+// cofre_subtipo_aplicabilidade, mesmo os cujo titular não inclui "ativo"
+// (ex.: "Contrato social", "Documento da empresa" — só empresa).
+// Aplicabilidade é inteiramente sobre o eixo ativo; esses subtipos nunca
+// vão, nem devem, ter vínculo ali — não é pendência de cadastro. Mesmo
+// ajuste já feito em catalogo-patrimonio.js v1.4.0
+// (cpRelevantePraAplicabilidade) — só não tinha sido replicado aqui, onde
+// o Cockpit faz a própria contagem direto (o comentário original deste
+// arquivo já dizia "mesma conta que catalogo-patrimonio.js já faz", mas
+// isso ficou desatualizado quando aquele arquivo ganhou o filtro e este
+// não). select() do subtipos passou a trazer titular_escopo; contagem
+// (Fila + card da grade) filtrada por subtiposRelevantesAplicabilidade
+// antes de comparar com os vínculos.
 //
 // v1.0.0 — COCKPIT REAL, leiaute aprovado pelo Nicola no protótipo HTML
 // (cockpit-prototipo.html, rodada 2b — "Painel unificado de sinais"): Fila
@@ -84,7 +101,7 @@ async function telaCockpitInit() {
         dbAuth.schema('gestao').rpc('fn_cockpit_atencao'),
         dbAuth.schema('gestao').rpc('fn_financeiro_resumo'),
         dbAuth.schema('gestao').rpc('fn_lista_empresas'),
-        dbAuth.from('cofre_controle_subtipos').select('id').is('cliente_id', null).neq('tipo', 'sistema'),
+        dbAuth.from('cofre_controle_subtipos').select('id, titular_escopo').is('cliente_id', null).neq('tipo', 'sistema'),
         dbAuth.from('cofre_subtipo_aplicabilidade').select('subtipo_id'),
         dbAuth.from('ativo_tipos_campos').select('id').eq('ativo', true),
         dbAuth.from('cofre_partes_padrao').select('id'),
@@ -106,9 +123,21 @@ async function telaCockpitInit() {
     const nFeedbackBaixo = porTipo('feedback_baixo').length;
 
     // ---- Catálogo — Aplicabilidade ------------------------------------------
+    // FIX 18/09/2026 (achado real, Nicola: "o contador de aplicabilidade não
+    // está desconsiderando quando subtipo se aplica a empresa") — mesmo
+    // ajuste já feito em catalogo-patrimonio.js v1.4.0
+    // (cpRelevantePraAplicabilidade), replicado aqui porque o Cockpit faz a
+    // própria conta direto (comentário do topo do arquivo já avisava "mesma
+    // conta que catalogo-patrimonio.js já faz" — só não tinha sido
+    // atualizado junto). Aplicabilidade é inteiramente sobre o eixo ATIVO —
+    // um subtipo cujo titular não inclui "ativo" (ex.: "Contrato social",
+    // só empresa) nunca vai, nem deve, ter vínculo ali; não é pendência de
+    // cadastro. Subtipo sem titular_escopo definido ainda conta (pra não
+    // esconder um cadastro incompleto de verdade).
+    const subtiposRelevantesAplicabilidade = (subtiposGlobais || []).filter(s => !s.titular_escopo?.length || s.titular_escopo.includes('ativo'));
     const idsComVinculo = new Set((aplicVinculos || []).map(a => a.subtipo_id));
-    const totalSubtipos = (subtiposGlobais || []).length;
-    const semAplicabilidade = (subtiposGlobais || []).filter(s => !idsComVinculo.has(s.id)).length;
+    const totalSubtipos = subtiposRelevantesAplicabilidade.length;
+    const semAplicabilidade = subtiposRelevantesAplicabilidade.filter(s => !idsComVinculo.has(s.id)).length;
 
     // ---- Catálogo — Tipos & campos -------------------------------------------
     const totalCampos = (camposAtivos || []).length;
@@ -149,7 +178,7 @@ async function telaCockpitInit() {
         {
             area: 'Catálogo — Aplicabilidade', chip: semAplicabilidade ? 'atencao' : 'ok',
             metric: String(semAplicabilidade), unit: 'sem vínculo',
-            detail: `De ${totalSubtipos} subtipo(s) global(is) cadastrado(s).`,
+            detail: `De ${totalSubtipos} subtipo(s) global(is) com titular ativo cadastrado(s).`,
             abrir: () => cockpitAbrirCatalogo('aplicabilidade'),
         },
         {
