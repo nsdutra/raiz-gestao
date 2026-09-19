@@ -5,10 +5,50 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
-   VERSÃO: v0.27.0
-   LINHAS: 1142
-   DATA: 2026-09-18 (rodada 7)
-   TÍTULO: FICHA DA EMPRESA — COTA DE PESSOAS E ADOÇÃO POR FUNCIONALIDADE
+   VERSÃO: v0.28.0
+   LINHAS: 1182
+   DATA: 2026-09-18 (rodada 9)
+   TÍTULO: COFRE COM PRECISÃO REAL + LIMITE DE LICENÇA + MÉTRICAS GLOBAIS DO COCKPIT
+   NOVIDADES (v0.28.0):
+     - Nicola, mensagem única com 8 pedidos. Endereçados nesta rodada:
+     - "o contador de espaco no cofre tb esta estranho. parece nao bater."
+       — NÃO era bug de cálculo (conferi direto: metadata->>'size' correto
+       nos storage.objects), era arredondamento: fn_uso_funcionalidade()
+       (usada como GATE de plano) devolve MB inteiro, então 0,06MB (12
+       arquivos reais, ~65KB) virava "0 MB" — indistinguível de vazio.
+       Nova função gestao.fn_storage_resumo(p_cliente_id) devolve bytes
+       exatos + contagem de arquivos, SÓ pra exibição (a cota/gate
+       continua em MB inteiro, sem mudança) — ficha agora mostra "0,06 MB
+       / <limite> MB (12 arquivo(s))" em vez de "0 MB / <limite> MB".
+     - "nao achei a sessao de uso por funcionalidade." — não é bug: essa
+       seção (js/telas/empresas.js v0.16.0, entregue na rodada anterior,
+       zip raiz-entrega-20260918-gestao0.27.0) só chega depois do deploy
+       desse zip. Confirmei o código de novo — está correto e intacto
+       nesta versão.
+     - "na tela de cockpit e da empresa, sinalize que tem empresas em
+       algum limite de uso de licenca" — nova função
+       gestao.fn_empresas_em_limite() (varre todas as empresas,
+       reaproveita fn_funcionalidades_liberadas). Ficha: banner no topo de
+       "Uso & Consumo" quando a empresa está no limite/perto de alguma
+       cota. Cockpit: itens na Fila de atenção + novo card de grade "Uso
+       de licença".
+     - "inclua tb a qtde de storage total do banco (megas e arquivos),
+       inclua o valor de IA total e volume de acessos, o msm para msg de
+       whatsapp. inclua tb a qtde de demandas abertas do backlog. e tb a
+       qtde de acessos da landing" — nova função
+       gestao.fn_cockpit_metricas_globais() (1 RPC, todos os totais
+       cross-tenant, sem filtro de período) + nova seção "Métricas
+       globais" no Cockpit. "Valor de IA": não existe custo em R$
+       guardado em lugar nenhum do banco — uso 2 números reais
+       (ia_eventos_log: eventos que usaram modelo + soma de tokens
+       entrada+saída), não inventei um valor monetário. Demandas abertas
+       do backlog também preencheu o card "Suporte & Backlog" do Cockpit,
+       que desde a v1.0.0 estava "sem indicador" por falta dessa decisão.
+     - js/telas/cockpit.js v1.1.0 → v1.2.0, js/telas/empresas.js v0.16.0
+       → v0.17.0 — ver changelog de cada arquivo.
+     - APP_VERSAO corrigida junto (badge confiável — ver v0.26.0 abaixo).
+   ------------------------------------------------------------------
+   TÍTULO ANTERIOR: FICHA DA EMPRESA — COTA DE PESSOAS E ADOÇÃO POR FUNCIONALIDADE
    NOVIDADES (v0.27.0):
      - Achado real do Nicola, ficha da empresa › Uso & Consumo: "Nova
        pessoa" sempre mostrava 0/teto, mesmo com pessoas cadastradas
@@ -847,7 +887,7 @@
 <script>
     // Fonte única da versão exibida na tela — mantida em sincronia com o
     // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
-    const APP_VERSAO = 'v0.27.0';
+    const APP_VERSAO = 'v0.28.0';
 </script>
 
 <!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->

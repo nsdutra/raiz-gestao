@@ -1,6 +1,20 @@
 // ============================================================================
 // js/telas/empresas.js — Raiz Gestão
 //
+// v0.17.0 (18/09/2026, rodada 9) — Nicola: "o contador de espaco no cofre
+// tb esta estranho. parece nao bater." — NÃO era bug de cálculo: os bytes
+// reais conferem (metadata->>'size' correto, 12 arquivos ~65KB pro cliente
+// de teste), mas fn_uso_funcionalidade() arredonda pra MB INTEIRO (é o que
+// serve de gate contra o limite do plano) — 0,06MB virava "0 MB", igual a
+// "vazio". Ficha agora troca só a EXIBIÇÃO da cota 'bytes' pelo valor exato
+// de gestao.fn_storage_resumo() (nova — 2 casas decimais + contagem de
+// arquivos), sem mexer na cota em si (que segue MB inteiro, correta pro
+// gate). Também: banner no topo de "Uso & Consumo" quando a empresa está no
+// limite ou perto do limite de QUALQUER cota — pedido junto na mesma
+// mensagem ("sinalize que tem empresas em algum limite de uso de
+// licenca"); a versão cross-tenant (Cockpit, lista de empresas em risco)
+// está em cockpit.js v1.2.0 (gestao.fn_empresas_em_limite, nova).
+//
 // v0.16.0 (18/09/2026, rodada 7) — pedido explícito do Nicola, aba Adoção:
 // "deve mostrar tb a quantidade de uso por funcionalidades mediante os
 // filtros da tela". Nova seção "Uso por funcionalidade" (2 colunas, App/
@@ -321,18 +335,22 @@ function edRenderFuncionalidadesAdocao(dataFunc, eFunc) {
 }
 
 async function empresasAbrirFicha(clienteId) {
-    const [{ data: fichaData, error }, { data: uso, error: eUso }, { data: topApp }, { data: topBot }, { data: cotas, error: eCotas }] = await Promise.all([
+    const [{ data: fichaData, error }, { data: uso, error: eUso }, { data: topApp }, { data: topBot }, { data: cotas, error: eCotas }, { data: storageLinhas }] = await Promise.all([
         dbAuth.schema('gestao').rpc('fn_ficha_empresa', { p_cliente_id: clienteId }),
         dbAuth.schema('gestao').rpc('fn_uso_empresa_resumo', { p_cliente_id: clienteId }),
         dbAuth.schema('gestao').rpc('fn_uso_empresa_top_app', { p_cliente_id: clienteId }),
         dbAuth.schema('gestao').rpc('fn_uso_empresa_top_bot', { p_cliente_id: clienteId }),
-        dbAuth.schema('gestao').rpc('fn_uso_empresa_cotas', { p_cliente_id: clienteId }) // v0.13.0 — todas as cotas do plano
+        dbAuth.schema('gestao').rpc('fn_uso_empresa_cotas', { p_cliente_id: clienteId }), // v0.13.0 — todas as cotas do plano
+        dbAuth.schema('gestao').rpc('fn_storage_resumo', { p_cliente_id: clienteId }) // v0.17.0 — bytes exatos, só pra exibição (ver nota abaixo)
     ]);
     if (error) { alert('Erro ao carregar ficha: ' + error.message); return; }
     const f = (fichaData && fichaData[0]);
     if (!f) { alert('Empresa não encontrada.'); return; }
     const u = (uso && uso[0]) || {};
     if (eUso) console.warn('Uso & Consumo indisponível:', eUso.message);
+    const storage = (storageLinhas && storageLinhas[0]) || { arquivos: 0, bytes: 0, mb: 0 };
+    const cotaEmLimite = (cotas || []).some(c => c.usado >= c.limite);
+    const cotaPertoLimite = !cotaEmLimite && (cotas || []).some(c => c.avisar);
 
     // v0.13.0 — a ficha vira TELA, no lugar do conteúdo da aba (era um modal
     // sobreposto, único no módulo — todas as outras funções do Gestão são tela).
@@ -368,12 +386,19 @@ async function empresasAbrirFicha(clienteId) {
                         Uso &amp; Consumo
                         ${gestaoInfoIcone('Cada barra é uma cota do plano da empresa (plano_funcionalidade.limite), contada do jeito que o app e o bot contam (fn_uso_funcionalidade): estoque = o que existe; mensal = eventos do mês; MB = Storage. Âmbar = passou do aviso; vermelho = no limite.')}
                     </h4>
+                    ${cotaEmLimite || cotaPertoLimite ? `<div class="text-xs font-bold p-2 rounded-lg mb-3" style="background:${cotaEmLimite ? 'var(--danger-bg)' : 'var(--warning-bg)'};color:${cotaEmLimite ? 'var(--danger)' : 'var(--warning)'}">${cotaEmLimite ? '⛔ Esta empresa está no limite de:' : '⚠️ Esta empresa está perto do limite de:'} ${(cotas || []).filter(c => cotaEmLimite ? c.usado >= c.limite : c.avisar).map(c => pmEsc(c.rotulo)).join(', ')}</div>` : ''}
                     <div class="space-y-2 mb-3">
                         ${(cotas || []).map(c => {
+                            // v0.17.0 — cota_tipo 'bytes': fn_uso_funcionalidade() arredonda pra MB
+                            // INTEIRO (é o que serve de gate contra o limite do plano); pra EXIBIÇÃO
+                            // troco o valor "usado" pela conta exata de fn_storage_resumo (2 casas
+                            // decimais) — "0 MB" escondia 12 arquivos reais (achado do Nicola,
+                            // "o contador de espaco no cofre tb esta estranho").
+                            const usadoExibido = c.cota_tipo === 'bytes' ? storage.mb : c.usado;
                             const unidade = c.cota_tipo === 'bytes' ? ' MB' : '';
-                            const sufixo = c.cota_tipo === 'mensal' ? ' no mês' : '';
+                            const sufixo = c.cota_tipo === 'mensal' ? ' no mês' : (c.cota_tipo === 'bytes' ? ` (${storage.arquivos} arquivo(s))` : '');
                             const cor = c.usado >= c.limite ? 'var(--danger)' : (c.avisar ? 'var(--warning)' : 'var(--pine)');
-                            return `<div><div class="flex justify-between text-xs"><span style="color:var(--ink)">${pmEsc(c.rotulo)} <span style="color:var(--sage)">· ${c.cota_tipo === 'estoque' ? 'teto' : c.cota_tipo === 'bytes' ? 'MB' : 'mensal'}</span></span><b style="color:${cor}">${c.usado}${unidade} / ${c.limite}${unidade}${sufixo}</b></div>
+                            return `<div><div class="flex justify-between text-xs"><span style="color:var(--ink)">${pmEsc(c.rotulo)} <span style="color:var(--sage)">· ${c.cota_tipo === 'estoque' ? 'teto' : c.cota_tipo === 'bytes' ? 'MB' : 'mensal'}</span></span><b style="color:${cor}">${usadoExibido}${unidade} / ${c.limite}${unidade}${sufixo}</b></div>
                                 <div class="h-2 rounded-full mt-1" style="background:var(--paper)"><div class="h-2 rounded-full" style="width:${Math.min(100, Math.round(100 * c.usado / Math.max(1, c.limite)))}%;background:${cor}"></div></div></div>`;
                         }).join('') || `<p class="text-xs" style="color:var(--sage)">${eCotas ? 'Cotas indisponíveis: ' + pmEsc(eCotas.message) : 'Este plano não tem cota com limite.'}</p>`}
                     </div>

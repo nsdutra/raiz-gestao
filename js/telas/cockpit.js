@@ -1,6 +1,31 @@
 // ============================================================================
 // js/telas/cockpit.js — Raiz Gestão
-// Versão: 1.1.0 · 18/09/2026 (rodada 7)
+// Versão: 1.2.0 · 18/09/2026 (rodada 9)
+//
+// v1.2.0 — pedido do Nicola, tudo numa mensagem só:
+//   "na tela de cockpit e da empresa, sinalize que tem empresas em algum
+//   limite de uso de licenca" → NOVO card de grade "Uso de licença" + itens
+//   na Fila de atenção (crítico = já atingiu, atenção = perto/avisar) —
+//   fonte: gestao.fn_empresas_em_limite() (nova, varre TODAS as empresas
+//   reaproveitando fn_funcionalidades_liberadas, mesma função que já
+//   alimenta a ficha individual). "inclua tb a qtde de storage total do
+//   banco (megas e arquivos), inclua o valor de IA total e volume de
+//   acessos, o msm para msg de whatsapp. inclua tb a qtde de demandas
+//   abertas do backlog. e tb a qtde de acessos da landing" → NOVA seção
+//   "Métricas globais" (cards informativos, sem clique) abaixo da grade de
+//   áreas, fonte: gestao.fn_cockpit_metricas_globais() (nova, 1 RPC só,
+//   todos os totais cross-tenant sem filtro de período). Decisões de
+//   interpretação (não há valor monetário de IA armazenado em lugar
+//   nenhum — uso eventos+tokens reais; "acessos" = log_acessos total;
+//   "whatsapp" = ia_eventos_log canal='whatsapp'; "demandas abertas" =
+//   cofre_itens_controle tipo='sistema' ativo=true; "acessos da landing" =
+//   comercial.eventos_landing evento='page_view') documentadas na migration
+//   da função — nenhuma é estimativa, todas batem com contagem direta
+//   conferida antes de subir.
+//   De quebra, o card "Suporte & Backlog" (até aqui 'vazio' — a fonte do
+//   backlog estava em aberto, ver nota da v1.0.0 abaixo) ganhou métrica
+//   real: demandas_abertas, a mesma fonte que a Gestão já usa pra abrir/
+//   encerrar demanda (fn_demanda_criar/fn_demanda_encerrar).
 //
 // v1.1.0 — achado real do Nicola, tela Cockpit: "o contador de
 // aplicabilidade não está desconsiderando quando subtipo se aplica a
@@ -97,6 +122,8 @@ async function telaCockpitInit() {
         { data: camposAtivos, error: e6 },
         { data: partesPadrao, error: e7 },
         { data: conciliacao, error: e8 },
+        { data: empresasLimite, error: e9 },
+        { data: metricasGlobaisLinhas, error: e10 },
     ] = await Promise.all([
         dbAuth.schema('gestao').rpc('fn_cockpit_atencao'),
         dbAuth.schema('gestao').rpc('fn_financeiro_resumo'),
@@ -106,9 +133,11 @@ async function telaCockpitInit() {
         dbAuth.from('ativo_tipos_campos').select('id').eq('ativo', true),
         dbAuth.from('cofre_partes_padrao').select('id'),
         dbAuth.rpc('fn_gestao_conciliacao_visao'),
+        dbAuth.schema('gestao').rpc('fn_empresas_em_limite'), // v1.2.0
+        dbAuth.schema('gestao').rpc('fn_cockpit_metricas_globais'), // v1.2.0
     ]);
 
-    const erros = [e1, e2, e3, e4, e5, e6, e7, e8].filter(Boolean);
+    const erros = [e1, e2, e3, e4, e5, e6, e7, e8, e9, e10].filter(Boolean);
     if (erros.length) { gestaoErro(erros.map(e => e.message).join(' | ')); return; }
 
     // ---- Empresas & licenças ------------------------------------------------
@@ -150,11 +179,31 @@ async function telaCockpitInit() {
     const totalLancamentos = linhasConc.reduce((s, r) => s + (r.quantidade || 0), 0);
     const semRegra = linhasConc.filter(r => r.regra_codigo === '—').reduce((s, r) => s + (r.quantidade || 0), 0);
 
+    // ---- Empresas & licenças — limite de uso (NOVO v1.2.0) ------------------
+    // fn_empresas_em_limite() já só traz linha com avisar=true (perto ou no
+    // limite); agrupo por empresa pra não repetir a mesma empresa em 2
+    // cotas diferentes na Fila.
+    const porEmpresaLimite = {};
+    (empresasLimite || []).forEach(r => {
+        const e = porEmpresaLimite[r.cliente_id] || (porEmpresaLimite[r.cliente_id] = { nome: r.nome_empresa, atingiu: false, avisou: false });
+        if (r.situacao === 'limite_atingido') e.atingiu = true; else e.avisou = true;
+    });
+    const empresasNoLimite = Object.values(porEmpresaLimite).filter(e => e.atingiu);
+    const empresasPertoLimite = Object.values(porEmpresaLimite).filter(e => !e.atingiu && e.avisou);
+
+    // ---- Métricas globais (NOVO v1.2.0) — 1 RPC só, cross-tenant, sem filtro
+    const mg = (metricasGlobaisLinhas && metricasGlobaisLinhas[0]) || {
+        storage_mb: 0, storage_arquivos: 0, ia_eventos: 0, ia_tokens: 0,
+        acessos_total: 0, whatsapp_mensagens: 0, demandas_abertas: 0, landing_acessos: 0,
+    };
+
     // ============================================================ FILA
     cockpitFila = [];
     if (nVencidas) cockpitFila.push({ sev: 'critico', area: 'Empresas & licenças', title: `${nVencidas} licença(s) vencida(s), ainda ativa(s)`, detail: 'Inconsistência a resolver — a licença venceu mas o status continua "ativo".', num: String(nVencidas), abrir: () => gestaoAbrirTela('empresas') });
     if (nVencendo) cockpitFila.push({ sev: 'atencao', area: 'Empresas & licenças', title: `${nVencendo} licença(s) vencendo nos próximos 7 dias`, detail: 'Vale contato do comercial antes do vencimento virar bloqueio.', num: String(nVencendo), abrir: () => gestaoAbrirTela('empresas') });
     if (nBaixoAcesso) cockpitFila.push({ sev: 'atencao', area: 'Empresas & licenças', title: `${nBaixoAcesso} empresa(s) sem acesso há 14+ dias`, detail: 'Adoção em risco — nunca acessou ou parou de acessar.', num: String(nBaixoAcesso), abrir: () => gestaoAbrirTela('empresas') });
+    if (empresasNoLimite.length) cockpitFila.push({ sev: 'critico', area: 'Empresas & licenças', title: `${empresasNoLimite.length} empresa(s) no limite de uso de alguma licença`, detail: empresasNoLimite.map(e => e.nome).join(', '), num: String(empresasNoLimite.length), abrir: () => gestaoAbrirTela('empresas') });
+    if (empresasPertoLimite.length) cockpitFila.push({ sev: 'atencao', area: 'Empresas & licenças', title: `${empresasPertoLimite.length} empresa(s) perto do limite de alguma licença`, detail: empresasPertoLimite.map(e => e.nome).join(', '), num: String(empresasPertoLimite.length), abrir: () => gestaoAbrirTela('empresas') });
     if (nInadimplencia) cockpitFila.push({ sev: 'critico', area: 'Financeiro', title: `${nInadimplencia} parcela(s) vencida(s) e pendente(s)`, detail: 'Inadimplência real (parcela já vencida), não estimada.', num: String(nInadimplencia), abrir: () => gestaoAbrirTela('financeiro') });
     if (finResumo.recebido_mes_atual === 0 && finResumo.a_receber_futuro === 0 && finResumo.inadimplente === 0) cockpitFila.push({ sev: 'info', area: 'Financeiro', title: 'Sem movimento financeiro no mês corrente', detail: 'Recebido, a receber e inadimplente todos em R$ 0,00 — vale confirmar se é ausência real ou lacuna de integração.', num: 'R$0', abrir: () => gestaoAbrirTela('financeiro') });
     if (nFeedbackBaixo) cockpitFila.push({ sev: 'critico', area: 'Saúde do cliente', title: `${nFeedbackBaixo} feedback(s) com nota baixa nos últimos 30 dias`, detail: 'Nota ≤ 2 — risco de churn.', num: String(nFeedbackBaixo), abrir: () => gestaoAbrirTela('saude') });
@@ -200,10 +249,16 @@ async function telaCockpitInit() {
             abrir: () => cockpitAbrirHub('documental'),
         },
         {
-            area: 'Suporte & Backlog', chip: 'vazio',
-            metric: '—', unit: '',
-            detail: 'Fonte do backlog (demandas × ferramenta externa) ainda em aberto — ver nota no changelog.',
+            area: 'Suporte & Backlog', chip: 'info',
+            metric: String(mg.demandas_abertas), unit: 'demanda(s) aberta(s)',
+            detail: 'cofre_itens_controle (tipo=sistema, ativo=true), todas as empresas — resolve a lacuna que este card tinha desde a v1.0.0.',
             abrir: () => gestaoAbrirTela('suporte'),
+        },
+        {
+            area: 'Uso de licença', chip: empresasNoLimite.length ? 'critico' : empresasPertoLimite.length ? 'atencao' : 'ok',
+            metric: String(empresasNoLimite.length + empresasPertoLimite.length), unit: 'empresa(s) em algum limite',
+            detail: (empresasNoLimite.length || empresasPertoLimite.length) ? `${empresasNoLimite.length} no limite, ${empresasPertoLimite.length} perto de alguma cota do plano.` : 'Nenhuma empresa perto do teto de nenhuma cota do plano.',
+            abrir: () => gestaoAbrirTela('empresas'),
         },
         {
             area: 'Saúde do cliente', chip: nFeedbackBaixo ? 'critico' : 'ok',
@@ -242,11 +297,38 @@ async function telaCockpitInit() {
             <h2 class="text-sm font-extrabold" style="color:var(--ink)">Sinais por área</h2>
             <span class="text-xs" style="color:var(--sage)">${cockpitGrid.length} áreas · clique num card pra abrir a tela</span>
         </div>
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-2" id="cockpit-grid"></div>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-2 mb-6" id="cockpit-grid"></div>
+
+        <div class="flex items-center justify-between gap-2 mb-2">
+            <h2 class="text-sm font-extrabold flex items-center" style="color:var(--ink)">
+                Métricas globais
+                ${gestaoInfoIcone('Totais do banco inteiro, todas as empresas, sem filtro de período. Fonte de cada número no changelog do arquivo (cabeçalho, v1.2.0).')}
+            </h2>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-2" id="cockpit-metricas-globais"></div>
     `;
 
     cockpitRenderFila();
     cockpitRenderGrid();
+    cockpitRenderMetricasGlobais(mg);
+}
+
+function cockpitRenderMetricasGlobais(mg) {
+    const itens = [
+        { rotulo: 'Storage (Cofre)', valor: `${mg.storage_mb} MB`, detail: `${mg.storage_arquivos} arquivo(s), todas as empresas` },
+        { rotulo: 'IA — eventos', valor: String(mg.ia_eventos), detail: `${Number(mg.ia_tokens || 0).toLocaleString('pt-BR')} token(s) (entrada + saída)` },
+        { rotulo: 'Acessos (App)', valor: String(mg.acessos_total), detail: 'log_acessos, histórico completo' },
+        { rotulo: 'Mensagens WhatsApp', valor: String(mg.whatsapp_mensagens), detail: 'ia_eventos_log, canal = whatsapp' },
+        { rotulo: 'Acessos da landing', valor: String(mg.landing_acessos), detail: 'eventos_landing, evento = page_view' },
+    ];
+    const el = document.getElementById('cockpit-metricas-globais');
+    if (!el) return;
+    el.innerHTML = itens.map(it => `
+        <div class="p-3.5 rounded-xl border flex flex-col gap-1.5" style="border-color:var(--line);background:#fff">
+            <span class="text-[10px] font-bold uppercase tracking-wide" style="color:var(--sage)">${it.rotulo}</span>
+            <div><span class="text-xl font-extrabold" style="color:var(--pine)">${it.valor}</span></div>
+            <p class="text-[11px]" style="color:var(--sage)">${it.detail}</p>
+        </div>`).join('');
 }
 
 function cockpitRenderFila() {
