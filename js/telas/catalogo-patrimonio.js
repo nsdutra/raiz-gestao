@@ -1,6 +1,40 @@
 // ============================================================================
 // js/telas/catalogo-patrimonio.js — Raiz Gestão
-// Versão: 1.3.0 · 18/09/2026 (rodada 3)
+// Versão: 1.4.0 · 18/09/2026 (rodada 5)
+//
+// v1.4.0 — 3 achados reais do Nicola (relato + prints testando a aba
+// Aplicabilidade, 18/09/2026):
+// (0) "Contrato social" (titular só empresa) aparecia com o selo "sem
+//     aplicabilidade" — tecnicamente certo (0 linhas em
+//     cofre_subtipo_aplicabilidade) mas enganoso: Aplicabilidade é
+//     inteiramente sobre o eixo ATIVO, um subtipo sem titular 'ativo' nunca
+//     vai (nem deve) ter vínculo ali. cpRelevantePraAplicabilidade() nova —
+//     o selo e as 2 métricas "sem aplicabilidade" (aba Subtipos e aba
+//     Aplicabilidade) agora só contam subtipo cujo titular_escopo inclui
+//     'ativo' (ou está em branco — não suprime alerta de cadastro
+//     incompleto).
+// (1) "marquei vida sem querer, cliquei pra desmarcar, deu a confirmação
+//     mas ficou hachurado, não desmarcou de fato" — causa: cpAplRemover()
+//     só faz soft-delete (ativo:false); a célula passava a um 3º estado
+//     visual ("vínculo inativo", cinza) mas o clique nela continuava
+//     chamando cpAplRemover — nunca existiu caminho de volta pro branco.
+//     Corrigido em cpLinhaAplicabilidade(): vínculo inativo agora é tratado
+//     IGUAL a "sem vínculo" (mesma cor branca, clique chama
+//     cpAplAdicionarRapido de novo) — o upsert com ON CONFLICT já reativa a
+//     mesma linha (ativo:true) em vez de duplicar. Mesmo ajuste nos chips de
+//     vínculo por código (tipo de ativo específico): inativo some da lista
+//     em vez de ficar pendurado cinza.
+// (2) "fui na aba subtipo pesquisar o recibo, aparece sem os ativos que
+//     marquei" — não é bug nesta tela: são 2 mecanismos DIFERENTES.
+//     cofre_controle_subtipos.tipo_ativo_aplicavel (campo antigo, editado no
+//     form de Subtipos) nunca foi sincronizado com
+//     cofre_subtipo_aplicabilidade (esta aba, a fonte real) — nunca foram a
+//     mesma coisa. Corrigi o lado que causava confusão de verdade: o App
+//     (cofre-documentos.js v2.16.0) lia o campo antigo pro seletor de tipo
+//     de documento no upload — por isso a lista "grande e estranha" que o
+//     Nicola também reportou — e passou a ler esta aba (a real). Nota do
+//     campo antigo, no form de Subtipos, atualizada pra deixar claro que ele
+//     não filtra mais nada no upload.
 //
 // v1.3.0 — Demanda 34f5d60f: campo de filtro nas 5 abas (pedido explícito
 // do Nicola, adiado da rodada 2 de propósito pra não misturar com leiaute/
@@ -80,7 +114,7 @@
 // objeto, toast no passado, vazio num formato só, sentence case).
 // ============================================================================
 
-const CP_VERSAO = '1.3.0';
+const CP_VERSAO = '1.4.0';
 let cpAba = 'subtipos';
 
 // ---- estado por aba --------------------------------------------------------
@@ -237,6 +271,18 @@ function cpNomeSubtipo(id) { const s = cpSubtipos.find(x => x.id === id); return
 function cpNomeCategoria(codigo) { const c = cpCategorias.find(x => x.codigo === codigo); return c ? c.nome : codigo; }
 function cpNomeTipoAtivo(codigo) { const t = cpTiposAtivo.find(x => x.codigo === codigo); return t ? t.nome : codigo; }
 
+// v1.4.0 — achado real do Nicola: "Contrato social" (titular só empresa)
+// aparecia com o selo "sem aplicabilidade", mas Aplicabilidade é inteiramente
+// sobre o eixo ATIVO (categoria/tipo de ativo — CP_CATEGORIAS_ATIVO); um
+// subtipo cujo titular não inclui 'ativo' nunca vai ter (nem devia ter)
+// vínculo ali — o selo tava certo tecnicamente (0 linhas) mas enganoso
+// (parece pendência de cadastro, não é). Sem titular_escopo definido ainda
+// conta como "pode ser ativo" (não some o alerta de um subtipo mal
+// configurado) — só suprime quando titular_escopo existe e não inclui 'ativo'.
+function cpRelevantePraAplicabilidade(s) {
+    return !s.titular_escopo?.length || s.titular_escopo.includes('ativo');
+}
+
 // ============================================================== 1. SUBTIPOS
 // Campos ESTRUTURAIS do subtipo (CAN-05 — a lente de IA fica só no Motor
 // Documental). Escreve por fn_cofre_catalogo_upsert, mandando só estas
@@ -246,7 +292,7 @@ function cpRenderSubtipos() {
     const cont = document.getElementById('cp-conteudo');
     const t = cpFiltroSubtipo.toLowerCase();
     const lista = cpSubtipos.filter(s => (!t || s.nome.toLowerCase().includes(t) || s.codigo.includes(t)) && (!cpFiltroNaturezaSubtipo || s.tipo === cpFiltroNaturezaSubtipo));
-    const semAplicabilidade = cpSubtipos.filter(s => !cpAplicabilidade.some(a => a.subtipo_id === s.id)).length;
+    const semAplicabilidade = cpSubtipos.filter(s => cpRelevantePraAplicabilidade(s) && !cpAplicabilidade.some(a => a.subtipo_id === s.id)).length;
     const semAntecedencia = cpSubtipos.filter(s => s.tipo !== 'documento' && s.antecedencia_padrao_dias == null).length;
 
     cont.innerHTML = `
@@ -281,7 +327,7 @@ function cpLinhaSubtipo(s) {
     const selos = [
         s.ativo ? '' : '<span class="rz-badge" style="background:#fee2e2;color:#991b1b">inativo</span>',
         `<span class="rz-badge" style="background:#f1f5f9;color:#475569">${cpEsc((s.titular_escopo || []).join(', ') || 'sem titular')}</span>`,
-        nAplic ? '' : '<span class="rz-badge" style="background:#fef3c7;color:#92400e">sem aplicabilidade</span>',
+        (nAplic || !cpRelevantePraAplicabilidade(s)) ? '' : '<span class="rz-badge" style="background:#fef3c7;color:#92400e">sem aplicabilidade</span>',
     ].filter(Boolean).join(' ');
     return `
     <div class="border rounded-xl overflow-hidden" style="border-color:var(--line)">
@@ -321,7 +367,7 @@ function cpFormSubtipo(s) {
         <div>
             <label class="text-[10px] font-semibold">Tipos de ativo aplicáveis (vírgula, código — ex.: carro,moto)</label>
             <input id="cp-ta-${id}" value="${cpEsc((s && s.tipo_ativo_aplicavel || []).join(','))}" class="w-full p-1.5 border rounded text-[11px]">
-            <p class="text-[10px] mt-0.5" style="color:var(--sage)">Lista curta e antiga — a aba Aplicabilidade (cofre_subtipo_aplicabilidade) é a fonte que vale pra sugestão de modelo. Deixe em branco se este subtipo não é restrito por tipo de ativo.</p>
+            <p class="text-[10px] mt-0.5" style="color:var(--sage)">Lista curta e antiga. Desde 18/09/2026 o App não usa mais isto pra filtrar o seletor de tipo de documento no upload nem o de subtipo no item de controle — os 2 passaram a ler a aba Aplicabilidade (cofre_subtipo_aplicabilidade), a fonte real. Este campo ainda é lido em 1 lugar: sugestão de tipo ao criar um ativo NOVO direto de um documento sem vínculo (raro). Deixe em branco se não usa esse atalho.</p>
         </div>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
             <div><label class="text-[10px] font-semibold">Antecedência (dias)</label><input type="number" id="cp-ant-${id}" value="${novo ? '' : (s.antecedencia_padrao_dias ?? '')}" class="w-full p-1.5 border rounded text-[11px]"></div>
@@ -394,7 +440,7 @@ async function cpSalvarSubtipo(id, novo) {
 // A razão de ser da onda 2 — sem ela, a curadoria da onda 3 exige SQL.
 function cpRenderAplicabilidade() {
     const cont = document.getElementById('cp-conteudo');
-    const semAplic = cpSubtipos.filter(s => !cpAplicabilidade.some(a => a.subtipo_id === s.id));
+    const semAplic = cpSubtipos.filter(s => cpRelevantePraAplicabilidade(s) && !cpAplicabilidade.some(a => a.subtipo_id === s.id));
     const t = cpFiltroAplic.toLowerCase();
     const listaSubtipos = cpSubtipos.filter(s => !t || s.nome.toLowerCase().includes(t) || s.codigo.includes(t));
     cont.innerHTML = `
@@ -435,28 +481,43 @@ function cpLinhaAplicabilidade(s) {
     // da matriz, sem entrar na grade de 8 colunas.
     const porCategoria = {};
     vinculos.filter(a => a.escopo_tipo === 'categoria').forEach(a => { porCategoria[a.escopo_valor] = a; });
-    const vinculosCodigo = vinculos.filter(a => a.escopo_tipo === 'codigo');
+    // FIX 18/09/2026 — mesmo ajuste da matriz logo abaixo: vínculo de código
+    // (tipo de ativo específico) removido (ativo=false) some da lista de
+    // chips, em vez de ficar pendurado cinza sem forma de tirar de vez.
+    const vinculosCodigo = vinculos.filter(a => a.escopo_tipo === 'codigo' && a.ativo);
 
     const matriz = `
         <div class="grid grid-cols-4 sm:grid-cols-8 gap-1 mt-1.5" role="group" aria-label="Categorias macro aplicáveis a ${cpEsc(s.nome)}">
             ${CP_CATEGORIAS_ATIVO.map(cat => {
                 const v = porCategoria[cat];
+                // FIX 18/09/2026 (achado real, relato Nicola — marcou "vida"
+                // sem querer no Recibo, clicou pra desmarcar, célula ficou
+                // "hachurada" e não tinha mais como voltar ao branco): v.ativo
+                // === false só existia porque cpAplRemover faz soft-delete
+                // (fn_cofre_aplicabilidade_upsert com ativo:false), mas a
+                // célula continuava chamando cpAplRemover de novo — nenhum
+                // clique levava de volta ao estado "sem vínculo". Tratamos
+                // vínculo inativo IGUAL a "sem vínculo" — mesma cor branca,
+                // mesmo clique-pra-vincular. cpAplAdicionarRapido faz upsert
+                // com ON CONFLICT (subtipo_id, escopo_tipo, escopo_valor) DO
+                // UPDATE ativo=true — reaproveita a linha soft-deletada em
+                // vez de duplicar. Histórico da remoção continua no banco
+                // (ativo=false), só não aparece mais como um 3º estado visual.
+                const ativo = !!(v && v.ativo);
                 const rotulo = CP_CATEGORIA_ATIVO_LABEL[cat] || cat;
                 const abrev = CP_CATEGORIA_ATIVO_ABREV[cat] || cat.slice(0, 4);
                 let bg = '#fff', fg = 'var(--sage)', border = 'var(--line)', titulo = `${rotulo} — clique pra vincular`;
-                if (v && v.ativo) {
+                if (ativo) {
                     if (v.override) { bg = '#fef3c7'; fg = '#92400e'; border = '#f2d98a'; titulo = `${rotulo} — override (clique pra remover)`; }
                     else { bg = '#e0e7ff'; fg = '#3730a3'; border = '#c7d2fe'; titulo = `${rotulo} — vinculado (clique pra remover)`; }
-                } else if (v && !v.ativo) {
-                    bg = '#f1f5f9'; fg = '#94a3b8'; border = '#e2e8f0'; titulo = `${rotulo} — vínculo inativo`;
                 }
-                const acao = v ? `cpAplRemover('${v.id}')` : `cpAplAdicionarRapido('${s.id}','${cat}')`;
+                const acao = ativo ? `cpAplRemover('${v.id}')` : `cpAplAdicionarRapido('${s.id}','${cat}')`;
                 return `<button type="button" onclick="event.stopPropagation();${acao}" title="${cpEsc(titulo)}"
                     class="rounded-lg text-[10px] font-bold py-1.5 text-center" style="background:${bg};color:${fg};border:1px solid ${border}">${abrev}</button>`;
             }).join('')}
         </div>
         ${vinculosCodigo.length ? `<div class="flex flex-wrap gap-1 mt-1.5">${vinculosCodigo.map(a => `
-            <span class="rz-badge inline-flex items-center gap-1" style="background:${a.ativo ? (a.override ? '#fef3c7' : '#e0e7ff') : '#f1f5f9'};color:${a.ativo ? (a.override ? '#92400e' : '#3730a3') : '#94a3b8'}">
+            <span class="rz-badge inline-flex items-center gap-1" style="background:${a.override ? '#fef3c7' : '#e0e7ff'};color:${a.override ? '#92400e' : '#3730a3'}">
                 ${cpEsc(cpNomeTipoAtivo(a.escopo_valor))}${a.override ? ' (override)' : ''}
                 <button type="button" onclick="event.stopPropagation();cpAplRemover('${a.id}')" title="Remover" style="line-height:1">×</button>
             </span>`).join(' ')}</div>` : ''}`;
