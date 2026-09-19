@@ -5,31 +5,10 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
-   VERSÃO: v0.26.0
-   LINHAS: 1114
-   DATA: 2026-09-18 (rodada 7)
-   TÍTULO: COCKPIT — CONTADOR DE APLICABILIDADE IGNORANDO TITULAR EMPRESA
-   NOVIDADES (v0.26.0):
-     - js/telas/cockpit.js v1.0.0 → v1.1.0 — achado real do Nicola, tela
-       Cockpit: "o contador de aplicabilidade não está desconsiderando
-       quando subtipo se aplica a empresa". O card "Catálogo —
-       Aplicabilidade" (Fila de atenção + grade) contava subtipo global
-       sem vínculo mesmo quando o titular dele não inclui "ativo" (ex.:
-       "Contrato social", "Documento da empresa" — só empresa) — mesmo
-       ajuste que catalogo-patrimonio.js v1.4.0 já tinha (rodada 5), só
-       não tinha sido replicado aqui, onde o Cockpit faz a própria conta
-       direto.
-     - CORRIGIDO DE PASSAGEM (achado ao investigar por que o Nicola via
-       "v0.22.0" na tela mesmo depois de eu ter avisado da v0.25.0): a
-       constante `APP_VERSAO` (linha ~801, fonte do badge de versão da
-       tela de login/topo) tinha ficado presa em 'v0.22.0' desde a rodada
-       3 — as rodadas 4/5 atualizaram o cabeçalho deste arquivo mas não
-       essa constante (mesmo deslize que este arquivo já registrava ter
-       corrigido uma vez antes, em v0.20.2 → v0.21.0, e voltou a
-       acontecer). Corrigida pra 'v0.26.0' — a partir de agora o badge da
-       tela é conferência confiável de qual versão está de fato no ar.
-   ------------------------------------------------------------------
-   TÍTULO ANTERIOR: APLICABILIDADE — DESMARCAR VÍNCULO DE VEZ
+   VERSÃO: v0.25.0
+   LINHAS: 1069
+   DATA: 2026-09-18 (rodada 5)
+   TÍTULO: APLICABILIDADE — DESMARCAR VÍNCULO DE VEZ
    NOVIDADES (v0.25.0):
      - js/telas/catalogo-patrimonio.js v1.3.0 → v1.4.0 — achado real do
        Nicola: célula da matriz de Aplicabilidade que ele tinha clicado pra
@@ -819,7 +798,7 @@
 <script>
     // Fonte única da versão exibida na tela — mantida em sincronia com o
     // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
-    const APP_VERSAO = 'v0.26.0';
+    const APP_VERSAO = 'v0.22.0';
 </script>
 
 <!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->
