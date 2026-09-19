@@ -1,6 +1,19 @@
 // ============================================================================
 // js/telas/cockpit.js — Raiz Gestão
-// Versão: 1.2.0 · 18/09/2026 (rodada 9)
+// Versão: 1.3.0 · 18/09/2026 (rodada 10)
+//
+// v1.3.0 — Nicola: "para os indicadores globais, crie 4 seletores: total,
+// 1 dia, 7 dias, 30 dias. estes seletores, alteram automaticamnete o valor
+// destes indicadores globais". Toggle igual ao já usado na Fila (Urgência/
+// Área), acima da seção "Métricas globais" (as 5 cartas: Storage, IA,
+// Acessos, WhatsApp, Landing — "Demandas abertas" fica de fora, é o card
+// de grade "Suporte & Backlog", que continua backlog ATUAL, sem período).
+// Troca de período NÃO recarrega o Cockpit inteiro — só refaz a 1 RPC
+// (gestao.fn_cockpit_metricas_globais, que ganhou p_dias) e re-renderiza
+// essas 5 cartas (cockpitCarregarMetricasGlobais/cockpitMudarPeriodoMetricas,
+// novas). Interpretação pras métricas de ESTADO (storage) no modo período:
+// viram "adicionado na janela" em vez de "total armazenado hoje" — ver
+// changelog da migration da função no banco pra decisão completa.
 //
 // v1.2.0 — pedido do Nicola, tudo numa mensagem só:
 //   "na tela de cockpit e da empresa, sinalize que tem empresas em algum
@@ -134,7 +147,7 @@ async function telaCockpitInit() {
         dbAuth.from('cofre_partes_padrao').select('id'),
         dbAuth.rpc('fn_gestao_conciliacao_visao'),
         dbAuth.schema('gestao').rpc('fn_empresas_em_limite'), // v1.2.0
-        dbAuth.schema('gestao').rpc('fn_cockpit_metricas_globais'), // v1.2.0
+        dbAuth.schema('gestao').rpc('fn_cockpit_metricas_globais', { p_dias: null }), // v1.2.0 · p_dias desde v1.3.0 (Total no load inicial)
     ]);
 
     const erros = [e1, e2, e3, e4, e5, e6, e7, e8, e9, e10].filter(Boolean);
@@ -299,27 +312,69 @@ async function telaCockpitInit() {
         </div>
         <div class="grid grid-cols-2 md:grid-cols-3 gap-2 mb-6" id="cockpit-grid"></div>
 
-        <div class="flex items-center justify-between gap-2 mb-2">
+        <div class="flex items-center justify-between gap-2 mb-2 flex-wrap">
             <h2 class="text-sm font-extrabold flex items-center" style="color:var(--ink)">
                 Métricas globais
-                ${gestaoInfoIcone('Totais do banco inteiro, todas as empresas, sem filtro de período. Fonte de cada número no changelog do arquivo (cabeçalho, v1.2.0).')}
+                ${gestaoInfoIcone('Totais do banco inteiro, todas as empresas. "Total" = sem filtro de período (estoque/histórico completo); os outros 3 filtram por quando aconteceu (criado_em). Fonte de cada número no changelog do arquivo (cabeçalho, v1.2.0/v1.3.0).')}
             </h2>
+            <div class="inline-flex rounded-lg border p-0.5" style="border-color:var(--line);background:#f8fafc">
+                <button type="button" onclick="cockpitMudarPeriodoMetricas(null)" id="cockpit-mg-total" class="text-[11px] font-bold px-2.5 py-1 rounded-md">Total</button>
+                <button type="button" onclick="cockpitMudarPeriodoMetricas(1)" id="cockpit-mg-1" class="text-[11px] font-bold px-2.5 py-1 rounded-md">1 dia</button>
+                <button type="button" onclick="cockpitMudarPeriodoMetricas(7)" id="cockpit-mg-7" class="text-[11px] font-bold px-2.5 py-1 rounded-md">7 dias</button>
+                <button type="button" onclick="cockpitMudarPeriodoMetricas(30)" id="cockpit-mg-30" class="text-[11px] font-bold px-2.5 py-1 rounded-md">30 dias</button>
+            </div>
         </div>
         <div class="grid grid-cols-2 md:grid-cols-3 gap-2" id="cockpit-metricas-globais"></div>
     `;
 
     cockpitRenderFila();
     cockpitRenderGrid();
-    cockpitRenderMetricasGlobais(mg);
+    cockpitPeriodoMetricas = null;
+    cockpitRenderMetricasGlobais(mg, null);
+    cockpitRenderPeriodoMetricasBotoes();
 }
 
-function cockpitRenderMetricasGlobais(mg) {
+// v1.3.0 — estado do seletor de período das "Métricas globais". null =
+// Total (mesmo comportamento da v1.2.0); 1/7/30 = janela em dias.
+let cockpitPeriodoMetricas = null;
+
+async function cockpitCarregarMetricasGlobais(dias) {
+    cockpitPeriodoMetricas = dias;
+    cockpitRenderPeriodoMetricasBotoes();
+    const el = document.getElementById('cockpit-metricas-globais');
+    if (el) el.innerHTML = `<p class="text-xs col-span-2 md:col-span-3" style="color:var(--sage)">Carregando…</p>`;
+    const { data, error } = await dbAuth.schema('gestao').rpc('fn_cockpit_metricas_globais', { p_dias: dias });
+    if (error) {
+        if (el) el.innerHTML = `<p class="text-xs col-span-2 md:col-span-3" style="color:var(--danger)">Erro: ${error.message}</p>`;
+        return;
+    }
+    const mg = (data && data[0]) || { storage_mb: 0, storage_arquivos: 0, ia_eventos: 0, ia_tokens: 0, acessos_total: 0, whatsapp_mensagens: 0, demandas_abertas: 0, landing_acessos: 0 };
+    cockpitRenderMetricasGlobais(mg, dias);
+}
+function cockpitMudarPeriodoMetricas(dias) { cockpitCarregarMetricasGlobais(dias); }
+
+function cockpitRenderPeriodoMetricasBotoes() {
+    const mapa = { total: null, '1': 1, '7': 7, '30': 30 };
+    Object.keys(mapa).forEach(k => {
+        const b = document.getElementById('cockpit-mg-' + k);
+        if (!b) return;
+        const ativo = cockpitPeriodoMetricas === mapa[k];
+        b.style.background = ativo ? '#fff' : 'transparent';
+        b.style.color = ativo ? 'var(--pine)' : 'var(--sage)';
+    });
+}
+
+function cockpitRenderMetricasGlobais(mg, dias) {
+    // "Demandas abertas" (mg.demandas_abertas) fica de fora daqui de
+    // propósito — é o card de grade "Suporte & Backlog", sempre backlog
+    // ATUAL (ativo=true agora), não muda com este seletor.
+    const rotuloPeriodo = dias === 1 ? 'nas últimas 24h' : dias === 7 ? 'nos últimos 7 dias' : dias === 30 ? 'nos últimos 30 dias' : 'histórico completo, todas as empresas';
     const itens = [
-        { rotulo: 'Storage (Cofre)', valor: `${mg.storage_mb} MB`, detail: `${mg.storage_arquivos} arquivo(s), todas as empresas` },
-        { rotulo: 'IA — eventos', valor: String(mg.ia_eventos), detail: `${Number(mg.ia_tokens || 0).toLocaleString('pt-BR')} token(s) (entrada + saída)` },
-        { rotulo: 'Acessos (App)', valor: String(mg.acessos_total), detail: 'log_acessos, histórico completo' },
-        { rotulo: 'Mensagens WhatsApp', valor: String(mg.whatsapp_mensagens), detail: 'ia_eventos_log, canal = whatsapp' },
-        { rotulo: 'Acessos da landing', valor: String(mg.landing_acessos), detail: 'eventos_landing, evento = page_view' },
+        { rotulo: 'Storage (Cofre)', valor: `${mg.storage_mb} MB`, detail: `${mg.storage_arquivos} arquivo(s) ${dias ? 'enviado(s) ' + rotuloPeriodo : '— ' + rotuloPeriodo}` },
+        { rotulo: 'IA — eventos', valor: String(mg.ia_eventos), detail: `${Number(mg.ia_tokens || 0).toLocaleString('pt-BR')} token(s) (entrada + saída) · ${rotuloPeriodo}` },
+        { rotulo: 'Acessos (App)', valor: String(mg.acessos_total), detail: `log_acessos · ${rotuloPeriodo}` },
+        { rotulo: 'Mensagens WhatsApp', valor: String(mg.whatsapp_mensagens), detail: `canal = whatsapp · ${rotuloPeriodo}` },
+        { rotulo: 'Acessos da landing', valor: String(mg.landing_acessos), detail: `evento = page_view · ${rotuloPeriodo}` },
     ];
     const el = document.getElementById('cockpit-metricas-globais');
     if (!el) return;
