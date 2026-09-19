@@ -5,10 +5,33 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
-   VERSÃO: v0.29.0
-   LINHAS: 1202
-   DATA: 2026-09-18 (rodada 10)
-   TÍTULO: SELETOR DE PERÍODO NAS MÉTRICAS GLOBAIS DO COCKPIT
+   VERSÃO: v0.30.0
+   LINHAS: 1225
+   DATA: 2026-09-19 (rodada 11)
+   TÍTULO: TROCA DE PLANO E LIMPAR EXPIRAÇÃO NA LICENÇA DA EMPRESA
+   NOVIDADES (v0.30.0):
+     - Nicola: "no menu empresa, devo conseguir alterar o plano da
+       empresa, nao apenas a data" + "no campo nova expiracao, devo poder
+       deixar em branco (sem expiracao)". "Licenças da empresa" (ficha ›
+       lápis do Plano) ganhou select "Plano" por linha (só planos ativos
+       do MESMO módulo da licença) e o campo "Nova expiração" agora limpa
+       de verdade quando deixado em branco — o bug era 100% no banco
+       (fn_gestao_licenca_ajustar tratava data=NULL como "não mexer",
+       nunca como "apagar"; não existia nenhum jeito de tirar uma
+       expiração já cadastrada).
+     - Achado de passagem: gestao.fn_definir_licenca (v0.14.0) nunca foi
+       chamada por nenhum código desde que foi criada — não serve pro
+       caso de hoje (hardcoda módulo 'imoveis', não edita por ID de
+       licença). Em vez de forçar seu uso, estendi fn_gestao_licenca_
+       ajustar (já edita por ID) com p_novo_plano_codigo + p_limpar_
+       expiracao — valida módulo/ativo no banco antes de trocar.
+     - Achado de segurança (QUA-01): fn_gestao_licenca_ajustar estava
+       com EXECUTE liberado pra PUBLIC/anon desde antes desta sessão —
+       corrigido junto (só authenticated agora).
+     - js/telas/empresas.js v0.17.0 → v0.18.0 — ver changelog do arquivo.
+     - APP_VERSAO corrigida junto.
+   ------------------------------------------------------------------
+   TÍTULO ANTERIOR: SELETOR DE PERÍODO NAS MÉTRICAS GLOBAIS DO COCKPIT
    NOVIDADES (v0.29.0):
      - Nicola: "para os indicadores globais, crie 4 seletores: total, 1
        dia, 7 dias, 30 dias. estes seletores, alteram automaticamnete o
@@ -907,7 +930,7 @@
 <script>
     // Fonte única da versão exibida na tela — mantida em sincronia com o
     // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
-    const APP_VERSAO = 'v0.29.0';
+    const APP_VERSAO = 'v0.30.0';
 </script>
 
 <!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->

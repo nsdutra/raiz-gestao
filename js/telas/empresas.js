@@ -1,6 +1,34 @@
 // ============================================================================
 // js/telas/empresas.js — Raiz Gestão
 //
+// v0.18.0 (19/09/2026, rodada 11) — Nicola: "no menu empresa, devo
+// conseguir alterar o plano da empresa, nao apenas a data" + "no campo
+// nova expiracao, devo poder deixar em branco (sem expiracao)".
+//   - Troca de plano: "Licenças da empresa" (edAbrirLicencas) ganhou um
+//     select "Plano" por linha, com só os planos ATIVOS do MESMO módulo
+//     da licença (edSalvarLicenca manda pro banco mesmo sem mudança — é
+//     no-op, sem efeito colateral). gestao.fn_definir_licenca (v0.14.0)
+//     já existia no banco mas nunca foi chamada por código nenhum (grepei
+//     o repo inteiro) e não serve pra este caso — hardcoda módulo
+//     'imoveis' e opera pela licença ATIVA do cliente, não por ID de
+//     licença específico (quebraria clientes com licença 'imoveis' E
+//     'gestao'). Em vez disso, estendi fn_gestao_licenca_ajustar (que já
+//     edita por p_licenca_id, a mesma linha que a tela mostra) com
+//     p_novo_plano_codigo — valida no banco que o plano existe, está
+//     ativo e é do MESMO módulo da licença.
+//   - Limpar expiração: o campo de data já mandava null quando vazio
+//     (`.value || null`, sem mudança nenhuma aqui) — o bug era 100% no
+//     banco: fn_gestao_licenca_ajustar tratava p_nova_expiracao=null como
+//     "não mexer" (nunca como "apagar"), então não existia NENHUM jeito
+//     de limpar uma data já preenchida. Novo p_limpar_expiracao (boolean)
+//     — edSalvarLicenca manda `data === null` nele, então "campo vazio"
+//     sempre significa "sem expiração" pro usuário, ponto final.
+//   - Achado de passagem (QUA-01): fn_gestao_licenca_ajustar estava com
+//     EXECUTE liberado pra PUBLIC (então `anon` também) desde antes desta
+//     sessão — mesma classe do achado de segurança da rodada 9. Corrigido
+//     junto (só authenticated agora), só nesta função (não é varredura
+//     completa do banco).
+//
 // v0.17.0 (18/09/2026, rodada 9) — Nicola: "o contador de espaco no cofre
 // tb esta estranho. parece nao bater." — NÃO era bug de cálculo: os bytes
 // reais conferem (metadata->>'size' correto, 12 arquivos ~65KB pro cliente
@@ -487,8 +515,12 @@ async function edAbrirLicencas(clienteId) {
     const w = document.getElementById('ed-licencas-wrapper');
     w.classList.remove('hidden');
     w.innerHTML = `<p class="text-xs" style="color:var(--sage)">Carregando licenças…</p>`;
-    const { data, error } = await dbAuth.rpc('fn_gestao_licencas_empresa', { p_cliente_id: clienteId });
+    const [{ data, error }, { data: planos, error: ePlanos }] = await Promise.all([
+        dbAuth.rpc('fn_gestao_licencas_empresa', { p_cliente_id: clienteId }),
+        dbAuth.from('planos').select('codigo, descricao, modulo').eq('ativo', true).order('modulo').order('codigo'), // v0.18.0 — pro select "Trocar plano"
+    ]);
     if (error) { w.innerHTML = `<p class="text-xs" style="color:var(--danger)">${pmEsc(error.message)}</p>`; return; }
+    if (ePlanos) console.warn('[empresas] Falha ao carregar planos ativos (troca de plano ficará indisponível):', ePlanos.message);
     const linhas = data || [];
     const hoje = new Date().toISOString().slice(0, 10);
     w.innerHTML = `
@@ -502,6 +534,14 @@ async function edAbrirLicencas(clienteId) {
                 const dias = l.dias_para_expirar;
                 const cor = l.status !== 'ativo' ? 'var(--sage)' : (dias === null ? 'var(--pine)' : dias < 0 ? 'var(--danger)' : dias <= 15 ? 'var(--warning)' : 'var(--pine)');
                 const rotuloPrazo = dias === null ? 'sem data de expiração' : dias < 0 ? `expirou há ${Math.abs(dias)} dia(s)` : `expira em ${dias} dia(s)`;
+                // v0.18.0 — planos do MESMO módulo desta licença, pra nunca
+                // oferecer trocar uma licença 'imoveis' pra um plano
+                // 'gestao' (o banco também valida isso, esta lista só evita
+                // o erro na cara — REGRAS §gate de escolha só com opção válida).
+                const planosDoModulo = (planos || []).filter(p => p.modulo === l.modulo);
+                const opcoesPlano = planosDoModulo.length
+                    ? planosDoModulo.map(p => `<option value="${p.codigo}" ${p.codigo === l.plano_codigo ? 'selected' : ''}>${pmEsc(p.descricao || p.codigo)}</option>`).join('')
+                    : `<option value="${pmEsc(l.plano_codigo)}" selected>${pmEsc(l.plano_codigo)}</option>`;
                 return `
                 <div class="p-2.5 rounded-xl mb-2" style="background:var(--paper)">
                     <div class="flex items-center justify-between">
@@ -510,8 +550,13 @@ async function edAbrirLicencas(clienteId) {
                     </div>
                     <p class="text-[10px] mb-2" style="color:var(--sage)">início ${l.data_inicio ? new Date(l.data_inicio).toLocaleDateString('pt-BR') : '—'}${l.atualizado_em ? ' · alterada em ' + new Date(l.atualizado_em).toLocaleDateString('pt-BR') : ''}</p>
                     <div class="flex flex-wrap items-end gap-2">
+                        <div><label class="text-[10px] block" style="color:var(--sage)">Plano</label>
+                            <select id="ed-lic-plano-${l.id}" class="p-1.5 border rounded text-[11px]" ${planosDoModulo.length ? '' : 'disabled title="Não achei planos ativos deste módulo"'}>
+                                ${opcoesPlano}
+                            </select></div>
                         <div><label class="text-[10px] block" style="color:var(--sage)">Nova expiração</label>
-                            <input type="date" id="ed-lic-data-${l.id}" value="${venc}" min="" class="p-1.5 border rounded text-[11px]"></div>
+                            <input type="date" id="ed-lic-data-${l.id}" value="${venc}" class="p-1.5 border rounded text-[11px]">
+                            <span class="text-[9px] block" style="color:var(--sage)">deixe em branco pra sem expiração</span></div>
                         <div><label class="text-[10px] block" style="color:var(--sage)">Status</label>
                             <select id="ed-lic-status-${l.id}" class="p-1.5 border rounded text-[11px]">
                                 ${['ativo', 'suspenso', 'cancelado', 'expirado'].map(x => `<option value="${x}" ${l.status === x ? 'selected' : ''}>${x}</option>`).join('')}
@@ -523,7 +568,7 @@ async function edAbrirLicencas(clienteId) {
                     </div>
                 </div>`;
             }).join('') : `<p class="text-xs" style="color:var(--sage)">Esta empresa não tem licença cadastrada.</p>`}
-            <p class="text-[10px] mt-1" style="color:var(--sage)">Hoje é ${new Date(hoje).toLocaleDateString('pt-BR')}. Adiar a data zera o ciclo de aviso — as mensagens de "licença vencendo" recomeçam a contar. Toda alteração fica registrada em log_acessos (gestao.licenca_ajustada).</p>
+            <p class="text-[10px] mt-1" style="color:var(--sage)">Hoje é ${new Date(hoje).toLocaleDateString('pt-BR')}. Adiar a data zera o ciclo de aviso — as mensagens de "licença vencendo" recomeçam a contar. Campo de expiração vazio = sem expiração. Toda alteração fica registrada em log_acessos (gestao.licenca_ajustada).</p>
         </div>`;
 }
 
@@ -539,8 +584,18 @@ async function edSalvarLicenca(licencaId, clienteId) {
     const data = document.getElementById(`ed-lic-data-${licencaId}`).value || null;
     const status = document.getElementById(`ed-lic-status-${licencaId}`).value;
     const motivo = document.getElementById(`ed-lic-motivo-${licencaId}`).value.trim() || null;
+    // v0.18.0 — campo select pode nem existir (planosDoModulo vazio → select
+    // disabled com o próprio código atual como única opção — ainda assim
+    // funciona, só não deixa trocar de verdade).
+    const elPlano = document.getElementById(`ed-lic-plano-${licencaId}`);
+    const novoPlano = elPlano ? elPlano.value : null;
+    // Campo de data vazio SEMPRE significa "sem expiração" (nunca "não
+    // mexer") — é assim que a tela sempre funcionou pro usuário; o que
+    // faltava era o banco tratar null como null, não como "mantém a data
+    // antiga" (achado do Nicola, 19/09).
     const { error } = await dbAuth.rpc('fn_gestao_licenca_ajustar', {
-        p_licenca_id: licencaId, p_nova_expiracao: data, p_status: status, p_motivo: motivo
+        p_licenca_id: licencaId, p_nova_expiracao: data, p_status: status, p_motivo: motivo,
+        p_novo_plano_codigo: novoPlano, p_limpar_expiracao: data === null
     });
     if (error) { alert('Não consegui salvar: ' + error.message); return; }
     await edAbrirLicencas(clienteId);
