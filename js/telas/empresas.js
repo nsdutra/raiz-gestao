@@ -1,6 +1,17 @@
 // ============================================================================
 // js/telas/empresas.js — Raiz Gestão
 //
+// v0.16.0 (18/09/2026, rodada 7) — pedido explícito do Nicola, aba Adoção:
+// "deve mostrar tb a quantidade de uso por funcionalidades mediante os
+// filtros da tela". Nova seção "Uso por funcionalidade" (2 colunas, App/
+// Bot) abaixo da lista de dias ativos por pessoa — mesmos 3 filtros já
+// existentes (empresa/pessoa/período), via gestao.fn_empresas_adocao_
+// funcionalidades() nova (mesma convenção de filtro/período-aberto de
+// fn_empresas_adocao, junta as 2 fontes que a ficha já usa separadas —
+// log_acessos pro App, ia_eventos_log pro Bot — sob um canal='app'|'bot').
+// edCarregarAdocao() passou a buscar os 2 RPCs em paralelo
+// (Promise.all) e edRenderFuncionalidadesAdocao() nova faz o render.
+//
 // v0.15.0 (bc9df144, item 9, 17/09/2026) — ficha ganha "Ações
 // administrativas": "Apagar Empresa e Acessos" migrou do App
 // (app-dev/apagarEmpresaCompleta()) pra cá, ver edApagarEmpresaCompleta()
@@ -198,6 +209,21 @@ async function edRenderAdocao() {
         </div>
         <p class="text-[11px] mb-3" style="color:var(--sage)">Barra = dias ativos (pelo menos 1 login) dividido pelos dias do período. Fonte: log_acessos, acao='login'.</p>
         <div id="ed-ad-lista" class="space-y-2"></div>
+
+        <div class="mt-6 pt-4 border-t" style="border-color:var(--line)">
+            <h4 class="text-sm font-extrabold mb-1" style="color:var(--ink)">Uso por funcionalidade</h4>
+            <p class="text-[11px] mb-3" style="color:var(--sage)">Mesmos filtros acima (empresa/pessoa/período). App = log_acessos; Bot = ia_eventos_log.</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <p class="text-[10px] font-bold uppercase mb-2" style="color:var(--sage)">App</p>
+                    <div id="ed-ad-func-app" class="space-y-2"></div>
+                </div>
+                <div>
+                    <p class="text-[10px] font-bold uppercase mb-2" style="color:var(--sage)">Bot</p>
+                    <div id="ed-ad-func-bot" class="space-y-2"></div>
+                </div>
+            </div>
+        </div>
     `;
 
     edCarregarAdocao();
@@ -218,14 +244,27 @@ async function edCarregarAdocao() {
     const el = document.getElementById('ed-ad-lista');
     if (!el) return;
     el.innerHTML = `<p class="text-sm" style="color:var(--sage)">Carregando...</p>`;
+    const elAppFunc = document.getElementById('ed-ad-func-app');
+    const elBotFunc = document.getElementById('ed-ad-func-bot');
+    if (elAppFunc) elAppFunc.innerHTML = `<p class="text-xs" style="color:var(--sage)">Carregando...</p>`;
+    if (elBotFunc) elBotFunc.innerHTML = `<p class="text-xs" style="color:var(--sage)">Carregando...</p>`;
 
     const { inicio, fim } = gestaoLerFiltroPeriodo('ed-ad');
     const clienteId = document.getElementById('ed-ad-filtro-empresa').value || null;
     const pessoaId = document.getElementById('ed-ad-filtro-pessoa').value || null;
 
-    const { data, error } = await dbAuth.schema('gestao').rpc('fn_empresas_adocao', {
-        p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId, p_pessoa_id: pessoaId
-    });
+    // v0.27.0 (pedido explícito, 18/09/2026: "deve mostrar tb a quantidade
+    // de uso por funcionalidades mediante os filtros da tela") — mesmos
+    // filtros de fn_empresas_adocao, mesma chamada em paralelo.
+    const [{ data, error }, { data: dataFunc, error: eFunc }] = await Promise.all([
+        dbAuth.schema('gestao').rpc('fn_empresas_adocao', {
+            p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId, p_pessoa_id: pessoaId
+        }),
+        dbAuth.schema('gestao').rpc('fn_empresas_adocao_funcionalidades', {
+            p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId, p_pessoa_id: pessoaId
+        }),
+    ]);
+    edRenderFuncionalidadesAdocao(dataFunc, eFunc);
     if (error) { el.innerHTML = `<p class="text-sm" style="color:var(--danger)">Erro: ${error.message}</p>`; return; }
 
     const linhas = data || [];
@@ -253,6 +292,32 @@ async function edCarregarAdocao() {
             }).join('')}
             </div>
         </div>`).join('') || `<p class="text-sm text-center py-8" style="color:var(--sage)">Nenhuma pessoa encontrada pro filtro selecionado.</p>`;
+}
+
+// v0.27.0 — "Uso por funcionalidade" da aba Adoção: mesmas 2 colunas
+// (App/Bot) que a ficha da empresa já usa (fn_uso_empresa_top_app/
+// top_bot), só que sob os filtros da própria aba (período/empresa/pessoa)
+// em vez de fixas em "última empresa, últimos 30 dias". Barra relativa ao
+// item mais usado de cada coluna (não ao total), pra sempre ter 1 barra
+// cheia como referência visual.
+function edRenderFuncionalidadesAdocao(dataFunc, eFunc) {
+    const elApp = document.getElementById('ed-ad-func-app');
+    const elBot = document.getElementById('ed-ad-func-bot');
+    if (!elApp || !elBot) return;
+    if (eFunc) {
+        elApp.innerHTML = elBot.innerHTML = `<p class="text-xs" style="color:var(--danger)">Erro: ${pmEsc(eFunc.message)}</p>`;
+        return;
+    }
+    const linhas = dataFunc || [];
+    const app = linhas.filter(l => l.canal === 'app').sort((a, b) => b.qtd - a.qtd);
+    const bot = linhas.filter(l => l.canal === 'bot').sort((a, b) => b.qtd - a.qtd);
+    const render = (lista) => {
+        if (!lista.length) return `<p class="text-xs" style="color:var(--sage)">Sem uso no período/filtro selecionado.</p>`;
+        const maximo = lista[0].qtd;
+        return lista.map(l => gestaoBarra(l.item, l.qtd, maximo)).join('');
+    };
+    elApp.innerHTML = render(app);
+    elBot.innerHTML = render(bot);
 }
 
 async function empresasAbrirFicha(clienteId) {

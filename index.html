@@ -5,10 +5,59 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
-   VERSÃO: v0.25.0
-   LINHAS: 1069
-   DATA: 2026-09-18 (rodada 5)
-   TÍTULO: APLICABILIDADE — DESMARCAR VÍNCULO DE VEZ
+   VERSÃO: v0.27.0
+   LINHAS: 1142
+   DATA: 2026-09-18 (rodada 7)
+   TÍTULO: FICHA DA EMPRESA — COTA DE PESSOAS E ADOÇÃO POR FUNCIONALIDADE
+   NOVIDADES (v0.27.0):
+     - Achado real do Nicola, ficha da empresa › Uso & Consumo: "Nova
+       pessoa" sempre mostrava 0/teto, mesmo com pessoas cadastradas
+       (Albuquerque Silva Participações tinha 7, mostrava 0/5). Causa:
+       fn_uso_funcionalidade() (banco, schema public) tem um CASE por
+       código dentro da categoria item_custodia com só 3 braços
+       (cofre.ativos.criar/contratos.criar/cofre.controles.criar) —
+       pessoas.criar caía no ELSE e sempre voltava 0. Corrigido DIRETO NO
+       BANCO (migration fn_uso_funcionalidade_pessoas_criar, sem arquivo
+       neste zip — efeito já está no ar): novo braço conta a tabela
+       pessoas por cliente_id. Testado: agora retorna 7 pra essa empresa
+       (aparece 7/5, acima do teto, correto). Achado relacionado, NÃO
+       corrigido (precisa decisão sua antes): pessoas.acesso.criar
+       ("Convidar pessoa") tem o mesmo problema — cai no mesmo ELSE — mas
+       ao contrário de "Nova pessoa" (estoque simples, count(*) da
+       tabela), essa é logada como EVENTO (registrarLog toda vez que
+       alguém ganha acesso, comum-pessoas.js) e está configurada como
+       item_custodia (estoque, nunca reseta) no plano — não é óbvio se
+       "usado" deveria ser a contagem de log_acessos no período ou um
+       "quantas pessoas já ganharam acesso alguma vez" cumulativo. Não
+       mexi pra não adivinhar a regra de negócio; registrado como demanda.
+     - js/telas/empresas.js v0.15.0 → v0.16.0 — pedido explícito, aba
+       Adoção: "deve mostrar tb a quantidade de uso por funcionalidades
+       mediante os filtros da tela". Nova seção "Uso por funcionalidade"
+       (App/Bot), mesmos filtros de período/empresa/pessoa já existentes
+       — ver changelog do arquivo.
+   ------------------------------------------------------------------
+   TÍTULO ANTERIOR: COCKPIT — CONTADOR DE APLICABILIDADE IGNORANDO TITULAR EMPRESA
+   NOVIDADES (v0.26.0):
+     - js/telas/cockpit.js v1.0.0 → v1.1.0 — achado real do Nicola, tela
+       Cockpit: "o contador de aplicabilidade não está desconsiderando
+       quando subtipo se aplica a empresa". O card "Catálogo —
+       Aplicabilidade" (Fila de atenção + grade) contava subtipo global
+       sem vínculo mesmo quando o titular dele não inclui "ativo" (ex.:
+       "Contrato social", "Documento da empresa" — só empresa) — mesmo
+       ajuste que catalogo-patrimonio.js v1.4.0 já tinha (rodada 5), só
+       não tinha sido replicado aqui, onde o Cockpit faz a própria conta
+       direto.
+     - CORRIGIDO DE PASSAGEM (achado ao investigar por que o Nicola via
+       "v0.22.0" na tela mesmo depois de eu ter avisado da v0.25.0): a
+       constante `APP_VERSAO` (linha ~801, fonte do badge de versão da
+       tela de login/topo) tinha ficado presa em 'v0.22.0' desde a rodada
+       3 — as rodadas 4/5 atualizaram o cabeçalho deste arquivo mas não
+       essa constante (mesmo deslize que este arquivo já registrava ter
+       corrigido uma vez antes, em v0.20.2 → v0.21.0, e voltou a
+       acontecer). Corrigida pra 'v0.26.0' — a partir de agora o badge da
+       tela é conferência confiável de qual versão está de fato no ar.
+   ------------------------------------------------------------------
+   TÍTULO ANTERIOR: APLICABILIDADE — DESMARCAR VÍNCULO DE VEZ
    NOVIDADES (v0.25.0):
      - js/telas/catalogo-patrimonio.js v1.3.0 → v1.4.0 — achado real do
        Nicola: célula da matriz de Aplicabilidade que ele tinha clicado pra
@@ -798,7 +847,7 @@
 <script>
     // Fonte única da versão exibida na tela — mantida em sincronia com o
     // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
-    const APP_VERSAO = 'v0.22.0';
+    const APP_VERSAO = 'v0.27.0';
 </script>
 
 <!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->
