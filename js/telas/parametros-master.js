@@ -1,6 +1,13 @@
 // ============================================================================
 // js/telas/parametros-master.js — Raiz Gestão
 //
+// v0.9.4 (20/09/2026) — Entrega AL.4 (PLANO_IMPLEMENTACAO_RESULTADOS_
+// MERCADO_FISCAL v2.0.0): PM_HUB ganha o card "Alertas" (js/telas/
+// alertas.js, novo) — catálogo de tipos de alerta do motor central
+// (public.alerta_tipos, só edição) e informativos fiscais (public.
+// informativos, CRUD). Único trecho alterado nesta versão (a entrada no
+// array PM_HUB); resto do arquivo é v0.9.3, sem mudança de comportamento.
+//
 // v0.9.3 (18/09/2026) — Feedback do Nicola testando a Onda 2: PM_HUB ganha
 // o card "Conciliação" (js/telas/conciliacao-catalogo.js, novo) — a aba
 // saiu de dentro de "Catálogo do patrimônio" porque não tem relação com
@@ -107,7 +114,8 @@ const PM_HUB = [
     { id: 'documental', icone: '📄', titulo: 'Motor Documental', desc: 'Tipos de documento que a IA reconhece, prompts, versões e assertividade da leitura.', init: () => telaParametrosDocumentalInit() },
     { id: 'catalogo-patrimonio', icone: '🗂️', titulo: 'Catálogo do patrimônio', desc: 'Os dois eixos do catálogo global: o que o ativo é (categoria + tipo) e o que se controla sobre ele (natureza → subtipo → aplicabilidade → calendário).', init: () => telaCatalogoPatrimonioInit() },
     { id: 'partes-padrao', icone: '🏛️', titulo: 'Partes padrão', desc: 'Prefeituras e órgãos recolhedores por subtipo de controle — vale pra todas as empresas.', init: () => telaPartesPadraoInit() },
-    { id: 'conciliacao', icone: '🔄', titulo: 'Conciliação', desc: 'Fontes e regras de conciliação automática, e a visão por empresa × regra — global, master-only.', init: () => telaConciliacaoCatalogoInit() }
+    { id: 'conciliacao', icone: '🔄', titulo: 'Conciliação', desc: 'Fontes e regras de conciliação automática, e a visão por empresa × regra — global, master-only.', init: () => telaConciliacaoCatalogoInit() },
+    { id: 'alertas', icone: '🔔', titulo: 'Alertas', desc: 'Catálogo de tipos de alerta do motor central (severidade, antecedência, agrupamento, teto diário) e informativos fiscais publicados.', init: () => telaAlertasCatalogoInit() }
 ];
 
 async function telaParametrosMasterInit() {
