@@ -1,6 +1,19 @@
 // ============================================================================
 // js/telas/saude.js — Raiz Gestão
 //
+// v0.13.0 (22/09/2026) — pedido do Nicola: visão do sucesso/falha de cada
+// carga automática de indicadores (SGS/BCB — IPCA, IGP-M, INCC-DI, Selic,
+// CDI, IVG-R, Entrega B1.1). Nova seção "Captura de indicadores", logo
+// abaixo do cabeçalho, independente do filtro de empresa/pessoa/período
+// (é log operacional, não dado de cliente) — mostra a última execução
+// (ok/falha por série, com a competência mais recente gravada ou o erro) e
+// as últimas 5 execuções, lendo indicador_captura_execucoes (migration
+// indicador_captura_execucoes_v1, gravada pela Edge Function
+// capturar-indicadores v1.1.0). Preenche exatamente o gap que o card
+// "Infraestrutura — não disponível" no rodapé desta tela já apontava
+// (erros de Edge Function sem fonte de dado) — só para esta function, que
+// agora grava seu próprio log.
+//
 // v0.12.1 (07/09/2026) — "O que está no ar" migrou pra tela Código (pedido do
 // Nicola). sdRenderNoAr fica exportável mas não é mais chamada daqui.
 //
@@ -109,6 +122,61 @@ async function sdRenderNoAr() {
         </div>`;
 }
 
+// ----------------------------------------------------------------------------
+// v0.13.0 — "CAPTURA DE INDICADORES": sucesso/falha de cada rodada da Edge
+// Function capturar-indicadores (SGS/BCB). Independente do filtro de
+// empresa/pessoa/período da tela — é log operacional, não dado de cliente.
+// ----------------------------------------------------------------------------
+async function sdRenderIndicadores() {
+    const el = document.getElementById('sd-indicadores'); if (!el) return;
+    el.innerHTML = `<p class="text-xs" style="color:var(--sage)">Carregando captura de indicadores…</p>`;
+    const { data, error } = await dbAuth.from('indicador_captura_execucoes')
+        .select('executado_em, series_total, series_ok, series_falha, detalhe, duracao_ms')
+        .order('executado_em', { ascending: false })
+        .limit(5);
+    if (error) { el.innerHTML = `<p class="text-xs" style="color:var(--danger)">Erro ao carregar captura de indicadores: ${pmEsc(error.message)}</p>`; return; }
+
+    const fmtDt = (iso) => iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+    const linhas = data || [];
+    const ultima = linhas[0];
+    const corStatus = (falha) => falha > 0 ? 'var(--danger)' : 'var(--success)';
+
+    const ultimaBox = ultima ? `
+        <div class="p-3 rounded-xl border-2 mb-3" style="border-color:var(--line);background:var(--paper)">
+            <div class="flex items-center justify-between mb-2">
+                <b class="text-xs" style="color:var(--ink)">Última carga: ${fmtDt(ultima.executado_em)}</b>
+                <span class="text-xs font-bold" style="color:${corStatus(ultima.series_falha)}">${ultima.series_ok}/${ultima.series_total} série(s) ok</span>
+            </div>
+            <div class="grid grid-cols-3 md:grid-cols-6 gap-2">
+                ${Object.entries(ultima.detalhe || {}).map(([codigo, v]) => `
+                    <div class="text-center">
+                        <p class="text-[10px] font-bold uppercase" style="color:var(--sage)">${pmEsc(codigo)}</p>
+                        <p class="text-xs font-bold" style="color:${v.ok ? 'var(--success)' : 'var(--danger)'}">${v.ok ? '✓' : '✗'}</p>
+                        <p class="text-[9px] truncate" title="${pmEsc(v.ok ? (v.ultima_competencia || '') : (v.erro || ''))}" style="color:var(--sage)">${v.ok ? pmEsc(v.ultima_competencia || '—') : pmEsc((v.erro || '').slice(0, 28))}</p>
+                    </div>
+                `).join('')}
+            </div>
+        </div>` : `<p class="text-xs" style="color:var(--sage)">Nenhuma execução registrada ainda — a primeira roda automaticamente todo dia às 09:00 (horário de Brasília), ou pode ser disparada manualmente.</p>`;
+
+    const historico = linhas.map(l => `
+        <div class="flex items-center justify-between py-1 border-t text-[11px]" style="border-color:var(--line)">
+            <span style="color:var(--sage)">${fmtDt(l.executado_em)}</span>
+            <span style="font-weight:bold;color:${corStatus(l.series_falha)}">${l.series_ok}/${l.series_total} ok</span>
+            <span style="color:var(--sage)">${l.duracao_ms != null ? (l.duracao_ms / 1000).toFixed(1) + 's' : '—'}</span>
+        </div>`).join('');
+
+    el.innerHTML = `
+        <div class="rounded-2xl border-2 p-4 mb-6" style="border-color:var(--line);background:#fff">
+            <div class="flex items-center justify-between mb-2">
+                <b class="text-sm" style="color:var(--ink)">Captura de indicadores (SGS/BCB)</b>
+                <button onclick="sdRenderIndicadores()" class="text-[11px] font-bold" style="color:var(--pine)">Atualizar</button>
+            </div>
+            ${ultimaBox}
+            ${linhas.length ? `<p class="text-[10px] font-bold uppercase mb-1" style="color:var(--sage)">Últimas execuções</p>${historico}` : ''}
+            <p class="text-[10px] mt-2" style="color:var(--sage)">IPCA, IGP-M, INCC-DI, Selic, CDI e IVG-R via SGS/BCB — roda sozinha todo dia às 09:00 (horário de Brasília), job separado do diario-eventos.</p>
+        </div>`;
+}
+
 async function telaSaudeInit() {
     const area = document.getElementById('area-conteudo');
     area.innerHTML = `<p class="text-sm" style="color:var(--sage)">Carregando Saúde...</p>`;
@@ -126,8 +194,10 @@ async function telaSaudeInit() {
     area.innerHTML = `
         <div class="mb-4">
             <h1 class="text-lg font-extrabold" style="color:var(--ink)">Saúde</h1>
-            <p class="text-xs mt-0.5" style="color:var(--sage)">Filtro de empresa/pessoa/período abaixo afeta todas as informações desta tela.</p>
+            <p class="text-xs mt-0.5" style="color:var(--sage)">Filtro de empresa/pessoa/período abaixo afeta todas as informações desta tela, exceto a captura de indicadores (log operacional, não é dado de cliente).</p>
         </div>
+
+        <div id="sd-indicadores" class="mb-6"></div>
 
         <div class="flex flex-wrap gap-2 mb-5 items-end">
             <label class="flex flex-col gap-1">
@@ -151,6 +221,7 @@ async function telaSaudeInit() {
         <div id="sd-conteudo"></div>
     `;
 
+    sdRenderIndicadores();
     sdCarregar();
 }
 
@@ -371,7 +442,7 @@ async function sdCarregar() {
 
         <div class="p-4 rounded-xl border-2" style="border-color:var(--line);background:var(--paper)">
             <p class="text-xs font-bold mb-1" style="color:var(--ink)">Infraestrutura — não disponível</p>
-            <p class="text-xs" style="color:var(--sage)">Erros de Edge Functions e status de serviços (Supabase, WhatsApp Cloud API, GitHub Pages) ainda não têm fonte de dado no banco. Precisaria de integração com a Management API do Supabase ou de uma tabela de status manual — nenhuma das duas existe hoje, então nada é mostrado aqui em vez de um número inventado.</p>
+            <p class="text-xs" style="color:var(--sage)">Erros de Edge Functions e status de serviços (Supabase, WhatsApp Cloud API, GitHub Pages) ainda não têm fonte de dado no banco, com 1 exceção: capturar-indicadores grava seu próprio log de sucesso/falha (seção "Captura de indicadores" no topo desta tela, desde 22/09/2026). Pra ampliar isso pras demais functions, precisaria de integração com a Management API do Supabase ou do mesmo padrão de log replicado em cada uma — nenhuma das duas existe hoje pras outras, então nada é mostrado aqui em vez de um número inventado.</p>
         </div>
     `;
 }
