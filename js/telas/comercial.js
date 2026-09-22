@@ -1,6 +1,10 @@
 // ============================================================================
 // js/telas/comercial.js — Raiz Gestão
 //
+// v0.11.1 (22/09/2026) — Ofertas por origem: "Oferta no Site" lista só as
+// ofertas-base da origem 'site' (gestao.fn_comercial_oferta_site v2, plano
+// pela campanha). Só a mensagem de lista vazia mudou neste arquivo.
+//
 // v0.11.0 — "Páginas mais navegadas" e "Origem do tráfego" (dentro de Visão
 // Geral) ganharam filtro de período (data início/fim, padrão últimos 7
 // dias) — um único filtro pras duas listas juntas. Requer
@@ -257,7 +261,7 @@ async function pcoOfertaInit() {
                 </div>
             </div>
         `;
-    }).join('') || `<p class="text-sm text-center py-6 col-span-3" style="color:var(--sage)">Nenhuma oferta-base encontrada — confira se planos.id_campanha aponta pra uma campanha com tipo_oferta='oferta_base'.</p>`;
+    }).join('') || `<p class="text-sm text-center py-6 col-span-3" style="color:var(--sage)">Nenhuma oferta-base do site encontrada — confira se a campanha tem plano (plano_codigo), origem 'site' e tipo_oferta='oferta_base'.</p>`;
 }
 
 function pcoAlternarPagamento() {

@@ -1,6 +1,22 @@
 // ============================================================================
 // js/telas/parametros-campanhas.js — Raiz Gestão
 //
+// v0.9.0 (22/09/2026) — Ofertas por ORIGEM (migration ofertas_por_origem_v1,
+// pedido do Nicola: duplicar oferta por origem — site, amigos, parceiros,
+// grupos — com preço/duração/vigência/vitrine próprios):
+//   - A campanha passa a apontar para o plano (plano_campanhas.plano_codigo).
+//     O wizard NÃO escreve mais em planos.id_campanha (legado): antes, salvar
+//     uma campanha nova "roubava" o plano da oferta do site.
+//   - Etapa 1 ganha o campo Origem (comercial.origens) e o atalho
+//     "+ nova origem".
+//   - Botão "Duplicar" na campanha aberta: copia condições, pagamentos e
+//     vitrine para um rascunho novo (código público sugerido
+//     "<origem>-<plano>", editável).
+//   - Lista mostra a origem de cada campanha e passa a incluir as
+//     ofertas-base (para poderem ser duplicadas).
+//   - Checklist e regra de publicação: "1 promocional ativa" vale por
+//     ORIGEM + PLANO (espelha gestao.fn_publicar_campanha v2).
+//
 // v0.8.3 (09/09/2026) — barra de etapas do desktop usava `hidden md:flex` e
 // perdia pro `.hidden{display:none!important}` do index. Agora `max-md:hidden`.
 //
@@ -37,7 +53,7 @@ function pcCampanhaVazia() {
     // um caso de uso deste wizard (oferta-base vem semeada pela migration
     // de planos/landing; aqui só se EDITA uma já existente).
     return {
-        nome: '', categoria: 'trial', plano_codigo: '', tipo_oferta: 'promocional',
+        nome: '', categoria: 'trial', plano_codigo: '', origem_codigo: 'site', tipo_oferta: 'promocional',
         duracao_tipo: 'dias_fixos', duracao_dias: '', tempo_aviso_dias: 3,
         inicio_vigencia: '', fim_vigencia: '',
         pagamentos: [],
@@ -80,13 +96,21 @@ function pcStatusChip(status) {
     return `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background:${bg};color:${cor}">${status || 'rascunho'}</span>`;
 }
 
+function pcNomeOrigem(codigo) {
+    const o = (typeof pmOrigens !== 'undefined' ? pmOrigens : []).find(x => x.codigo === codigo);
+    return o ? o.nome : (codigo || 'site');
+}
+
 function pcRenderLista() {
     const el = document.getElementById('pc-lista');
     // Oferta-base (Essencial/Patrimônio/Plus) não é campanha promocional
     // comum — vive em Comercial → Oferta no Site. Editar uma delas ainda
     // é possível (pcAbrirCampanha funciona pra qualquer id), só não
     // aparece nesta lista pra não confundir com promoção temporária.
-    const promocionais = pmCampanhas.filter(cp => cp.tipo_oferta !== 'oferta_base');
+    // v0.9.0: ofertas-base também aparecem (para poderem ser duplicadas por
+    // origem), ordenadas por origem e nome.
+    const promocionais = [...pmCampanhas].sort((a, b) =>
+        (a.origem_codigo || '').localeCompare(b.origem_codigo || '') || (a.nome || '').localeCompare(b.nome || ''));
     el.innerHTML = promocionais.map(cp => {
         const landing = pmCampanhaLanding.find(l => l.campanha_id === cp.id);
         return `
@@ -96,7 +120,7 @@ function pcRenderLista() {
             <div class="flex justify-between gap-2">
                 <div class="min-w-0">
                     <b class="text-sm truncate block" style="color:var(--ink)">${cp.nome}</b>
-                    <div class="text-[11px] mt-0.5" style="color:var(--sage)">${cp.categoria}</div>
+                    <div class="text-[11px] mt-0.5" style="color:var(--sage)">${cp.categoria}${cp.tipo_oferta === 'oferta_base' ? ' · oferta-base' : ''} · <b style="color:var(--pine)">${pmEsc(pcNomeOrigem(cp.origem_codigo))}</b></div>
                 </div>
                 ${pcStatusChip(cp.status)}
             </div>
@@ -126,12 +150,13 @@ function pcAbrirCampanha(id) {
     pcStep = 1;
     pcModo = 'configurar';
 
-    const planoVinculado = pmPlanos.find(p => p.id_campanha === id);
+    // v0.9.0: plano vem da campanha; planos.id_campanha só como legado.
+    const planoVinculado = pmPlanos.find(p => p.codigo === cp.plano_codigo) || pmPlanos.find(p => p.id_campanha === id);
     const landing = pmCampanhaLanding.find(l => l.campanha_id === id);
     const pagIds = pmCampanhaPagamentos.filter(cpp => cpp.id_campanha === id).map(cpp => cpp.id_plano_pagamento);
 
     pcDraft = {
-        nome: cp.nome, categoria: cp.categoria, plano_codigo: planoVinculado?.codigo || '', tipo_oferta: cp.tipo_oferta || 'promocional',
+        nome: cp.nome, categoria: cp.categoria, plano_codigo: planoVinculado?.codigo || '', origem_codigo: cp.origem_codigo || 'site', tipo_oferta: cp.tipo_oferta || 'promocional',
         status: cp.status, duracao_tipo: cp.duracao_tipo, duracao_dias: cp.duracao_dias ?? '',
         tempo_aviso_dias: cp.tempo_aviso_dias, inicio_vigencia: cp.inicio_vigencia || '', fim_vigencia: cp.fim_vigencia || '',
         pagamentos: pagIds, id_publico_oferta: cp.id_publico_oferta || '',
@@ -144,6 +169,48 @@ function pcAbrirCampanha(id) {
     const item = document.getElementById('pc-item-' + id);
     if (item) item.style.borderColor = 'var(--brass)';
     pcRenderWizard();
+}
+
+// v0.9.0 — Duplicar: copia a campanha aberta para um rascunho novo. A cópia
+// nasce promocional/trial (oferta-base não se duplica como base), pausada
+// até passar pela etapa 5, com código público "<origem>-<plano>" sugerido.
+function pcDuplicarCampanha() {
+    if (!pcCampanhaId) return;
+    pcCampoParaDraft();
+    const base = JSON.parse(JSON.stringify(pcDraft));
+    const origemSugerida = (pmOrigens.find(o => o.ativo && o.codigo !== base.origem_codigo) || {}).codigo || base.origem_codigo;
+    pcCampanhaId = null;
+    pcDraft = {
+        ...base,
+        nome: base.nome + ' (cópia)',
+        tipo_oferta: 'promocional',
+        categoria: (base.categoria === 'trial' || base.categoria === 'cortesia') ? base.categoria : 'trial',
+        status: undefined,
+        origem_codigo: origemSugerida,
+        landing: { ...base.landing, codigo_publico: origemSugerida + '-' + (base.plano_codigo || 'oferta') }
+    };
+    pcStep = 1;
+    pcModo = 'configurar';
+    document.querySelectorAll('[id^="pc-item-"]').forEach(b => b.style.borderColor = 'var(--line)');
+    pcRenderWizard();
+    const st = document.getElementById('pc-status');
+    if (st) st.textContent = 'Cópia criada como rascunho. Escolha a origem, revise condições e vitrine e clique em "Salvar rascunho".';
+}
+
+// v0.9.0 — cadastro rápido de origem (comercial.origens)
+async function pcNovaOrigem() {
+    const nome = (prompt('Nome da origem (ex.: Parceiro Contábil X, Grupo Holdings):') || '').trim();
+    if (!nome) return;
+    const sugestao = nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+    const codigo = (prompt('Código da origem (minúsculas, números e hífen). Vai no link e no código das vitrines:', sugestao) || '').trim().toLowerCase();
+    if (!/^[a-z0-9][a-z0-9-]{1,40}$/.test(codigo)) { alert('Código inválido. Use só letras minúsculas, números e hífen (2 a 41 caracteres).'); return; }
+    const tipo = /parceir/i.test(nome) ? 'parceiro' : (/grupo/i.test(nome) ? 'grupo' : 'pagina');
+    const { error } = await dbAuth.schema('comercial').from('origens').insert({ codigo, nome, tipo });
+    if (error) { alert('Não foi possível criar a origem: ' + (error.code === '23505' ? 'esse código já existe.' : error.message)); return; }
+    pcCampoParaDraft();
+    await pmCarregarTudo();
+    pcDraft.origem_codigo = codigo;
+    pcRenderStepBody();
 }
 
 function pcSetStep(n) { pcStep = n; pcRenderWizard(); }
@@ -180,6 +247,7 @@ function pcRenderWizard() {
                 </div>
                 <div class="flex flex-wrap gap-2 flex-none">
                     ${pcCampanhaId ? `<button onclick="pcAlternarModo()" class="px-3 py-2 rounded-xl text-xs font-bold border-2" style="border-color:var(--line)">${pcModo === 'desempenho' ? '⚙️ Configurar' : '📈 Desempenho'}</button>` : ''}
+                    ${pcCampanhaId && pcModo === 'configurar' ? `<button onclick="pcDuplicarCampanha()" class="px-3 py-2 rounded-xl text-xs font-bold border-2" style="border-color:var(--line)">⧉ Duplicar</button>` : ''}
                     ${pcModo === 'configurar' ? `<button onclick="pcSalvar()" id="pc-btn-rascunho" class="px-3 py-2 rounded-xl text-xs font-bold text-white" style="background:var(--pine)">Salvar rascunho</button>` : ''}
                 </div>
             </div>
@@ -238,6 +306,7 @@ function pcCampoParaDraft() {
         pcDraft.nome = g('pc-nome')?.value.trim() || '';
         pcDraft.categoria = g('pc-categoria')?.value || 'trial';
         pcDraft.plano_codigo = g('pc-plano')?.value || '';
+        pcDraft.origem_codigo = g('pc-origem')?.value || pcDraft.origem_codigo || 'site';
     }
     if (pcStep === 2) {
         pcDraft.inicio_vigencia = g('pc-inicio')?.value || '';
@@ -284,7 +353,13 @@ function pcStep1() {
                     <option value="">— selecione —</option>
                     ${pmPlanos.filter(p => p.ativo).map(p => `<option value="${p.codigo}" ${pcDraft.plano_codigo === p.codigo ? 'selected' : ''}>${p.descricao}</option>`).join('')}
                 </select>
-                <span class="block text-[10px] mt-1 font-normal" style="color:var(--sage)">Usa planos.id_campanha (relação já existente) — ao salvar, este plano passa a apontar pra esta campanha.</span>
+                <span class="block text-[10px] mt-1 font-normal" style="color:var(--sage)">Acessos e limites vêm do plano. Várias campanhas podem usar o mesmo plano.</span>
+            </label>
+            <label class="text-xs font-bold" style="color:var(--ink)">Origem
+                <select id="pc-origem" class="w-full mt-1 p-2.5 border rounded-xl font-normal text-sm">
+                    ${pmOrigens.filter(o => o.ativo || o.codigo === pcDraft.origem_codigo).map(o => `<option value="${o.codigo}" ${pcDraft.origem_codigo === o.codigo ? 'selected' : ''}>${pmEsc(o.nome)} (${o.codigo})</option>`).join('')}
+                </select>
+                <span class="block text-[10px] mt-1 font-normal" style="color:var(--sage)">De onde vem quem entra por esta oferta. Cada página mostra só as ofertas da sua origem (site = landing principal). <a href="#" onclick="event.preventDefault();pcNovaOrigem()" style="color:var(--pine);font-weight:700">+ nova origem</a></span>
             </label>
             <label class="text-xs font-bold" style="color:var(--ink)">Status
                 <input disabled value="${pcDraft.status || 'rascunho (será definido ao salvar)'}" class="w-full mt-1 p-2.5 border rounded-xl font-normal text-sm bg-slate-50">
@@ -453,7 +528,10 @@ function pcValidacoes() {
     const pagamentosSelecionados = pmPlanoPagamentos.filter(p => pcDraft.pagamentos.includes(p.id));
     const temOpcaoGratis = pagamentosSelecionados.some(p => Number(p.preco) === 0);
     const publicoObj = pmPublicoOferta.find(p => p.id === pcDraft.id_publico_oferta);
-    const outraCampanhaAtiva = pmCampanhas.find(c => c.status === 'publicada' && c.tipo_oferta === 'promocional' && c.id !== pcCampanhaId);
+    // v0.9.0: regra "1 promocional ativa" vale por origem + plano
+    const outraCampanhaAtiva = pmCampanhas.find(c => c.status === 'publicada' && c.tipo_oferta === 'promocional' && c.id !== pcCampanhaId
+        && (c.origem_codigo || 'site') === (pcDraft.origem_codigo || 'site') && (c.plano_codigo || '') === (pcDraft.plano_codigo || ''));
+    const origemObj = pmOrigens.find(o => o.codigo === pcDraft.origem_codigo);
 
     const checks = [
         ehOfertaBase
@@ -461,6 +539,7 @@ function pcValidacoes() {
             : { label: 'Categoria compatível com o fluxo atual (trial ou cortesia)', ok: categoriaCompativel },
         { label: 'Plano vinculado', ok: !!pcDraft.plano_codigo },
         { label: 'Plano está ativo', ok: !!planoObj?.ativo },
+        { label: 'Origem definida e ativa', ok: !!origemObj?.ativo },
         { label: 'Vigência coerente (início ≤ fim)', ok: vigenciaOk },
         { label: 'Campanha dentro da vigência hoje', ok: dentroVigencia },
         { label: 'Tem ao menos 1 opção de pagamento marcada', ok: pcDraft.pagamentos.length > 0 },
@@ -471,7 +550,7 @@ function pcValidacoes() {
 
     if (!ehOfertaBase) {
         checks.push({
-            label: outraCampanhaAtiva ? `Nenhuma outra campanha promocional ativa (hoje: "${outraCampanhaAtiva.nome}" está publicada — pause-a antes)` : 'Nenhuma outra campanha promocional ativa (regra: só 1 por vez)',
+            label: outraCampanhaAtiva ? `Nenhuma outra promocional ativa nesta origem e plano (hoje: "${outraCampanhaAtiva.nome}" está publicada — pause-a antes)` : 'Nenhuma outra promocional ativa nesta origem e plano (regra: 1 por origem + plano)',
             ok: !outraCampanhaAtiva
         });
     }
@@ -525,8 +604,11 @@ async function pcSalvar() {
         duracao_dias: pcDraft.duracao_dias ? Number(pcDraft.duracao_dias) : null,
         tempo_aviso_dias: Number(pcDraft.tempo_aviso_dias) || 3,
         inicio_vigencia: pcDraft.inicio_vigencia || null, fim_vigencia: pcDraft.fim_vigencia || null,
-        id_publico_oferta: pcDraft.id_publico_oferta || null
+        id_publico_oferta: pcDraft.id_publico_oferta || null,
+        plano_codigo: pcDraft.plano_codigo || null,              // v0.9.0
+        origem_codigo: pcDraft.origem_codigo || 'site'           // v0.9.0
     };
+    if (!pcCampanhaId) payload.tipo_oferta = pcDraft.tipo_oferta || 'promocional';
 
     let campanhaId = pcCampanhaId;
     if (campanhaId) {
@@ -538,14 +620,9 @@ async function pcSalvar() {
         campanhaId = data.id;
     }
 
-    // Plano vinculado: aponta o plano escolhido pra esta campanha, e
-    // desvincula qualquer outro plano que apontasse pra ela antes (evita
-    // duas linhas de public.planos com o mesmo id_campanha).
-    if (pcDraft.plano_codigo) {
-        await dbAuth.from('planos').update({ id_campanha: null }).eq('id_campanha', campanhaId).neq('codigo', pcDraft.plano_codigo);
-        const { error: errPlano } = await dbAuth.from('planos').update({ id_campanha: campanhaId }).eq('codigo', pcDraft.plano_codigo);
-        if (errPlano) { if (status) status.textContent = 'Campanha salva, mas erro ao vincular plano: ' + errPlano.message; return; }
-    }
+    // v0.9.0: o plano agora fica na própria campanha (payload.plano_codigo).
+    // NÃO escreve mais em planos.id_campanha — isso tirava o plano da oferta
+    // do site quando se criava uma campanha nova para o mesmo plano.
 
     // Substitui o conjunto de pagamentos por completo (mesmo padrão v0.7.0).
     const { error: errDel } = await dbAuth.schema('comercial').from('plano_campanhas_pagamentos').delete().eq('id_campanha', campanhaId);

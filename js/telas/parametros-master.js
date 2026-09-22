@@ -1,6 +1,11 @@
 // ============================================================================
 // js/telas/parametros-master.js — Raiz Gestão
 //
+// v0.9.5 (22/09/2026) — Ofertas por origem (migration ofertas_por_origem_v1):
+// pmCarregarTudo() passa a trazer comercial.origens (pmOrigens), usado pelo
+// wizard de campanhas (campo Origem) e pelo cadastro rápido de origem.
+// Único trecho alterado nesta versão.
+//
 // v0.9.4 (20/09/2026) — Entrega AL.4 (PLANO_IMPLEMENTACAO_RESULTADOS_
 // MERCADO_FISCAL v2.0.0): PM_HUB ganha o card "Alertas" (js/telas/
 // alertas.js, novo) — catálogo de tipos de alerta do motor central
@@ -77,6 +82,7 @@ let pmCategorias = [];
 let pmPublicoOferta = [];        // NOVO v0.8.1 — comercial.publico_oferta
 let pmPerfis = [];                // NOVO v0.8.1 — public.perfis
 let pmPerfilFuncionalidade = []; // NOVO v0.8.1 — public.perfil_funcionalidade
+let pmOrigens = [];              // v0.9.5 — comercial.origens (site, amigos, parceiros...)
 let pmCampanhaLanding = [];      // NOVO v0.8.1 — comercial.campanha_landing
 let pmPlanoFuncionalidade = [];  // NOVO v0.8.1 — public.plano_funcionalidade (linha completa, pra matriz)
 
@@ -158,7 +164,7 @@ async function pmCarregarTudo() {
         { data: formasPgto, error: e4 }, { data: planoPgtos, error: e5 }, { data: campanhas, error: e6 },
         { data: campPgtos, error: e7 }, { data: categorias, error: e8 },
         { data: publico, error: e9 }, { data: perfis, error: e10 }, { data: perfilFunc, error: e11 },
-        { data: campLanding, error: e12 }, { data: planoFunc, error: e13 }
+        { data: campLanding, error: e12 }, { data: planoFunc, error: e13 }, { data: origens, error: e14 }
     ] = await Promise.all([
         dbAuth.schema('comercial').from('tipo_modulos').select('*').order('nome'),
         dbAuth.from('funcionalidades').select('*').order('area').order('codigo'),
@@ -172,14 +178,15 @@ async function pmCarregarTudo() {
         dbAuth.from('perfis').select('*').order('codigo'),
         dbAuth.from('perfil_funcionalidade').select('*'),
         dbAuth.schema('comercial').from('campanha_landing').select('*'),
-        dbAuth.from('plano_funcionalidade').select('*')
+        dbAuth.from('plano_funcionalidade').select('*'),
+        dbAuth.schema('comercial').from('origens').select('*').order('codigo')   // v0.9.5
     ]);
 
     const erros = {
         'Módulos': e1, 'Funcionalidades': e2, 'Planos': e3, 'Formas de pagamento': e4,
         'Pagamentos de plano': e5, 'Campanhas': e6, 'Vínculo campanha×pagamento': e7, 'Categorias': e8,
         'Público de oferta': e9, 'Perfis': e10, 'Perfil×funcionalidade': e11, 'Landing de campanha': e12,
-        'Plano×funcionalidade': e13
+        'Plano×funcionalidade': e13, 'Origens': e14
     };
     for (const [nome, err] of Object.entries(erros)) {
         if (err) { pmErro(nome + ': ' + err.message); return false; }
@@ -198,6 +205,7 @@ async function pmCarregarTudo() {
     pmPerfilFuncionalidade = perfilFunc || [];
     pmCampanhaLanding = campLanding || [];
     pmPlanoFuncionalidade = planoFunc || [];
+    pmOrigens = origens || [];
     return true;
 }
 

@@ -5,8 +5,24 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
+   VERSÃO: v0.32.0
+   LINHAS: 1269
+   DATA: 2026-09-22
+   TÍTULO: OFERTAS POR ORIGEM (SITE, AMIGOS, PARCEIROS, GRUPOS)
+   NOVIDADES (v0.32.0):
+     - Pedido do Nicola (22/09/2026): duplicar oferta por origem, com preço,
+       duração, vigência e vitrine próprios. Banco: migration
+       ofertas_por_origem_v1 (comercial.origens, plano_campanhas.plano_codigo
+       e origem_codigo, clientes.origem_codigo).
+     - Campanhas & Landing (parametros-campanhas.js v0.9.0): campo Origem e
+       "+ nova origem" na etapa 1, botão "Duplicar", lista com a origem de
+       cada campanha, regra "1 promocional ativa" por origem + plano. O
+       wizard deixou de escrever em planos.id_campanha (legado).
+     - parametros-master.js v0.9.5 carrega comercial.origens.
+     - comercial.js v0.11.1: mensagem de "Oferta no Site" vazia atualizada.
+
+   --- HISTÓRICO ANTERIOR ---
    VERSÃO: v0.31.0
-   LINHAS: 1252
    DATA: 2026-09-20 (rodada 12)
    TÍTULO: CATÁLOGO CONFIGURÁVEL DE ALERTAS (ENTREGA AL.4)
    NOVIDADES (v0.31.0):
