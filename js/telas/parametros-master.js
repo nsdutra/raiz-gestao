@@ -1,6 +1,12 @@
 // ============================================================================
 // js/telas/parametros-master.js — Raiz Gestão
 //
+// v0.9.6 (23/09/2026) — Frente fiscal, Fase 1 (demanda 976fcbf6): PM_HUB
+// ganha o card "Regras fiscais" (js/telas/regras-fiscais.js, novo) — regras
+// fiscais versionadas (public.fiscal_parametros, migration fiscal_
+// parametros_versionados_v1). Único trecho alterado nesta versão (a entrada
+// no array PM_HUB); resto do arquivo é v0.9.5, sem mudança de comportamento.
+//
 // v0.9.5 (22/09/2026) — Ofertas por origem (migration ofertas_por_origem_v1):
 // pmCarregarTudo() passa a trazer comercial.origens (pmOrigens), usado pelo
 // wizard de campanhas (campo Origem) e pelo cadastro rápido de origem.
@@ -121,7 +127,8 @@ const PM_HUB = [
     { id: 'catalogo-patrimonio', icone: '🗂️', titulo: 'Catálogo do patrimônio', desc: 'Os dois eixos do catálogo global: o que o ativo é (categoria + tipo) e o que se controla sobre ele (natureza → subtipo → aplicabilidade → calendário).', init: () => telaCatalogoPatrimonioInit() },
     { id: 'partes-padrao', icone: '🏛️', titulo: 'Partes padrão', desc: 'Prefeituras e órgãos recolhedores por subtipo de controle — vale pra todas as empresas.', init: () => telaPartesPadraoInit() },
     { id: 'conciliacao', icone: '🔄', titulo: 'Conciliação', desc: 'Fontes e regras de conciliação automática, e a visão por empresa × regra — global, master-only.', init: () => telaConciliacaoCatalogoInit() },
-    { id: 'alertas', icone: '🔔', titulo: 'Alertas', desc: 'Catálogo de tipos de alerta do motor central (severidade, antecedência, agrupamento, teto diário) e informativos fiscais publicados.', init: () => telaAlertasCatalogoInit() }
+    { id: 'alertas', icone: '🔔', titulo: 'Alertas', desc: 'Catálogo de tipos de alerta do motor central (severidade, antecedência, agrupamento, teto diário) e informativos fiscais publicados.', init: () => telaAlertasCatalogoInit() },
+    { id: 'regras-fiscais', icone: '⚖️', titulo: 'Regras fiscais', desc: 'Limites, datas, códigos e percentuais da Reforma Tributária, com fonte oficial e vigência — toda mudança vira versão nova.', init: () => telaRegrasFiscaisInit() }
 ];
 
 async function telaParametrosMasterInit() {

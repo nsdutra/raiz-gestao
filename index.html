@@ -5,8 +5,28 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
+   VERSÃO: v0.33.0
+   LINHAS: 1288
+   DATA: 2026-09-23
+   TÍTULO: REGRAS FISCAIS VERSIONADAS (FRENTE FISCAL, FASE 1)
+   NOVIDADES (v0.33.0):
+     - Frente fiscal / Reforma Tributária, Fase 1 (demanda 976fcbf6):
+       Configurações ganha o card "Regras fiscais" (js/telas/regras-
+       fiscais.js v1.0.0, NOVO). Lista as regras de public.fiscal_parametros
+       por chave, com valor, maturidade regulatória (maduro/parcial/
+       incerto/critério do sistema), vigência e fonte oficial; histórico de
+       versões por chave; "Nova versão" (nunca sobrescreve: encerra a
+       anterior no dia anterior), "Tornar vigente" (proposta) e "Revogar"
+       (com motivo; devolve a vigência à versão anterior). Master-only via
+       gestao.fn_fiscal_parametro_versionar / _status (migrations
+       fiscal_parametros_versionados_v1 e fiscal_parametros_revogar_
+       reabre_anterior_v1), logadas em gestao.log_acoes.
+     - parametros-master.js v0.9.6: entrada nova no PM_HUB.
+     - Script novo carregado: js/telas/regras-fiscais.js (depois de
+       alertas.js).
+
+   --- HISTÓRICO ANTERIOR ---
    VERSÃO: v0.32.0
-   LINHAS: 1269
    DATA: 2026-09-22
    TÍTULO: OFERTAS POR ORIGEM (SITE, AMIGOS, PARCEIROS, GRUPOS)
    NOVIDADES (v0.32.0):
@@ -21,7 +41,6 @@
      - parametros-master.js v0.9.5 carrega comercial.origens.
      - comercial.js v0.11.1: mensagem de "Oferta no Site" vazia atualizada.
 
-   --- HISTÓRICO ANTERIOR ---
    VERSÃO: v0.31.0
    DATA: 2026-09-20 (rodada 12)
    TÍTULO: CATÁLOGO CONFIGURÁVEL DE ALERTAS (ENTREGA AL.4)
@@ -1243,6 +1262,7 @@
     <script src="js/telas/catalogo-patrimonio.js"></script>
     <script src="js/telas/conciliacao-catalogo.js"></script>
     <script src="js/telas/alertas.js"></script>
+    <script src="js/telas/regras-fiscais.js"></script>
     <script src="js/telas/bot-uso.js"></script>
     <script src="js/telas/comunicacoes.js"></script>
     <script src="js/telas/suporte-backlog.js"></script>
