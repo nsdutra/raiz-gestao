@@ -1,6 +1,16 @@
 // ============================================================================
 // js/telas/cockpit.js — Raiz Gestão
-// Versão: 1.4.0 · 25/09/2026
+// Versão: 1.4.1 · 25/09/2026
+//
+// v1.4.1 — Nicola, ao ver o item 'comportamento_parado' na Fila: "apenas
+// destaque mais este alerta. Inverta, coloque o fundo vermelho e as letras
+// brancas. Este é um alerta de tratamento urgente." Cria tier novo de
+// severidade, 'urgente' (acima de 'critico' em COCKPIT_SEV_ORDEM), com
+// cartão inteiro invertido em cockpitRenderFila() — fundo var(--danger),
+// borda e ponto brancos, texto branco/branco-85% — em vez da borda colorida
+// sobre fundo branco usada por 'critico'/'atencao'/'info'. Só o item
+// 'comportamento_parado' virou sev:'urgente'; os demais itens críticos da
+// Fila continuam com o estilo de antes, sem mudança.
 //
 // v1.4.0 — Fila de atenção ganha tipo novo, 'comportamento_parado'
 // (demanda 307993f1): gestao.fn_cockpit_atencao() passa a detectar
@@ -114,9 +124,12 @@ const COCKPIT_ICONE_TIPO = {
     inadimplencia: '💸', feedback_baixo: '⚠️'
 };
 
-const COCKPIT_SEV_ORDEM = { critico: 0, atencao: 1, info: 2 };
-const COCKPIT_SEV_COR = { critico: 'var(--danger)', atencao: 'var(--warning)', info: 'var(--info)' };
-const COCKPIT_SEV_PONTO = { critico: 'var(--danger)', atencao: 'var(--warning)', info: 'var(--info)' };
+// 'urgente' (demanda 307993f1, pedido do Nicola): tier acima de 'critico' —
+// cartão INVERTIDO (fundo vermelho, letra branca), pra alerta de tratamento
+// urgente se destacar visualmente dos demais itens críticos da Fila.
+const COCKPIT_SEV_ORDEM = { urgente: -1, critico: 0, atencao: 1, info: 2 };
+const COCKPIT_SEV_COR = { urgente: '#fff', critico: 'var(--danger)', atencao: 'var(--warning)', info: 'var(--info)' };
+const COCKPIT_SEV_PONTO = { urgente: '#fff', critico: 'var(--danger)', atencao: 'var(--warning)', info: 'var(--info)' };
 const COCKPIT_CHIP_ESTILO = {
     ok: 'background:var(--success-bg);color:var(--success)',
     atencao: 'background:var(--warning-bg);color:var(--warning)',
@@ -230,7 +243,7 @@ async function telaCockpitInit() {
     if (nInadimplencia) cockpitFila.push({ sev: 'critico', area: 'Financeiro', title: `${nInadimplencia} parcela(s) vencida(s) e pendente(s)`, detail: 'Inadimplência real (parcela já vencida), não estimada.', num: String(nInadimplencia), abrir: () => gestaoAbrirTela('financeiro') });
     if (finResumo.recebido_mes_atual === 0 && finResumo.a_receber_futuro === 0 && finResumo.inadimplente === 0) cockpitFila.push({ sev: 'info', area: 'Financeiro', title: 'Sem movimento financeiro no mês corrente', detail: 'Recebido, a receber e inadimplente todos em R$ 0,00 — vale confirmar se é ausência real ou lacuna de integração.', num: 'R$0', abrir: () => gestaoAbrirTela('financeiro') });
     if (nFeedbackBaixo) cockpitFila.push({ sev: 'critico', area: 'Saúde do cliente', title: `${nFeedbackBaixo} feedback(s) com nota baixa nos últimos 30 dias`, detail: 'Nota ≤ 2 — risco de churn.', num: String(nFeedbackBaixo), abrir: () => gestaoAbrirTela('saude') });
-    if (nComportamentoParado) cockpitFila.push({ sev: 'critico', area: 'Saúde & IA', title: `${nComportamentoParado} funcionalidade(s) de IA com 3 erros seguidos (janela > 5 min)`, detail: rowsComportamentoParado.map(r => `${r.titulo}: ${r.subtitulo}`).join(' | '), num: String(nComportamentoParado), abrir: () => gestaoAbrirTela('saude') });
+    if (nComportamentoParado) cockpitFila.push({ sev: 'urgente', area: 'Saúde & IA', title: `${nComportamentoParado} funcionalidade(s) de IA com 3 erros seguidos (janela > 5 min)`, detail: rowsComportamentoParado.map(r => `${r.titulo}: ${r.subtitulo}`).join(' | '), num: String(nComportamentoParado), abrir: () => gestaoAbrirTela('saude') });
     if (semRegra) cockpitFila.push({ sev: 'critico', area: 'Conciliação', title: `${semRegra} lançamento(s) sem regra (histórico completo)`, detail: `${totalLancamentos ? Math.round((semRegra / totalLancamentos) * 100) : 0}% do volume total caiu sem fingerprint de nenhuma regra ativa.`, num: String(semRegra), abrir: () => cockpitAbrirHub('conciliacao') });
     if (semAplicabilidade) cockpitFila.push({ sev: 'atencao', area: 'Catálogo — Aplicabilidade', title: `${semAplicabilidade} subtipo(s) sem nenhuma aplicabilidade cadastrada`, detail: 'Ficam invisíveis pro cliente até alguém vincular a uma categoria macro.', num: String(semAplicabilidade), abrir: () => cockpitAbrirCatalogo('aplicabilidade') });
 
@@ -408,20 +421,30 @@ function cockpitRenderFila() {
 
     const el = document.getElementById('cockpit-fila');
     if (!itens.length) { el.innerHTML = `<p class="text-sm text-center py-8" style="color:var(--sage)">Nada pedindo atenção agora. 🎉</p>`; return; }
-    el.innerHTML = itens.map((it, i) => `
+    el.innerHTML = itens.map((it, i) => {
+        // 'urgente' inverte o cartão inteiro (fundo vermelho, letra branca) —
+        // demanda 307993f1: alerta de tratamento urgente precisa saltar aos
+        // olhos, não só ganhar a mesma borda colorida dos itens 'critico'.
+        const urg = it.sev === 'urgente';
+        const corFundo = urg ? 'var(--danger)' : '#fff';
+        const corBorda = urg ? '#fff' : 'var(--line)';
+        const corTexto = urg ? '#fff' : 'var(--ink)';
+        const corSub = urg ? 'rgba(255,255,255,.85)' : 'var(--sage)';
+        return `
         <button type="button" onclick="cockpitFilaClicar(${i})" data-sev="${it.sev}"
             class="w-full flex items-start gap-3 p-3 rounded-xl border text-left"
-            style="border-color:var(--line);border-left:3px solid ${COCKPIT_SEV_COR[it.sev]};background:#fff">
+            style="border-color:${corBorda};border-left:3px solid ${COCKPIT_SEV_COR[it.sev]};background:${corFundo}">
             <span class="w-2 h-2 rounded-full flex-none mt-1.5" style="background:${COCKPIT_SEV_PONTO[it.sev]}"></span>
             <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-baseline gap-2">
-                    <span class="text-[10px] font-bold uppercase tracking-wide" style="color:var(--sage)">${it.area}</span>
-                    <span class="text-xs font-bold" style="color:var(--ink)">${it.num}</span>
+                    <span class="text-[10px] font-bold uppercase tracking-wide" style="color:${corSub}">${it.area}</span>
+                    <span class="text-xs font-bold" style="color:${corTexto}">${it.num}</span>
                 </div>
-                <p class="text-sm font-semibold" style="color:var(--ink)">${it.title}</p>
-                <p class="text-xs mt-0.5" style="color:var(--sage)">${it.detail}</p>
+                <p class="text-sm font-semibold" style="color:${corTexto}">${it.title}</p>
+                <p class="text-xs mt-0.5" style="color:${corSub}">${it.detail}</p>
             </div>
-        </button>`).join('');
+        </button>`;
+    }).join('');
     // guarda a ordem renderizada pra cockpitFilaClicar() saber a que item o índice se refere
     cockpitFilaRenderizada = itens;
 }
