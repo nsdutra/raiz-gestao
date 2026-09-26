@@ -1,6 +1,17 @@
 // ============================================================================
 // js/telas/saude.js — Raiz Gestão
 //
+// v0.14.0 (25/09/2026) — nova seção "IA — erros agrupados (funcionalidade,
+// canal, modelo, motivo)" (demanda 307993f1), logo abaixo da tabela de
+// custo por produto/modelo: chama gestao.fn_saude_erros_agrupados() (nova,
+// mesma fonte ia_eventos_log de "Erros de IA" acima, agrupada) pra achar
+// padrão de erro sem precisar rodar SQL. Mesma tabela que alimenta o
+// "comportamento parado" novo do Cockpit (cockpit.js v1.4.0) — aqui é o
+// agrupado do período inteiro escolhido no filtro, lá é só últimas 24h/3
+// erros seguidos por funcionalidade+canal. Falha graciosamente (mesmo
+// padrão de fn_saude_custo_ia_real) se a função ainda não existir no
+// ambiente.
+//
 // v0.13.0 (22/09/2026) — pedido do Nicola: visão do sucesso/falha de cada
 // carga automática de indicadores (SGS/BCB — IPCA, IGP-M, INCC-DI, Selic,
 // CDI, IVG-R, Entrega B1.1). Nova seção "Captura de indicadores", logo
@@ -248,12 +259,13 @@ async function sdCarregar() {
     const clienteId = document.getElementById('sd-filtro-empresa').value || null;
     const pessoaId = document.getElementById('sd-filtro-pessoa').value || null;
 
-    const [{ data, error }, { data: topApp, error: e2 }, { data: topBot, error: e3 }, { data: custoIa, error: e4 }, { data: custoIaReal, error: e5 }] = await Promise.all([
+    const [{ data, error }, { data: topApp, error: e2 }, { data: topBot, error: e3 }, { data: custoIa, error: e4 }, { data: custoIaReal, error: e5 }, { data: errosAgrupados, error: e6 }] = await Promise.all([
         dbAuth.schema('gestao').rpc('fn_saude_resumo', { p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId, p_pessoa_id: pessoaId }),
         dbAuth.schema('gestao').rpc('fn_funcoes_mais_usadas_app', { p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId, p_pessoa_id: pessoaId }),
         dbAuth.schema('gestao').rpc('fn_funcoes_mais_usadas_bot', { p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId, p_pessoa_id: pessoaId }),
         dbAuth.schema('gestao').rpc('fn_saude_custo_ia', { p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId, p_pessoa_id: pessoaId }),
-        dbAuth.schema('gestao').rpc('fn_saude_custo_ia_real', { p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId })
+        dbAuth.schema('gestao').rpc('fn_saude_custo_ia_real', { p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId }),
+        dbAuth.schema('gestao').rpc('fn_saude_erros_agrupados', { p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId, p_pessoa_id: pessoaId })
     ]);
     if (error) { el.innerHTML = `<p class="text-sm" style="color:var(--danger)">Erro: ${error.message}</p>`; return; }
     const s = (data && data[0]) || {};
@@ -263,6 +275,12 @@ async function sdCarregar() {
     // falhar (migration nova, pode não existir ainda em algum ambiente) —
     // só avisa no console e a seção de comparação mostra "indisponível".
     if (e5) console.warn('Custo real (ia_chamadas_tentativas) indisponível:', e5.message);
+    // NOVO (25/09/2026, demanda 307993f1) — fn_saude_erros_agrupados
+    // também não bloqueia a tela se falhar: mesma lógica de degradação
+    // graciosa das outras RPCs novas.
+    if (e6) console.warn('Erros agrupados (fn_saude_erros_agrupados) indisponível:', e6.message);
+    const linhasErros = errosAgrupados || [];
+    const erroDisponivel = !e6;
 
     const taxaErro = Number(s.ia_taxa_erro_periodo) || 0;
     const toneErro = taxaErro >= 10 ? 'red' : taxaErro > 0 ? 'amber' : 'green';
@@ -363,6 +381,43 @@ async function sdCarregar() {
                 ` : ''}
             </table>
         </div>
+
+        <h2 class="text-sm font-extrabold mb-3 flex items-center" style="color:var(--ink)">
+            IA — erros agrupados (funcionalidade, canal, modelo, motivo)
+            ${gestaoInfoIcone('Mesma fonte de "Erros de IA" acima (ia_eventos_log, resultado=erro), agrupada por funcionalidade + canal + modelo + motivo (detalhe->>motivo) pra achar padrão sem precisar rodar SQL — ex.: 1 funcionalidade específica falhando muito num canal só. "Comportamento parado" no Cockpit usa a mesma tabela, mas olha só as últimas 24h e 3 erros seguidos por funcionalidade+canal — aqui é o agrupado do período inteiro selecionado.')}
+        </h2>
+        ${!erroDisponivel ? `
+            <div class="p-4 rounded-xl border-2 mb-6" style="border-color:var(--line);background:var(--paper)">
+                <p class="text-xs" style="color:var(--sage)">Não disponível — a função gestao.fn_saude_erros_agrupados() não existe neste ambiente.</p>
+            </div>
+        ` : `
+            <div class="overflow-x-auto mb-6 rounded-xl border-2" style="border-color:var(--line)">
+                <table class="w-full text-xs" style="border-collapse:separate;border-spacing:0">
+                    <thead>
+                        <tr style="background:var(--paper)">
+                            <th class="p-2 text-left" style="color:var(--sage)">Funcionalidade</th>
+                            <th class="p-2 text-left" style="color:var(--sage)">Canal</th>
+                            <th class="p-2 text-left" style="color:var(--sage)">Modelo</th>
+                            <th class="p-2 text-left" style="color:var(--sage)">Motivo</th>
+                            <th class="p-2 text-right" style="color:var(--sage)">Ocorrências</th>
+                            <th class="p-2 text-left" style="color:var(--sage)">Última ocorrência</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${linhasErros.map(l => `
+                            <tr class="border-t" style="border-color:var(--line)">
+                                <td class="p-2" style="color:var(--ink)">${l.funcionalidade ?? '—'}</td>
+                                <td class="p-2" style="color:var(--sage)">${l.canal ?? '—'}</td>
+                                <td class="p-2" style="color:var(--sage)">${l.modelo ?? '—'}</td>
+                                <td class="p-2" style="color:var(--ink)">${l.motivo ?? '—'}</td>
+                                <td class="p-2 text-right font-bold" style="color:var(--ink)">${fmtNum(l.ocorrencias)}</td>
+                                <td class="p-2" style="color:var(--sage)">${l.ultima_ocorrencia ? new Date(l.ultima_ocorrencia).toLocaleString('pt-BR') : '—'}</td>
+                            </tr>
+                        `).join('') || `<tr><td colspan="6" class="p-4 text-center" style="color:var(--sage)">Sem erros de IA agrupados no período/filtro selecionado.</td></tr>`}
+                    </tbody>
+                </table>
+            </div>
+        `}
 
         <h2 class="text-sm font-extrabold mb-3 flex items-center" style="color:var(--ink)">
             IA — real (registro imediato) × log de negócio

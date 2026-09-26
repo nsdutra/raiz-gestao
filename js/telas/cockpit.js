@@ -1,6 +1,14 @@
 // ============================================================================
 // js/telas/cockpit.js — Raiz Gestão
-// Versão: 1.3.0 · 18/09/2026 (rodada 10)
+// Versão: 1.4.0 · 25/09/2026
+//
+// v1.4.0 — Fila de atenção ganha tipo novo, 'comportamento_parado'
+// (demanda 307993f1): gestao.fn_cockpit_atencao() passa a detectar
+// funcionalidade+canal com os 3 últimos eventos de IA todos 'erro' numa
+// janela > 5 min (bot/app parou de responder de fato, não só 1 erro
+// isolado). Como o cockpit não renderiza fn_cockpit_atencao genérico —
+// cada tipo tem seu próprio bloco em porTipo() — este arquivo ganha o
+// bloco novo (área 'Saúde & IA', sev crítico, abre a tela Saúde).
 //
 // v1.3.0 — Nicola: "para os indicadores globais, crie 4 seletores: total,
 // 1 dia, 7 dias, 30 dias. estes seletores, alteram automaticamnete o valor
@@ -163,6 +171,8 @@ async function telaCockpitInit() {
     const nBaixoAcesso = porTipo('baixo_acesso').length;
     const nInadimplencia = porTipo('inadimplencia').length;
     const nFeedbackBaixo = porTipo('feedback_baixo').length;
+    const rowsComportamentoParado = porTipo('comportamento_parado');
+    const nComportamentoParado = rowsComportamentoParado.length;
 
     // ---- Catálogo — Aplicabilidade ------------------------------------------
     // FIX 18/09/2026 (achado real, Nicola: "o contador de aplicabilidade não
@@ -220,6 +230,7 @@ async function telaCockpitInit() {
     if (nInadimplencia) cockpitFila.push({ sev: 'critico', area: 'Financeiro', title: `${nInadimplencia} parcela(s) vencida(s) e pendente(s)`, detail: 'Inadimplência real (parcela já vencida), não estimada.', num: String(nInadimplencia), abrir: () => gestaoAbrirTela('financeiro') });
     if (finResumo.recebido_mes_atual === 0 && finResumo.a_receber_futuro === 0 && finResumo.inadimplente === 0) cockpitFila.push({ sev: 'info', area: 'Financeiro', title: 'Sem movimento financeiro no mês corrente', detail: 'Recebido, a receber e inadimplente todos em R$ 0,00 — vale confirmar se é ausência real ou lacuna de integração.', num: 'R$0', abrir: () => gestaoAbrirTela('financeiro') });
     if (nFeedbackBaixo) cockpitFila.push({ sev: 'critico', area: 'Saúde do cliente', title: `${nFeedbackBaixo} feedback(s) com nota baixa nos últimos 30 dias`, detail: 'Nota ≤ 2 — risco de churn.', num: String(nFeedbackBaixo), abrir: () => gestaoAbrirTela('saude') });
+    if (nComportamentoParado) cockpitFila.push({ sev: 'critico', area: 'Saúde & IA', title: `${nComportamentoParado} funcionalidade(s) de IA com 3 erros seguidos (janela > 5 min)`, detail: rowsComportamentoParado.map(r => `${r.titulo}: ${r.subtitulo}`).join(' | '), num: String(nComportamentoParado), abrir: () => gestaoAbrirTela('saude') });
     if (semRegra) cockpitFila.push({ sev: 'critico', area: 'Conciliação', title: `${semRegra} lançamento(s) sem regra (histórico completo)`, detail: `${totalLancamentos ? Math.round((semRegra / totalLancamentos) * 100) : 0}% do volume total caiu sem fingerprint de nenhuma regra ativa.`, num: String(semRegra), abrir: () => cockpitAbrirHub('conciliacao') });
     if (semAplicabilidade) cockpitFila.push({ sev: 'atencao', area: 'Catálogo — Aplicabilidade', title: `${semAplicabilidade} subtipo(s) sem nenhuma aplicabilidade cadastrada`, detail: 'Ficam invisíveis pro cliente até alguém vincular a uma categoria macro.', num: String(semAplicabilidade), abrir: () => cockpitAbrirCatalogo('aplicabilidade') });
 
