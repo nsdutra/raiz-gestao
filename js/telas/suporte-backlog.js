@@ -1,6 +1,28 @@
 // ============================================================================
 // js/telas/suporte-backlog.js — Raiz Gestão
-// Versão: 0.2.0 · 13/09/2026
+// Versão: 0.3.0 · 27/09/2026
+//
+// v0.3.0 (demanda 7af2de58) — estágio "em testes" chega na TELA (já existia
+// no banco desde a v1.4.0 do manifesto — fn_demanda_entregar/fn_demanda_
+// teste_tratar, situacao em_testes, fn_demanda_encerrar recusando com teste
+// aberto). 4 pontos, todos aditivos:
+//   1) Chip "🧪 Em testes" na lista (supMudarSituacao('em_testes'), já
+//      aceito por fn_demandas_listar) com contador de contagens.em_testes;
+//   2) Ficha ganha seção "Testes" (d.testes, já devolvido por fn_demanda_
+//      detalhe) — cada linha com Aprovar/Reprovar/Cancelar chamando
+//      fn_demanda_teste_tratar quando aberto, e mostra que já entrou em
+//      "sem_alteracao" quando fechado;
+//   3) rotuloSit (lista) e o badge da ficha reconhecem em_testes — antes
+//      caíam no rótulo cru (a própria string "em_testes");
+//   4) supEncerrar(): a resposta ok=false acao='em_testes' (fn_demanda_
+//      encerrar recusando) já trazia dados=[{id,teste}] prontos — agora
+//      mostra a lista de testes pendentes em vez do texto genérico que
+//      citava o nome da função (fn_demanda_teste_tratar), sem sentido pra
+//      quem está na tela.
+// A demanda original também pedia isso no app ("Solicitações"), mas o app
+// (index.html) não tem — e nunca teve — nenhuma tela de demandas/backlog
+// (fn_demandas_listar não existe lá); a única tela viva é esta, do Gestão.
+// Registrado no ENTREGA desta rodada; não escondido.
 //
 // v0.2.0 — pedido do Nicola: "tem algum filtro... previsão de entrada...
 // sem criar campo novo?". A previsão já existia no banco (a data do
@@ -129,9 +151,11 @@ async function supRenderLista() {
             ${chipSituacao('abertas', 'Em aberto')}
             ${chipSituacao('atrasadas', 'Atrasadas')}
             ${chipSituacao('sem_prazo', 'Sem previsão')}
+            ${chipSituacao('em_testes', `🧪 Em testes${c.em_testes ? ' (' + c.em_testes + ')' : ''}`)}
             ${chipSituacao('todas', 'Todas')}
             ${chipSituacao('encerradas', 'Encerradas')}
         </div>
+        ${c.testes_pendentes > 0 ? `<p class="text-[11px] mb-2" style="color:var(--sage)">🧪 ${c.testes_pendentes} teste(s) aguardando validação no total (pode passar de 1 por demanda).</p>` : ''}
 
         <div class="flex gap-1.5 mb-3">
             <input id="sup-busca" type="text" placeholder="Buscar por título..." value="${supEsc(supBusca)}"
@@ -151,8 +175,8 @@ async function supRenderLista() {
         return;
     }
     lista.innerHTML = itens.map(d => {
-        const corSit = d.situacao === 'atrasada' ? 'var(--danger)' : d.situacao === 'vencendo' ? 'var(--warning)' : 'var(--sage)';
-        const rotuloSit = { atrasada: 'Atrasada', vencendo: 'Vencendo', sem_prazo: 'Sem prazo', aberta: 'Aberta', encerrada: 'Encerrada' }[d.situacao] || d.situacao;
+        const corSit = d.situacao === 'atrasada' ? 'var(--danger)' : d.situacao === 'vencendo' ? 'var(--warning)' : d.situacao === 'em_testes' ? 'var(--brass)' : 'var(--sage)';
+        const rotuloSit = { atrasada: 'Atrasada', vencendo: 'Vencendo', sem_prazo: 'Sem prazo', aberta: 'Aberta', encerrada: 'Encerrada', em_testes: '🧪 Em testes' }[d.situacao] || d.situacao;
         const rodape = `${supEsc(d.subtipo_nome)} · ${d.qtd_abertas} acompanhamento(s) em aberto` +
             (d.dias !== null ? ' · ' + (d.dias < 0 ? `venceu há ${Math.abs(d.dias)}d` : `${d.dias}d`) : '');
         return `<button onclick="supAbrirFicha('${d.id}')" class="w-full text-left p-3 rounded-xl border-2" style="border-color:var(--line);background:#fff">
@@ -206,7 +230,9 @@ async function supRenderFicha() {
         <div class="p-4 rounded-2xl border-2 mb-3" style="border-color:var(--line);background:#fff">
             <div class="flex items-start justify-between gap-2">
                 <h2 class="text-base font-extrabold flex-1 min-w-0" style="color:var(--ink)">${supEsc(d.titulo)}</h2>
-                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded flex-none" style="background:${d.ativo ? 'var(--success-bg)' : '#eee'};color:${d.ativo ? 'var(--success)' : 'var(--sage)'}">${d.ativo ? 'Aberta' : 'Encerrada'}</span>
+                ${d.ativo && d.situacao === 'em_testes'
+                    ? `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded flex-none" style="background:var(--brass)1a;color:var(--brass)">🧪 Em testes</span>`
+                    : `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded flex-none" style="background:${d.ativo ? 'var(--success-bg)' : '#eee'};color:${d.ativo ? 'var(--success)' : 'var(--sage)'}">${d.ativo ? 'Aberta' : 'Encerrada'}</span>`}
             </div>
             <p class="text-xs mt-1" style="color:var(--sage)">${supEsc(d.subtipo_nome)} · ${supEsc(d.cliente_nome)} · criada em ${new Date(d.criado_em).toLocaleDateString('pt-BR')}</p>
             ${d.descricao ? `<p class="text-sm mt-2" style="color:var(--ink)">${supEsc(d.descricao)}</p>` : ''}
@@ -228,6 +254,28 @@ async function supRenderFicha() {
                     class="flex-1 min-w-0 text-xs p-2 rounded-lg border-2" style="border-color:var(--line)"></textarea>
             </div>
             <button onclick="supRegistrarAcompanhamento()" class="text-xs font-bold px-3 py-1.5 rounded-lg text-white" style="background:var(--pine)">Agendar</button>
+        </div>` : ''}
+
+        ${(d.testes || []).length > 0 ? `
+        <p class="text-xs font-bold mb-1.5" style="color:var(--ink)">Testes</p>
+        <div class="space-y-2 mb-3">
+            ${d.testes.map(t => {
+                const corSt = t.status === 'aberto' ? 'var(--brass)' : t.status === 'aprovado' ? 'var(--success)' : 'var(--sage)';
+                const rotSt = { aberto: 'aguardando validação', aprovado: 'aprovado', cancelado: 'cancelado' }[t.status] || t.status;
+                return `<div class="p-2.5 rounded-lg border-2 text-xs" style="border-color:var(--line);background:#fff">
+                    <div class="flex justify-between gap-2">
+                        <p class="flex-1 min-w-0" style="color:var(--ink)">${supEsc(t.teste)}</p>
+                        <span class="font-bold flex-none" style="color:${corSt}">${rotSt}</span>
+                    </div>
+                    ${t.resultado ? `<p class="mt-0.5" style="color:var(--sage)">${supEsc(t.resultado)}</p>` : ''}
+                    ${t.status !== 'aberto' && t.tratado_por_nome ? `<p class="mt-0.5" style="color:var(--sage)">${supEsc(t.tratado_por_nome)}${t.tratado_em ? ' · ' + new Date(t.tratado_em).toLocaleDateString('pt-BR') : ''}</p>` : ''}
+                    ${t.status === 'aberto' && d.ativo ? `<div class="flex gap-1.5 mt-1.5">
+                        <button onclick="supTratarTeste('${t.id}','aprovar')" class="text-[11px] font-bold px-2 py-1 rounded-lg border-2" style="border-color:var(--success);color:var(--success)">Aprovar</button>
+                        <button onclick="supTratarTeste('${t.id}','reprovar')" class="text-[11px] font-bold px-2 py-1 rounded-lg border-2" style="border-color:var(--warning);color:var(--warning)">Reprovar</button>
+                        <button onclick="supTratarTeste('${t.id}','cancelar')" class="text-[11px] font-bold px-2 py-1 rounded-lg border-2" style="border-color:var(--danger);color:var(--danger)">Cancelar</button>
+                    </div>` : ''}
+                </div>`;
+            }).join('')}
         </div>` : ''}
 
         ${(d.ocorrencias || []).length > 0 ? `
@@ -306,6 +354,22 @@ async function supTratarAcompanhamento(ocorrenciaId, acao) {
     await supRenderFicha();
 }
 
+// resultado: 'aprovar' (sem texto obrigatório) | 'reprovar' | 'cancelar'
+// (os 2 últimos exigem texto — mesma regra de fn_demanda_teste_tratar).
+async function supTratarTeste(testeId, resultado) {
+    let texto = null;
+    if (resultado !== 'aprovar') {
+        texto = prompt(resultado === 'reprovar' ? 'O que não passou nesse teste?' : 'Por que este teste sai da lista?');
+        if (!texto || !texto.trim()) return;
+    }
+    const { data, error } = await dbAuth.rpc('fn_demanda_teste_tratar', {
+        p_item_id: supDemandaAtual, p_teste_id: testeId, p_resultado: resultado, p_texto: texto, p_pessoa_id: null, p_canal: null,
+    });
+    if (error) { alert('Erro: ' + error.message); return; }
+    if (!data.ok) { alert(data.mensagem || 'Não foi possível tratar o teste.'); return; }
+    await supRenderFicha();
+}
+
 async function supReagendar(ocorrenciaId) {
     const novaData = prompt('Nova data (AAAA-MM-DD):', new Date().toISOString().slice(0, 10));
     if (!novaData) return;
@@ -328,6 +392,17 @@ async function supEncerrar(decisao) {
     if (data.acao === 'decisao_necessaria') {
         const concluirTodos = confirm(data.mensagem + '\n\nOK = concluir os abertos junto · Cancelar (botão) = cancelá-los junto');
         await supEncerrar(concluirTodos ? 'concluir' : 'cancelar');
+        return;
+    }
+    // v0.3.0 (demanda 7af2de58, item 4) — antes caía no alert genérico
+    // "Não foi possível encerrar" citando fn_demanda_teste_tratar (nome de
+    // função, sem sentido pra quem está na tela); agora mostra a lista de
+    // testes pendentes (data.dados já vem pronto do banco) e volta pra
+    // ficha, onde a seção "Testes" (acima) já tem Aprovar/Reprovar/Cancelar.
+    if (data.acao === 'em_testes') {
+        const lista = (data.dados || []).map(t => `• ${t.teste}`).join('\n');
+        alert(`Esta demanda tem teste(s) aguardando validação — trate cada um antes de encerrar:\n\n${lista}`);
+        await supRenderFicha();
         return;
     }
     if (!data.ok) { alert(data.mensagem || 'Não foi possível encerrar.'); return; }

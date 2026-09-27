@@ -1,6 +1,19 @@
 // ============================================================================
 // js/telas/empresas.js — Raiz Gestão
 //
+// v0.19.0 (27/09/2026, demanda a33b18fd) — achado numa sessão de
+// dependência: ficha de empresa com licença VENCIDA mostrava "Este plano
+// não tem cota com limite" no bloco Uso & Consumo — falso, o plano tem
+// limite. Causa raiz: gestao.fn_uso_empresa_cotas() (por trás de
+// fn_funcionalidades_liberadas) só considera licença ATIVA e não vencida;
+// com a licença vencida ela volta 0 linhas, sem erro (eCotas fica null),
+// então o texto genérico de "sem cota" sempre vencia — o motor está certo
+// (licença vencida não dá direito a cota), só o TEXTO confundia vencida
+// com ilimitada. Agora distingue os 2 casos usando f.licenca_status/
+// f.data_expiracao (já vinham na ficha, sem RPC nova): licença vencida ou
+// não-ativa mostra "Licença expirada em DD/MM — sem direito a cota" em
+// vez do texto de plano sem limite.
+//
 // v0.18.0 (19/09/2026, rodada 11) — Nicola: "no menu empresa, devo
 // conseguir alterar o plano da empresa, nao apenas a data" + "no campo
 // nova expiracao, devo poder deixar em branco (sem expiracao)".
@@ -428,7 +441,20 @@ async function empresasAbrirFicha(clienteId) {
                             const cor = c.usado >= c.limite ? 'var(--danger)' : (c.avisar ? 'var(--warning)' : 'var(--pine)');
                             return `<div><div class="flex justify-between text-xs"><span style="color:var(--ink)">${pmEsc(c.rotulo)} <span style="color:var(--sage)">· ${c.cota_tipo === 'estoque' ? 'teto' : c.cota_tipo === 'bytes' ? 'MB' : 'mensal'}</span></span><b style="color:${cor}">${usadoExibido}${unidade} / ${c.limite}${unidade}${sufixo}</b></div>
                                 <div class="h-2 rounded-full mt-1" style="background:var(--paper)"><div class="h-2 rounded-full" style="width:${Math.min(100, Math.round(100 * c.usado / Math.max(1, c.limite)))}%;background:${cor}"></div></div></div>`;
-                        }).join('') || `<p class="text-xs" style="color:var(--sage)">${eCotas ? 'Cotas indisponíveis: ' + pmEsc(eCotas.message) : 'Este plano não tem cota com limite.'}</p>`}
+                        }).join('') || `<p class="text-xs" style="color:var(--sage)">${(() => {
+                            if (eCotas) return 'Cotas indisponíveis: ' + pmEsc(eCotas.message);
+                            // v0.19.0 (demanda a33b18fd) — cotas vazias sem erro pode ser
+                            // "plano sem limite" OU "licença vencida" (fn_uso_empresa_cotas
+                            // só considera licença ativa e não vencida) — o motor está
+                            // certo, o texto que precisa distinguir os 2 casos.
+                            const venceu = f.licenca_status && f.licenca_status !== 'ativo';
+                            const dataVenc = f.data_expiracao ? new Date(f.data_expiracao) : null;
+                            const jaVenceu = dataVenc && dataVenc < new Date();
+                            if (venceu || jaVenceu) {
+                                return `Licença ${f.licenca_status === 'ativo' ? 'vencida' : (f.licenca_status || 'vencida')}${dataVenc ? ' em ' + dataVenc.toLocaleDateString('pt-BR') : ''} — sem direito a cota.`;
+                            }
+                            return 'Este plano não tem cota com limite.';
+                        })()}</p>`}
                     </div>
                     <div class="grid grid-cols-2 gap-3 mb-3">
                         <div class="p-2.5 rounded-xl" style="background:var(--paper)"><p class="text-[10px]" style="color:var(--sage)">Ações no app (30d)</p><p class="text-sm font-bold">${u.total_acoes_app_30d ?? 0}</p></div>
