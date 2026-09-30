@@ -1,6 +1,17 @@
 // ============================================================================
 // js/telas/empresas.js — Raiz Gestão
 //
+// v0.20.0 (30/09/2026, demanda 0e45ead9, de acordo do Nicola em chat) —
+// sub-aba Adoção ganha bloco "Links de convite": gerar (nome + tipo,
+// hoje só "amigo") e listar (empresa, gerado por, criado em, expira,
+// acessos) os convites pessoais usados pela landing /amigos (?c=<token>,
+// substituindo ?para=Nome — token/nome não ficam mais na URL). Reusa o
+// filtro de Empresa que a Adoção já tinha. Banco: gestao.fn_convite_
+// pessoal_criar/gestao.fn_convites_pessoais_listar (só master), sobre
+// links_vitrine generalizada (migration links_vitrine_convite_pessoal_v1
+// — cliente_id agora aceita nulo, coluna acessos nova). Sem função ou
+// tela nova fora dessas duas.
+//
 // v0.19.0 (27/09/2026, demanda a33b18fd) — achado numa sessão de
 // dependência: ficha de empresa com licença VENCIDA mostrava "Este plano
 // não tem cota com limite" no bloco Uso & Consumo — falso, o plano tem
@@ -279,9 +290,34 @@ async function edRenderAdocao() {
                 </div>
             </div>
         </div>
+
+        <div class="mt-6 pt-4 border-t" style="border-color:var(--line)">
+            <h4 class="text-sm font-extrabold mb-1" style="color:var(--ink)">Links de convite</h4>
+            <p class="text-[11px] mb-3" style="color:var(--sage)">Convite pessoal (ex.: soft launch "amigos") — o filtro de Empresa acima também filtra esta lista; "Todas as empresas" inclui os convites pré-cadastro, sem empresa ainda.</p>
+            <div class="flex flex-wrap gap-2 mb-3 items-end">
+                <label class="flex flex-col gap-1">
+                    <span class="text-[10px] font-bold uppercase" style="color:var(--sage)">Nome do convidado</span>
+                    <input id="ed-conv-nome" type="text" placeholder="Ex.: Claudia" class="text-xs font-bold p-2 rounded-lg border-2" style="border-color:var(--line)">
+                </label>
+                <label class="flex flex-col gap-1">
+                    <span class="text-[10px] font-bold uppercase" style="color:var(--sage)">Tipo</span>
+                    <select id="ed-conv-tipo" class="text-xs font-bold p-2 rounded-lg border-2" style="border-color:var(--line)">
+                        <option value="amigo">Amigo (pré-cadastro)</option>
+                    </select>
+                </label>
+                <label class="flex flex-col gap-1">
+                    <span class="text-[10px] font-bold uppercase" style="color:var(--sage)">Validade (dias, opcional)</span>
+                    <input id="ed-conv-dias" type="number" min="1" placeholder="sem validade" class="text-xs font-bold p-2 rounded-lg border-2" style="border-color:var(--line);width:120px">
+                </label>
+                <button id="ed-conv-gerar-btn" onclick="edGerarConvite()" class="text-xs font-bold px-3 py-2 rounded-lg text-white" style="background:var(--pine)">Gerar link</button>
+            </div>
+            <p id="ed-conv-status" class="text-[11px] mb-3" style="color:var(--pine)"></p>
+            <div id="ed-ad-convites-lista" class="space-y-2"></div>
+        </div>
     `;
 
     edCarregarAdocao();
+    edCarregarConvites();
 }
 
 function edAdMudarEmpresa() {
@@ -293,6 +329,7 @@ function edAdMudarEmpresa() {
         opcoes.map(p => `<option value="${p.pessoa_id}" data-cliente="${p.cliente_id}">${pmEsc(p.nome)} · ${pmEsc(p.nome_empresa)}</option>`).join('');
     if (opcoes.some(p => p.pessoa_id === atual)) selPessoa.value = atual;
     edCarregarAdocao();
+    edCarregarConvites();
 }
 
 async function edCarregarAdocao() {
@@ -349,7 +386,65 @@ async function edCarregarAdocao() {
         </div>`).join('') || `<p class="text-sm text-center py-8" style="color:var(--sage)">Nenhuma pessoa encontrada pro filtro selecionado.</p>`;
 }
 
-// v0.27.0 — "Uso por funcionalidade" da aba Adoção: mesmas 2 colunas
+// v0.20.0 — bloco "Links de convite" da aba Adoção. gestao.fn_convites_
+// pessoais_listar/fn_convite_pessoal_criar (só master), sobre a
+// links_vitrine generalizada. URL final é raizpatrimonio.com.br/amigos?c=
+// <token> — quem lê o token é fn_convite_pessoal_ler (pública), na
+// própria página, não aqui.
+async function edCarregarConvites() {
+    const el = document.getElementById('ed-ad-convites-lista');
+    if (!el) return;
+    el.innerHTML = `<p class="text-xs" style="color:var(--sage)">Carregando...</p>`;
+    const clienteId = document.getElementById('ed-ad-filtro-empresa').value || null;
+    const { data, error } = await dbAuth.schema('gestao').rpc('fn_convites_pessoais_listar', { p_cliente_id: clienteId });
+    if (error) { el.innerHTML = `<p class="text-xs" style="color:var(--danger)">Erro: ${error.message}</p>`; return; }
+    const linhas = data || [];
+    el.innerHTML = linhas.map(c => {
+        const criado = new Date(c.criado_em).toLocaleDateString('pt-BR');
+        const expira = c.data_expiracao ? new Date(c.data_expiracao).toLocaleDateString('pt-BR') : 'sem validade';
+        const link = 'https://raizpatrimonio.com.br/amigos?c=' + c.token;
+        return `
+            <div class="rounded-xl border-2 p-3 flex items-center justify-between gap-2" style="border-color:var(--line);background:#fff">
+                <div class="min-w-0 flex-1">
+                    <p class="text-sm font-bold truncate" style="color:var(--ink)">${pmEsc(c.nome_convidado || '—')} <span class="text-[10px] font-normal" style="color:var(--sage)">· ${pmEsc(c.tipo || '—')}</span></p>
+                    <p class="text-[11px] truncate" style="color:var(--sage)">${c.nome_empresa ? pmEsc(c.nome_empresa) + ' · ' : 'pré-cadastro · '}gerado por ${pmEsc(c.criado_por_nome || '—')} · ${criado} · expira ${expira}</p>
+                </div>
+                <div class="flex items-center gap-2 flex-none">
+                    <span class="text-[10px] font-bold px-2 py-1 rounded-full" style="background:var(--paper);color:var(--pine)">${c.acessos} acesso${c.acessos === 1 ? '' : 's'}</span>
+                    <button onclick="edCopiarLinkConvite('${link}')" class="text-[11px] font-bold px-2 py-1.5 rounded-lg" style="background:var(--sprout-bg);color:var(--pine)">Copiar link</button>
+                </div>
+            </div>`;
+    }).join('') || `<p class="text-sm text-center py-6" style="color:var(--sage)">Nenhum convite gerado ainda.</p>`;
+}
+
+function edCopiarLinkConvite(link) {
+    const st = document.getElementById('ed-conv-status');
+    navigator.clipboard?.writeText(link)
+        .then(() => { if (st) st.textContent = 'Link copiado: ' + link; })
+        .catch(() => { if (st) st.textContent = link; });
+}
+
+async function edGerarConvite() {
+    const nome = document.getElementById('ed-conv-nome').value.trim();
+    const tipo = document.getElementById('ed-conv-tipo').value;
+    const dias = document.getElementById('ed-conv-dias').value.trim();
+    const st = document.getElementById('ed-conv-status');
+    if (!nome) { alert('Digite o nome do convidado.'); return; }
+    const clienteId = document.getElementById('ed-ad-filtro-empresa').value || null;
+    const btn = document.getElementById('ed-conv-gerar-btn');
+    btn.disabled = true; btn.textContent = 'Gerando...';
+    const { data, error } = await dbAuth.schema('gestao').rpc('fn_convite_pessoal_criar', {
+        p_nome_convidado: nome, p_tipo: tipo, p_cliente_id: clienteId, p_dias_validade: dias ? Number(dias) : null
+    });
+    btn.disabled = false; btn.textContent = 'Gerar link';
+    if (error) { if (st) st.textContent = 'Erro ao gerar: ' + error.message; return; }
+    document.getElementById('ed-conv-nome').value = '';
+    document.getElementById('ed-conv-dias').value = '';
+    edCopiarLinkConvite('https://raizpatrimonio.com.br/amigos?c=' + data);
+    edCarregarConvites();
+}
+
+// v0.27.0 — "Uso por funcionalidade" da aba Ado\u00e7\u00e3o: mesmas 2 colunas
 // (App/Bot) que a ficha da empresa já usa (fn_uso_empresa_top_app/
 // top_bot), só que sob os filtros da própria aba (período/empresa/pessoa)
 // em vez de fixas em "última empresa, últimos 30 dias". Barra relativa ao
