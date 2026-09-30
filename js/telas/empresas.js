@@ -1,6 +1,19 @@
 // ============================================================================
 // js/telas/empresas.js — Raiz Gestão
 //
+// v0.21.0 (30/09/2026, achado do Nicola ao testar a v0.20.0) — 2 ajustes:
+//   1) "Links de convite" sai da sub-aba Adoção e vira sub-aba própria
+//      (ED_ABAS ganha 'convites'), com seu próprio filtro de Empresa —
+//      Adoção volta a ser só o que já era (login/uso).
+//   2) BUG achado no teste: fn_convite_pessoal_criar gravava auth.uid()
+//      em links_vitrine.criado_por, que é FK pra pessoas(id) — master
+//      não é pessoa de empresa nenhuma, violava a FK ("Erro ao gerar").
+//      Corrigido no banco (migration links_vitrine_convite_pessoal_v1_
+//      fix_criado_por, antes deste arquivo): convite do master deixa
+//      criado_por nulo e grava o operador em escopo.gerado_por_operador;
+//      fn_convites_pessoais_listar junta os dois (pessoa OU operador)
+//      pra "gerado por" continuar funcionando. Sem coluna nova.
+//
 // v0.20.0 (30/09/2026, demanda 0e45ead9, de acordo do Nicola em chat) —
 // sub-aba Adoção ganha bloco "Links de convite": gerar (nome + tipo,
 // hoje só "amigo") e listar (empresa, gerado por, criado em, expira,
@@ -141,7 +154,8 @@ let edPessoasCache = [];
 
 const ED_ABAS = [
     { id: 'lista', label: 'Empresas', init: () => edMudarSubAba('lista') },
-    { id: 'adocao', label: 'Adoção', init: () => edMudarSubAba('adocao') }
+    { id: 'adocao', label: 'Adoção', init: () => edMudarSubAba('adocao') },
+    { id: 'convites', label: 'Links de convite', init: () => edMudarSubAba('convites') }
 ];
 
 async function telaEmpresasInit() {
@@ -170,6 +184,7 @@ function edMudarSubAba(nome) {
 
     if (nome === 'lista') edRenderListaEmpresas();
     else if (nome === 'adocao') edRenderAdocao();
+    else if (nome === 'convites') edRenderConvites();
 }
 
 // ----------------------------------------------------------------------------
@@ -290,34 +305,9 @@ async function edRenderAdocao() {
                 </div>
             </div>
         </div>
-
-        <div class="mt-6 pt-4 border-t" style="border-color:var(--line)">
-            <h4 class="text-sm font-extrabold mb-1" style="color:var(--ink)">Links de convite</h4>
-            <p class="text-[11px] mb-3" style="color:var(--sage)">Convite pessoal (ex.: soft launch "amigos") — o filtro de Empresa acima também filtra esta lista; "Todas as empresas" inclui os convites pré-cadastro, sem empresa ainda.</p>
-            <div class="flex flex-wrap gap-2 mb-3 items-end">
-                <label class="flex flex-col gap-1">
-                    <span class="text-[10px] font-bold uppercase" style="color:var(--sage)">Nome do convidado</span>
-                    <input id="ed-conv-nome" type="text" placeholder="Ex.: Claudia" class="text-xs font-bold p-2 rounded-lg border-2" style="border-color:var(--line)">
-                </label>
-                <label class="flex flex-col gap-1">
-                    <span class="text-[10px] font-bold uppercase" style="color:var(--sage)">Tipo</span>
-                    <select id="ed-conv-tipo" class="text-xs font-bold p-2 rounded-lg border-2" style="border-color:var(--line)">
-                        <option value="amigo">Amigo (pré-cadastro)</option>
-                    </select>
-                </label>
-                <label class="flex flex-col gap-1">
-                    <span class="text-[10px] font-bold uppercase" style="color:var(--sage)">Validade (dias, opcional)</span>
-                    <input id="ed-conv-dias" type="number" min="1" placeholder="sem validade" class="text-xs font-bold p-2 rounded-lg border-2" style="border-color:var(--line);width:120px">
-                </label>
-                <button id="ed-conv-gerar-btn" onclick="edGerarConvite()" class="text-xs font-bold px-3 py-2 rounded-lg text-white" style="background:var(--pine)">Gerar link</button>
-            </div>
-            <p id="ed-conv-status" class="text-[11px] mb-3" style="color:var(--pine)"></p>
-            <div id="ed-ad-convites-lista" class="space-y-2"></div>
-        </div>
     `;
 
     edCarregarAdocao();
-    edCarregarConvites();
 }
 
 function edAdMudarEmpresa() {
@@ -329,7 +319,6 @@ function edAdMudarEmpresa() {
         opcoes.map(p => `<option value="${p.pessoa_id}" data-cliente="${p.cliente_id}">${pmEsc(p.nome)} · ${pmEsc(p.nome_empresa)}</option>`).join('');
     if (opcoes.some(p => p.pessoa_id === atual)) selPessoa.value = atual;
     edCarregarAdocao();
-    edCarregarConvites();
 }
 
 async function edCarregarAdocao() {
@@ -391,11 +380,54 @@ async function edCarregarAdocao() {
 // links_vitrine generalizada. URL final é raizpatrimonio.com.br/amigos?c=
 // <token> — quem lê o token é fn_convite_pessoal_ler (pública), na
 // própria página, não aqui.
+// v0.21.0 — sub-aba própria "Links de convite" (era bloco dentro da
+// Adoção). Filtro de Empresa próprio (ed-conv-filtro-empresa) — não
+// reaproveita mais o da Adoção, que não existe quando esta aba está
+// aberta.
+function edRenderConvites() {
+    const el = document.getElementById('ed-conteudo');
+    el.innerHTML = `
+        <div class="flex flex-wrap gap-2 mb-5 items-end">
+            <label class="flex flex-col gap-1">
+                <span class="text-[10px] font-bold uppercase" style="color:var(--sage)">Empresa</span>
+                <select id="ed-conv-filtro-empresa" onchange="edCarregarConvites()" class="text-xs font-bold p-2 rounded-lg border-2" style="border-color:var(--line)">
+                    <option value="">Todas as empresas</option>
+                    ${empresasCache.map(e => `<option value="${e.cliente_id}">${pmEsc(e.nome_empresa)}</option>`).join('')}
+                </select>
+            </label>
+        </div>
+        <p class="text-[11px] mb-3" style="color:var(--sage)">Convite pessoal (ex.: soft launch "amigos") — "Todas as empresas" inclui os convites pré-cadastro, sem empresa ainda.</p>
+        <div class="rounded-2xl border-2 p-4 mb-5" style="border-color:var(--line);background:#fff">
+            <h4 class="text-sm font-extrabold mb-3" style="color:var(--ink)">Gerar novo link</h4>
+            <div class="flex flex-wrap gap-2 items-end">
+                <label class="flex flex-col gap-1">
+                    <span class="text-[10px] font-bold uppercase" style="color:var(--sage)">Nome do convidado</span>
+                    <input id="ed-conv-nome" type="text" placeholder="Ex.: Claudia" class="text-xs font-bold p-2 rounded-lg border-2" style="border-color:var(--line)">
+                </label>
+                <label class="flex flex-col gap-1">
+                    <span class="text-[10px] font-bold uppercase" style="color:var(--sage)">Tipo</span>
+                    <select id="ed-conv-tipo" class="text-xs font-bold p-2 rounded-lg border-2" style="border-color:var(--line)">
+                        <option value="amigo">Amigo (pré-cadastro)</option>
+                    </select>
+                </label>
+                <label class="flex flex-col gap-1">
+                    <span class="text-[10px] font-bold uppercase" style="color:var(--sage)">Validade (dias, opcional)</span>
+                    <input id="ed-conv-dias" type="number" min="1" placeholder="sem validade" class="text-xs font-bold p-2 rounded-lg border-2" style="border-color:var(--line);width:120px">
+                </label>
+                <button id="ed-conv-gerar-btn" onclick="edGerarConvite()" class="text-xs font-bold px-3 py-2 rounded-lg text-white" style="background:var(--pine)">Gerar link</button>
+            </div>
+            <p id="ed-conv-status" class="text-[11px] mt-2" style="color:var(--pine)"></p>
+        </div>
+        <div id="ed-ad-convites-lista" class="space-y-2"></div>
+    `;
+    edCarregarConvites();
+}
+
 async function edCarregarConvites() {
     const el = document.getElementById('ed-ad-convites-lista');
     if (!el) return;
     el.innerHTML = `<p class="text-xs" style="color:var(--sage)">Carregando...</p>`;
-    const clienteId = document.getElementById('ed-ad-filtro-empresa').value || null;
+    const clienteId = document.getElementById('ed-conv-filtro-empresa').value || null;
     const { data, error } = await dbAuth.schema('gestao').rpc('fn_convites_pessoais_listar', { p_cliente_id: clienteId });
     if (error) { el.innerHTML = `<p class="text-xs" style="color:var(--danger)">Erro: ${error.message}</p>`; return; }
     const linhas = data || [];
@@ -430,7 +462,7 @@ async function edGerarConvite() {
     const dias = document.getElementById('ed-conv-dias').value.trim();
     const st = document.getElementById('ed-conv-status');
     if (!nome) { alert('Digite o nome do convidado.'); return; }
-    const clienteId = document.getElementById('ed-ad-filtro-empresa').value || null;
+    const clienteId = document.getElementById('ed-conv-filtro-empresa').value || null;
     const btn = document.getElementById('ed-conv-gerar-btn');
     btn.disabled = true; btn.textContent = 'Gerando...';
     const { data, error } = await dbAuth.schema('gestao').rpc('fn_convite_pessoal_criar', {
