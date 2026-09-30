@@ -1,6 +1,13 @@
 // ============================================================================
 // js/telas/cockpit.js — Raiz Gestão
-// Versão: 1.4.1 · 25/09/2026
+// Versão: 1.5.0 · 30/09/2026
+//
+// v1.5.0 (30/09/2026, demanda 1899fe67, ficha F10 frente 1) — a Fila ganha o
+// item URGENTE (fundo vermelho, mesmo tier do 'comportamento_parado')
+// "N pagamento(s) de plano aguardando confirmação", lido de
+// fn_gestao_pagamentos_pendentes; abre Financeiro, onde ficam Confirmar e
+// Recusar (financeiro.js 0.8.0). Falha da RPC não derruba o Cockpit.
+// Versão anterior: 1.4.1 · 25/09/2026
 //
 // v1.4.1 — Nicola, ao ver o item 'comportamento_parado' na Fila: "apenas
 // destaque mais este alerta. Inverta, coloque o fundo vermelho e as letras
@@ -158,6 +165,7 @@ async function telaCockpitInit() {
         { data: conciliacao, error: e8 },
         { data: empresasLimite, error: e9 },
         { data: metricasGlobaisLinhas, error: e10 },
+        { data: pagPendentes },
     ] = await Promise.all([
         dbAuth.schema('gestao').rpc('fn_cockpit_atencao'),
         dbAuth.schema('gestao').rpc('fn_financeiro_resumo'),
@@ -169,6 +177,7 @@ async function telaCockpitInit() {
         dbAuth.rpc('fn_gestao_conciliacao_visao'),
         dbAuth.schema('gestao').rpc('fn_empresas_em_limite'), // v1.2.0
         dbAuth.schema('gestao').rpc('fn_cockpit_metricas_globais', { p_dias: null }), // v1.2.0 · p_dias desde v1.3.0 (Total no load inicial)
+        dbAuth.rpc('fn_gestao_pagamentos_pendentes'), // v1.5.0 (F10) — falha não bloqueia o Cockpit
     ]);
 
     const erros = [e1, e2, e3, e4, e5, e6, e7, e8, e9, e10].filter(Boolean);
@@ -235,6 +244,8 @@ async function telaCockpitInit() {
 
     // ============================================================ FILA
     cockpitFila = [];
+    const nPagPend = (pagPendentes || []).length;
+    if (nPagPend) cockpitFila.push({ sev: 'urgente', area: 'Financeiro', title: `${nPagPend} pagamento(s) de plano aguardando confirmação`, detail: pagPendentes.slice(0, 5).map(p => `${p.cliente_nome} (${gestaoFormatarMoedaBR(p.valor)})`).join(', '), num: String(nPagPend), abrir: () => gestaoAbrirTela('financeiro') });
     if (nVencidas) cockpitFila.push({ sev: 'critico', area: 'Empresas & licenças', title: `${nVencidas} licença(s) vencida(s), ainda ativa(s)`, detail: 'Inconsistência a resolver — a licença venceu mas o status continua "ativo".', num: String(nVencidas), abrir: () => gestaoAbrirTela('empresas') });
     if (nVencendo) cockpitFila.push({ sev: 'atencao', area: 'Empresas & licenças', title: `${nVencendo} licença(s) vencendo nos próximos 7 dias`, detail: 'Vale contato do comercial antes do vencimento virar bloqueio.', num: String(nVencendo), abrir: () => gestaoAbrirTela('empresas') });
     if (nBaixoAcesso) cockpitFila.push({ sev: 'atencao', area: 'Empresas & licenças', title: `${nBaixoAcesso} empresa(s) sem acesso há 14+ dias`, detail: 'Adoção em risco — nunca acessou ou parou de acessar.', num: String(nBaixoAcesso), abrir: () => gestaoAbrirTela('empresas') });
