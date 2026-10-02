@@ -1,6 +1,15 @@
 // ============================================================================
 // js/telas/empresas.js — Raiz Gestão
 //
+// v0.23.0 (02/10/2026, mesma sessão, pedido do Nicola) — apagar empresa apaga
+// também os LOGINS das pessoas dela (só quem não tem outra empresa e não é
+// operador), para o cliente poder se cadastrar de novo com o mesmo e-mail. O
+// resumo mostra quantos logins saem; a Edge Function (1.1.0) é chamada sempre
+// (antes só quando havia arquivo) e a mensagem final informa arquivos e logins.
+// Texto do card volta a dizer que os acessos são apagados.
+//
+// Versão anterior: v0.22.0
+//
 // v0.22.0 (02/10/2026, sessão 20261001-2317-apagar-empresa, demandas b80d33db
 // e 32ac8ed9 — pedido do Nicola: "é pra apagar tudo mesmo, documento fiscal e
 // documento físico") — "Apagar empresa e acessos" volta a funcionar com
@@ -624,7 +633,7 @@ async function empresasAbrirFicha(clienteId) {
                     <h4 class="text-sm font-extrabold mb-3" style="color:var(--danger)">Ações administrativas</h4>
                     <div class="p-3 rounded-xl border-2" style="border-color:var(--danger);background:var(--danger-bg)">
                         <p class="text-xs font-bold mb-1" style="color:var(--danger)">Apagar empresa e acessos</p>
-                        <p class="text-[11px] mb-2" style="color:var(--ink)">Apaga PERMANENTEMENTE esta empresa com todos os dados (ativos, contratos, financeiro, documentos, notas fiscais) e os arquivos guardados. O login das pessoas continua existindo — só o vínculo com esta empresa é apagado. Não pode ser desfeito.</p>
+                        <p class="text-[11px] mb-2" style="color:var(--ink)">Apaga PERMANENTEMENTE esta empresa com todos os dados (ativos, contratos, financeiro, documentos, notas fiscais) e os arquivos guardados. Os logins das pessoas também são apagados (exceto de quem tem acesso a outra empresa), para poderem se cadastrar de novo com o mesmo e-mail. Não pode ser desfeito.</p>
                         <button onclick="edApagarEmpresaCompleta('${clienteId}')" class="px-3 py-2 rounded-lg text-xs font-bold text-white" style="background:var(--danger)">Apagar empresa e acessos</button>
                     </div>
                 </div>
@@ -656,7 +665,7 @@ async function edApagarEmpresaCompleta(clienteId) {
     const resumo = [
         `${r.ativos ?? 0} ativo(s)`, `${r.contratos ?? 0} contrato(s)`, `${r.mensalidades ?? 0} mensalidade(s)`,
         `${r.lancamentos ?? 0} lançamento(s)`, `${r.documentos ?? 0} documento(s)`, `${r.controles ?? 0} controle(s)`,
-        `${r.notas_fiscais ?? 0} nota(s) fiscal(is)`, `${r.pessoas ?? 0} pessoa(s)`, `${r.arquivos ?? 0} arquivo(s) guardado(s)`
+        `${r.notas_fiscais ?? 0} nota(s) fiscal(is)`, `${r.pessoas ?? 0} pessoa(s)`, `${r.arquivos ?? 0} arquivo(s) guardado(s)`, `${r.logins ?? 0} login(s)`
     ].join(', ');
 
     if (!confirm(`⚠️ Isso apaga PERMANENTEMENTE a empresa "${nome}" com tudo o que ela tem:\n\n${resumo}.\n\nNão pode ser desfeito. Continuar?`)) return;
@@ -669,15 +678,13 @@ async function edApagarEmpresaCompleta(clienteId) {
     const { error } = await dbAuth.rpc('fn_apagar_empresa_completa', { p_cliente_id: clienteId, p_simular: false });
     if (error) { alert('❌ Falha ao apagar empresa: ' + error.message); return; }
 
-    // Arquivos: só depois que a empresa sumiu do banco (a Edge Function recusa empresa viva).
+    // Arquivos e logins: só depois que a empresa sumiu do banco (a Edge Function recusa empresa viva).
     let msgArquivos = '';
-    if ((r.arquivos ?? 0) > 0) {
-        const { data: arq, error: eArq } = await dbAuth.functions.invoke('gestao-apagar-arquivos-empresa', { body: { cliente_id: clienteId } });
-        const erroArq = eArq ? eArq.message : (arq && arq.erro) || ((arq && arq.falhas && arq.falhas.length) ? arq.falhas.join('; ') : '');
-        msgArquivos = erroArq
-            ? `\n\n⚠️ Os dados foram apagados, mas os arquivos não: ${erroArq}`
-            : `\n\n${arq.removidos} arquivo(s) apagado(s) do armazenamento.`;
-    }
+    const { data: arq, error: eArq } = await dbAuth.functions.invoke('gestao-apagar-arquivos-empresa', { body: { cliente_id: clienteId } });
+    const erroArq = eArq ? eArq.message : (arq && arq.erro) || ((arq && arq.falhas && arq.falhas.length) ? arq.falhas.join('; ') : '');
+    msgArquivos = erroArq
+        ? `\n\n⚠️ Os dados foram apagados, mas houve falha em arquivos/logins: ${erroArq}`
+        : `\n\n${arq.removidos ?? 0} arquivo(s) e ${arq.logins_apagados ?? 0} login(s) apagado(s).`;
 
     alert('✅ Empresa apagada.' + msgArquivos);
     empresasCache = empresasCache.filter(e => e.cliente_id !== clienteId);
