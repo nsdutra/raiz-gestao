@@ -1,6 +1,11 @@
 // ============================================================================
 // js/telas/cockpit.js — Raiz Gestão
-// Versão: 1.5.0 · 30/09/2026
+// Versão: 1.5.1 · 02/10/2026
+//
+// v1.5.1 (02/10/2026, pedido do Nicola: apagar a função antiga) — o item
+// urgente de pagamentos lê fn_gestao_pagamentos_pendentes_v2 (mesma lista do
+// Financeiro 0.9.0). A v1 sai do banco depois desta publicação.
+// Versão anterior: 1.5.0 · 30/09/2026
 //
 // v1.5.0 (30/09/2026, demanda 1899fe67, ficha F10 frente 1) — a Fila ganha o
 // item URGENTE (fundo vermelho, mesmo tier do 'comportamento_parado')
@@ -177,7 +182,7 @@ async function telaCockpitInit() {
         dbAuth.rpc('fn_gestao_conciliacao_visao'),
         dbAuth.schema('gestao').rpc('fn_empresas_em_limite'), // v1.2.0
         dbAuth.schema('gestao').rpc('fn_cockpit_metricas_globais', { p_dias: null }), // v1.2.0 · p_dias desde v1.3.0 (Total no load inicial)
-        dbAuth.rpc('fn_gestao_pagamentos_pendentes'), // v1.5.0 (F10) — falha não bloqueia o Cockpit
+        dbAuth.rpc('fn_gestao_pagamentos_pendentes_v2'), // v1.5.0 (F10) · v2 desde v1.5.1 — falha não bloqueia o Cockpit
     ]);
 
     const erros = [e1, e2, e3, e4, e5, e6, e7, e8, e9, e10].filter(Boolean);
