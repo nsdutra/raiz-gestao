@@ -1,6 +1,19 @@
 // ============================================================================
 // js/telas/empresas.js — Raiz Gestão
 //
+// v0.22.0 (02/10/2026, sessão 20261001-2317-apagar-empresa, demandas b80d33db
+// e 32ac8ed9 — pedido do Nicola: "é pra apagar tudo mesmo, documento fiscal e
+// documento físico") — "Apagar empresa e acessos" volta a funcionar com
+// empresa usada. Antes a RPC recusava empresa com ativo/contrato/documento/
+// controle ("Limpe os dados primeiro", e esse caminho já não existia). Agora:
+// (1) simula (fn_apagar_empresa_completa com p_simular) e mostra o que vai
+// sumir; (2) mantém nome digitado + confirmações; (3) apaga tudo no banco
+// (inclusive notas fiscais e fechamentos); (4) chama a Edge Function
+// gestao-apagar-arquivos-empresa 1.0.0, que apaga os arquivos de verdade no
+// armazenamento (só de empresa que já não existe). Texto do card corrigido: o
+// login da pessoa não é apagado, só o vínculo com esta empresa. MATRIZ,
+// Albuquerque (demo) e Rumo são recusadas pelo banco.
+//
 // v0.21.0 (30/09/2026, achado do Nicola ao testar a v0.20.0) — 2 ajustes:
 //   1) "Links de convite" sai da sub-aba Adoção e vira sub-aba própria
 //      (ED_ABAS ganha 'convites'), com seu próprio filtro de Empresa —
@@ -611,7 +624,7 @@ async function empresasAbrirFicha(clienteId) {
                     <h4 class="text-sm font-extrabold mb-3" style="color:var(--danger)">Ações administrativas</h4>
                     <div class="p-3 rounded-xl border-2" style="border-color:var(--danger);background:var(--danger-bg)">
                         <p class="text-xs font-bold mb-1" style="color:var(--danger)">Apagar empresa e acessos</p>
-                        <p class="text-[11px] mb-2" style="color:var(--ink)">Apaga PERMANENTEMENTE esta empresa e todos os logins/usuários vinculados a ela. Não pode ser desfeito.</p>
+                        <p class="text-[11px] mb-2" style="color:var(--ink)">Apaga PERMANENTEMENTE esta empresa com todos os dados (ativos, contratos, financeiro, documentos, notas fiscais) e os arquivos guardados. O login das pessoas continua existindo — só o vínculo com esta empresa é apagado. Não pode ser desfeito.</p>
                         <button onclick="edApagarEmpresaCompleta('${clienteId}')" class="px-3 py-2 rounded-lg text-xs font-bold text-white" style="background:var(--danger)">Apagar empresa e acessos</button>
                     </div>
                 </div>
@@ -636,17 +649,37 @@ async function edApagarEmpresaCompleta(clienteId) {
     const emp = empresasCache.find(e => e.cliente_id === clienteId);
     const nome = emp ? emp.nome_empresa : clienteId;
 
-    if (!confirm(`⚠️ Isso apaga PERMANENTEMENTE a empresa "${nome}" e todos os acessos/usuários vinculados a ela. Não pode ser desfeito. Continuar?`)) return;
+    // v0.22.0 — 1º simula: o banco diz o que vai sumir (e recusa empresa protegida).
+    const { data: sim, error: eSim } = await dbAuth.rpc('fn_apagar_empresa_completa', { p_cliente_id: clienteId, p_simular: true });
+    if (eSim) { alert('❌ ' + eSim.message); return; }
+    const r = sim || {};
+    const resumo = [
+        `${r.ativos ?? 0} ativo(s)`, `${r.contratos ?? 0} contrato(s)`, `${r.mensalidades ?? 0} mensalidade(s)`,
+        `${r.lancamentos ?? 0} lançamento(s)`, `${r.documentos ?? 0} documento(s)`, `${r.controles ?? 0} controle(s)`,
+        `${r.notas_fiscais ?? 0} nota(s) fiscal(is)`, `${r.pessoas ?? 0} pessoa(s)`, `${r.arquivos ?? 0} arquivo(s) guardado(s)`
+    ].join(', ');
+
+    if (!confirm(`⚠️ Isso apaga PERMANENTEMENTE a empresa "${nome}" com tudo o que ela tem:\n\n${resumo}.\n\nNão pode ser desfeito. Continuar?`)) return;
 
     const digitado = prompt(`Para confirmar de vez, digite exatamente o nome da empresa: ${nome}`);
     if (digitado !== nome) { alert('Nome não bateu — nada foi apagado.'); return; }
 
-    if (!confirm('Última confirmação: tem mesmo certeza? Essa empresa e todos os logins vinculados a ela vão sumir de vez.')) return;
+    if (!confirm('Última confirmação: tem mesmo certeza? A empresa, os dados e os arquivos vão sumir de vez.')) return;
 
-    const { error } = await dbAuth.rpc('fn_apagar_empresa_completa', { p_cliente_id: clienteId });
+    const { error } = await dbAuth.rpc('fn_apagar_empresa_completa', { p_cliente_id: clienteId, p_simular: false });
     if (error) { alert('❌ Falha ao apagar empresa: ' + error.message); return; }
 
-    alert('✅ Empresa apagada.');
+    // Arquivos: só depois que a empresa sumiu do banco (a Edge Function recusa empresa viva).
+    let msgArquivos = '';
+    if ((r.arquivos ?? 0) > 0) {
+        const { data: arq, error: eArq } = await dbAuth.functions.invoke('gestao-apagar-arquivos-empresa', { body: { cliente_id: clienteId } });
+        const erroArq = eArq ? eArq.message : (arq && arq.erro) || ((arq && arq.falhas && arq.falhas.length) ? arq.falhas.join('; ') : '');
+        msgArquivos = erroArq
+            ? `\n\n⚠️ Os dados foram apagados, mas os arquivos não: ${erroArq}`
+            : `\n\n${arq.removidos} arquivo(s) apagado(s) do armazenamento.`;
+    }
+
+    alert('✅ Empresa apagada.' + msgArquivos);
     empresasCache = empresasCache.filter(e => e.cliente_id !== clienteId);
     empresasFecharFicha();
 }
