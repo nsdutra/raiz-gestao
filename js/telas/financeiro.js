@@ -1,6 +1,13 @@
 // ============================================================================
 // js/telas/financeiro.js — Raiz Gestão
-// Versão: 0.9.0 · 01/10/2026
+// Versão: 0.10.0 · 02/10/2026
+//
+// v0.10.0 (02/10/2026, demanda d0416e44, opção A) — bloco "Pagamentos de
+// licença recebidos (últimos 90 dias)", abaixo do resumo: lista
+// fn_gestao_pagamentos_recebidos com cliente, plano, código, data, origem
+// (confirmado no Gestão ou conciliado pelo extrato), valor e "Ver comprovante"
+// quando houver. Somente leitura; falha na lista não derruba a tela.
+// Versão anterior: 0.9.0.
 //
 // v0.9.0 (01/10/2026, ficha F11, demanda 45bb4875) — lista vem de
 // fn_gestao_pagamentos_pendentes_v2: cada pagamento informado mostra o selo
@@ -38,6 +45,11 @@ async function telaFinanceiroInit() {
     if (e3) console.warn('[financeiro] pagamentos pendentes:', e3.message);
     const blocoPend = finPagBloco(e3 ? null : (pend || []));
 
+    // v0.10.0 — pagamentos de licença já recebidos (demanda d0416e44). Falha aqui não derruba o resto.
+    const { data: receb, error: e4 } = await dbAuth.rpc('fn_gestao_pagamentos_recebidos', { p_dias: 90 });
+    if (e4) console.warn('[financeiro] pagamentos recebidos:', e4.message);
+    const blocoReceb = finRecBloco(e4 ? null : (receb || []));
+
     const r = (resumo && resumo[0]) || { recebido_mes_atual: 0, a_receber_futuro: 0, inadimplente: 0, qtd_parcelas_inadimplentes: 0 };
     const maiorPlano = Math.max(1, ...(porPlano || []).map(p => Number(p.recebido_mes_atual)));
 
@@ -63,6 +75,8 @@ async function telaFinanceiroInit() {
                 </div>
             `).join('') || `<p class="text-sm" style="color:var(--sage)">Nenhum pagamento recebido este mês ainda.</p>`}
         </div>
+
+        ${blocoReceb}
 
         <div class="p-4 rounded-xl border-2" style="border-color:var(--line);background:var(--paper)">
             <p class="text-xs font-bold mb-1" style="color:var(--ink)">Custos operacionais — não disponível</p>
@@ -172,4 +186,44 @@ async function finPagVerComprovante(caminho, ev) {
         return;
     }
     window.open(data.signedUrl, '_blank', 'noopener');
+}
+
+
+// ---------------------------------------------------------------------------
+// v0.10.0 — Pagamentos de licença recebidos (demanda d0416e44, opção A)
+// ---------------------------------------------------------------------------
+function finRecBloco(lista) {
+    const titulo = `<h2 class="text-sm font-extrabold mb-3 flex items-center" style="color:var(--ink)">
+            Pagamentos de licença recebidos (últimos 90 dias)
+            ${gestaoInfoIcone('Pagamentos de plano com status confirmado ou pago nos últimos 90 dias (fn_gestao_pagamentos_recebidos). O comprovante fica no Cofre da Raiz Patrimônio.')}
+        </h2>`;
+    if (lista === null) {
+        return `<div class="mb-6">${titulo}<div class="p-3 rounded-xl border-2 text-xs" style="border-color:var(--warning);background:var(--warning-bg);color:var(--warning)">Não foi possível carregar os pagamentos recebidos agora.</div></div>`;
+    }
+    if (!lista.length) {
+        return `<div class="mb-6">${titulo}<p class="text-sm" style="color:var(--sage)">Nenhum pagamento de licença recebido nos últimos 90 dias.</p></div>`;
+    }
+    const dia = d => d ? new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
+    const total = lista.reduce((a, p) => a + Number(p.valor || 0), 0);
+    return `
+        <div class="mb-6" id="finrec-bloco">
+            ${titulo}
+            <p class="text-xs mb-2" style="color:var(--sage)">${lista.length} pagamento(s) · total <b style="color:var(--ink)">${gestaoFormatarMoedaBR(total)}</b></p>
+            <div class="space-y-2">
+                ${lista.map(p => `
+                <div class="p-3 rounded-xl border-2" style="border-color:var(--line);background:#fff">
+                    <div class="flex justify-between gap-2">
+                        <div class="min-w-0">
+                            <p class="text-sm font-bold truncate" style="color:var(--ink)">${finPagEsc(p.cliente_nome)}</p>
+                            <p class="text-xs" style="color:var(--sage)">${finPagEsc(p.plano_codigo)} · ${finPagEsc(p.tipo)}${p.txid ? ' · código <b>' + finPagEsc(p.txid) + '</b>' : ''}</p>
+                            <p class="text-xs" style="color:var(--sage)">Recebido em ${dia(p.data_pgto || p.confirmado_em)} · ${p.origem === 'extrato' ? 'conciliado pelo extrato' : 'confirmado no Gestão'}</p>
+                            ${p.comprovante_path
+                                ? `<button type="button" class="text-xs font-bold mt-1 underline" style="color:var(--pine)" onclick="finPagVerComprovante('${finPagEsc(p.comprovante_path)}', event)">Ver comprovante</button>`
+                                : `<p class="text-[11px] mt-1" style="color:var(--sage)">Sem comprovante anexado</p>`}
+                        </div>
+                        <b class="text-sm flex-none" style="color:var(--success)">${gestaoFormatarMoedaBR(p.valor)}</b>
+                    </div>
+                </div>`).join('')}
+            </div>
+        </div>`;
 }
