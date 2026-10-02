@@ -1,6 +1,13 @@
 // ============================================================================
 // js/telas/financeiro.js — Raiz Gestão
-// Versão: 0.8.0 · 30/09/2026
+// Versão: 0.9.0 · 01/10/2026
+//
+// v0.9.0 (01/10/2026, ficha F11, demanda 45bb4875) — lista vem de
+// fn_gestao_pagamentos_pendentes_v2: cada pagamento informado mostra o selo
+// "Liberado" (o app já liberou o plano na hora; Recusar desfaz) e, quando o
+// cliente enviou, "Ver comprovante" (link temporário do Cofre da Raiz, pasta
+// comprovantes-pix). Pagamento conciliado com o extrato da Raiz sai da lista
+// sozinho. Versão anterior: 0.8.0.
 //
 // v0.8.0 (30/09/2026, demanda 1899fe67, ficha F10 frente 1) — bloco "Pagamentos
 // de plano a confirmar" no topo: lista fn_gestao_pagamentos_pendentes (Pix que
@@ -27,7 +34,7 @@ async function telaFinanceiroInit() {
     if (e1 || e2) { gestaoErro([e1, e2].filter(Boolean).map(e => e.message).join(' | ')); return; }
 
     // v0.8.0 — pendências de pagamento de plano (fonte: F10). Falha aqui não derruba o resto.
-    const { data: pend, error: e3 } = await dbAuth.rpc('fn_gestao_pagamentos_pendentes');
+    const { data: pend, error: e3 } = await dbAuth.rpc('fn_gestao_pagamentos_pendentes_v2');
     if (e3) console.warn('[financeiro] pagamentos pendentes:', e3.message);
     const blocoPend = finPagBloco(e3 ? null : (pend || []));
 
@@ -92,6 +99,8 @@ function finPagBloco(lista) {
                             <p class="text-sm font-bold truncate" style="color:var(--ink)">${finPagEsc(p.cliente_nome)}</p>
                             <p class="text-xs" style="color:var(--sage)">${finPagEsc(p.plano_codigo)} · ${finPagEsc(p.tipo)} · código <b>${finPagEsc(p.txid)}</b></p>
                             <p class="text-xs" style="color:var(--sage)">${p.status === 'informado' ? 'Cliente informou o pagamento em ' + dt(p.informado_em) : 'Cobrança aberta em ' + dt(p.criado_em) + ' (sem aviso de pagamento)'}</p>
+                            ${p.liberado_em ? `<p class="text-[11px] font-bold mt-1" style="color:var(--success)">● Liberado em ${dt(p.liberado_em)} — recusar desfaz</p>` : (p.status === 'informado' ? `<p class="text-[11px] font-bold mt-1" style="color:var(--warning)">● Aguardando você para liberar</p>` : '')}
+                            ${p.comprovante_path ? `<button type="button" class="text-xs font-bold mt-1 underline" style="color:var(--pine)" onclick="finPagVerComprovante('${finPagEsc(p.comprovante_path)}', event)">Ver comprovante</button>` : ''}
                         </div>
                         <b class="text-sm flex-none" style="color:var(--ink)">${gestaoFormatarMoedaBR(p.valor)}</b>
                     </div>
@@ -152,4 +161,15 @@ function finPagRecusar(itemId) {
     const msg = document.getElementById('finpag-msg-' + itemId);
     if (motivo.length < 5) { if (msg) { msg.textContent = 'Escreva o motivo (o cliente vê).'; msg.classList.remove('hidden'); } return; }
     finPagExecutar(itemId, 'fn_gestao_pagamento_recusar', { p_item_id: itemId, p_motivo: motivo });
+}
+
+async function finPagVerComprovante(caminho, ev) {
+    const btn = ev && ev.currentTarget;
+    const { data, error } = await dbAuth.storage.from('cofre-documentos').createSignedUrl(caminho, 300);
+    if (error || !data?.signedUrl) {
+        console.warn('[financeiro] comprovante:', error?.message);
+        if (btn) { btn.textContent = 'Não foi possível abrir o comprovante agora'; btn.style.color = 'var(--danger)'; }
+        return;
+    }
+    window.open(data.signedUrl, '_blank', 'noopener');
 }
