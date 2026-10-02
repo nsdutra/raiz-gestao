@@ -1,6 +1,18 @@
 // ============================================================================
 // js/telas/empresas.js — Raiz Gestão
 //
+// v0.24.0 (02/10/2026, sessão 20261002-1329-adocao-atividade, plano aprovado
+// pelo Nicola) — Adoção passa a contar app + bot: cada pessoa mostra dias no
+// app, dias no bot, dias ativos no total (app OU bot), ações no app, mensagens
+// ao bot e envios do bot (gestao.fn_adocao_pessoas — substitui
+// fn_empresas_adocao nesta tela). Tocar numa pessoa abre "Atividade por dia"
+// (gestao.fn_atividade_pessoa_dias): login, ações, bot, envios e mensagens do
+// app por dia; tocar num dia abre a linha do tempo daquele dia
+// (gestao.fn_atividade_pessoa_dia), para ver por exemplo "recebeu o alerta às
+// 8h, entrou no app às 9h e abriu Contratos".
+//
+// Versão anterior: v0.23.0
+//
 // v0.23.0 (02/10/2026, mesma sessão, pedido do Nicola) — apagar empresa apaga
 // também os LOGINS das pessoas dela (só quem não tem outra empresa e não é
 // operador), para o cliente poder se cadastrar de novo com o mesmo e-mail. O
@@ -310,7 +322,8 @@ async function edRenderAdocao() {
             ${gestaoFiltroPeriodoHtml('ed-ad', 30)}
             <button onclick="edCarregarAdocao()" class="text-xs font-bold px-3 py-2 rounded-lg text-white" style="background:var(--pine)">Aplicar</button>
         </div>
-        <p class="text-[11px] mb-3" style="color:var(--sage)">Barra = dias ativos (pelo menos 1 login) dividido pelos dias do período. Fonte: log_acessos, acao='login'.</p>
+        <p class="text-[11px] mb-3" style="color:var(--sage)">Barra = dias ativos (usou o app <b>ou</b> falou com o bot) dividido pelos dias do período. Toque numa pessoa para ver a atividade dia a dia.</p>
+        <div id="ed-ad-atividade" class="hidden mb-4"></div>
         <div id="ed-ad-lista" class="space-y-2"></div>
 
         <div class="mt-6 pt-4 border-t" style="border-color:var(--line)">
@@ -360,7 +373,7 @@ async function edCarregarAdocao() {
     // de uso por funcionalidades mediante os filtros da tela") — mesmos
     // filtros de fn_empresas_adocao, mesma chamada em paralelo.
     const [{ data, error }, { data: dataFunc, error: eFunc }] = await Promise.all([
-        dbAuth.schema('gestao').rpc('fn_empresas_adocao', {
+        dbAuth.schema('gestao').rpc('fn_adocao_pessoas', {
             p_data_inicio: inicio, p_data_fim: fim, p_cliente_id: clienteId, p_pessoa_id: pessoaId
         }),
         dbAuth.schema('gestao').rpc('fn_empresas_adocao_funcionalidades', {
@@ -389,12 +402,96 @@ async function edCarregarAdocao() {
                 // aberto — a barra usa o próprio dias_ativos como teto.
                 const dias = p.dias_periodo;
                 const maximo = dias || Math.max(1, p.dias_ativos);
-                const ultimo = p.ultimo_login ? new Date(p.ultimo_login).toLocaleDateString('pt-BR') : 'nunca';
-                return gestaoBarra(p.pessoa_nome, p.dias_ativos, maximo,
-                    (v) => dias ? `${v}/${dias} dia(s) · último: ${ultimo}` : `${v} dia(s) ativo(s) · último: ${ultimo}`);
+                const fmt = d => d ? new Date(d).toLocaleDateString('pt-BR') : 'nunca';
+                const nomeJs = JSON.stringify(p.pessoa_nome || '').replace(/"/g, '&quot;');
+                return `<div class="rounded-xl p-2 cursor-pointer hover:bg-gray-50" onclick="edAbrirAtividade('${p.pessoa_id}', ${nomeJs})">
+                    ${gestaoBarra(pmEsc(p.pessoa_nome), p.dias_ativos, maximo,
+                        (v) => dias ? `${v}/${dias} dia(s) ativo(s)` : `${v} dia(s) ativo(s)`)}
+                    <p class="text-[11px] mt-1" style="color:var(--sage)">App ${p.dias_app} dia(s) · ${p.acoes_app} ação(ões) · último login ${fmt(p.ultimo_login)}
+                        &nbsp;|&nbsp; Bot ${p.dias_bot} dia(s) · ${p.msgs_bot} mensagem(ns) · último ${fmt(p.ultimo_bot)} · ${p.envios_bot} envio(s) do bot</p>
+                </div>`;
             }).join('')}
             </div>
         </div>`).join('') || `<p class="text-sm text-center py-8" style="color:var(--sage)">Nenhuma pessoa encontrada pro filtro selecionado.</p>`;
+}
+
+// v0.24.0 — Atividade por dia de uma pessoa (app + bot + mensagens do app).
+const ED_ORIGEM_ROTULO = {
+    app_login: 'Entrou no app', app: 'Ação no app', app_ia: 'IA no app',
+    bot: 'Mensagem ao bot', bot_envio: 'Bot enviou', comunicacao: 'Mensagem do app'
+};
+let edAtividadePessoa = null;
+
+async function edAbrirAtividade(pessoaId, nome) {
+    const el = document.getElementById('ed-ad-atividade');
+    if (!el) return;
+    edAtividadePessoa = { id: pessoaId, nome };
+    el.classList.remove('hidden');
+    el.innerHTML = `<p class="text-xs" style="color:var(--sage)">Carregando atividade de ${pmEsc(nome)}...</p>`;
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const { inicio, fim } = gestaoLerFiltroPeriodo('ed-ad');
+    const { data, error } = await dbAuth.schema('gestao').rpc('fn_atividade_pessoa_dias', {
+        p_pessoa_id: pessoaId, p_data_inicio: inicio, p_data_fim: fim
+    });
+    if (error) { el.innerHTML = `<p class="text-xs" style="color:var(--danger)">Erro: ${pmEsc(error.message)}</p>`; return; }
+    const dias = data || [];
+    const hora = d => d ? new Date(d).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
+    const celula = (v) => `<td class="p-2 text-center">${v ? `<b>${v}</b>` : '<span style="color:var(--line)">·</span>'}</td>`;
+    el.innerHTML = `
+        <div class="rounded-2xl border-2 p-3" style="border-color:var(--pine);background:#fff">
+            <div class="flex items-center justify-between mb-2">
+                <b class="text-sm" style="color:var(--ink)">Atividade por dia · ${pmEsc(nome)}</b>
+                <button onclick="edFecharAtividade()" class="text-xs font-bold px-2 py-1 rounded-lg border-2" style="border-color:var(--line)">Fechar</button>
+            </div>
+            ${dias.length ? `
+            <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+                <thead><tr style="color:var(--sage)" class="text-[10px] uppercase">
+                    <th class="p-2 text-left">Dia</th><th class="p-2">Logins app</th><th class="p-2">Ações app</th>
+                    <th class="p-2">Msgs ao bot</th><th class="p-2">Envios do bot</th><th class="p-2">Msgs do app vistas</th>
+                    <th class="p-2">Concluídas</th><th class="p-2 text-left">Das … às</th>
+                </tr></thead>
+                <tbody>
+                ${dias.map(d => `<tr class="border-t cursor-pointer hover:bg-gray-50" style="border-color:var(--line)" onclick="edAbrirDia('${d.dia}')">
+                    <td class="p-2 font-bold">${new Date(d.dia + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })}</td>
+                    ${celula(d.logins_app)}${celula(d.acoes_app)}${celula(d.msgs_bot)}${celula(d.envios_bot)}
+                    ${celula(d.comunicacoes_exibidas)}${celula(d.comunicacoes_concluidas)}
+                    <td class="p-2" style="color:var(--sage)">${hora(d.primeiro_evento)}–${hora(d.ultimo_evento)}</td>
+                </tr>`).join('')}
+                </tbody>
+            </table>
+            </div>
+            <p class="text-[11px] mt-2" style="color:var(--sage)">Toque num dia para ver a linha do tempo. Envios do bot = alertas, pedidos e cobranças que o bot mandou; ainda não sabemos se foram lidos.</p>
+            ` : `<p class="text-xs py-4 text-center" style="color:var(--sage)">Nenhuma atividade no período.</p>`}
+            <div id="ed-ad-dia" class="mt-3"></div>
+        </div>`;
+}
+
+function edFecharAtividade() {
+    const el = document.getElementById('ed-ad-atividade');
+    if (el) { el.classList.add('hidden'); el.innerHTML = ''; }
+    edAtividadePessoa = null;
+}
+
+async function edAbrirDia(dia) {
+    const el = document.getElementById('ed-ad-dia');
+    if (!el || !edAtividadePessoa) return;
+    el.innerHTML = `<p class="text-xs" style="color:var(--sage)">Carregando ${new Date(dia + 'T12:00:00').toLocaleDateString('pt-BR')}...</p>`;
+    const { data, error } = await dbAuth.schema('gestao').rpc('fn_atividade_pessoa_dia', { p_pessoa_id: edAtividadePessoa.id, p_dia: dia });
+    if (error) { el.innerHTML = `<p class="text-xs" style="color:var(--danger)">Erro: ${pmEsc(error.message)}</p>`; return; }
+    const ev = data || [];
+    const cor = { app_login: 'var(--pine)', app: 'var(--pine)', app_ia: 'var(--brass)', bot: 'var(--info)', bot_envio: 'var(--warn, #b7791f)', comunicacao: 'var(--sage)' };
+    el.innerHTML = `
+        <div class="border-t pt-3" style="border-color:var(--line)">
+            <b class="text-xs" style="color:var(--ink)">Linha do tempo · ${new Date(dia + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' })}</b>
+            <div class="mt-2 space-y-1 max-h-96 overflow-y-auto">
+            ${ev.map(e => `<div class="flex gap-2 text-xs">
+                <span class="flex-none w-12" style="color:var(--sage)">${new Date(e.quando).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                <span class="flex-none w-28 font-bold" style="color:${cor[e.origem] || 'var(--ink)'}">${ED_ORIGEM_ROTULO[e.origem] || pmEsc(e.origem)}</span>
+                <span class="min-w-0" style="color:var(--ink)">${pmEsc(e.item || '')}${e.detalhe ? ` <span style="color:var(--sage)">· ${pmEsc(e.detalhe)}</span>` : ''}</span>
+            </div>`).join('') || `<p class="text-xs" style="color:var(--sage)">Sem eventos neste dia.</p>`}
+            </div>
+        </div>`;
 }
 
 // v0.20.0 — bloco "Links de convite" da aba Adoção. gestao.fn_convites_

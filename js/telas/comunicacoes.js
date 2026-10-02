@@ -1,6 +1,15 @@
 // ============================================================================
 // js/telas/comunicacoes.js — Raiz Gestão
 //
+// v0.5.0 (02/10/2026, sessão 20261002-1329-adocao-atividade, plano aprovado
+// pelo Nicola) — aba Uso ganha filtro de Pessoa (cascateado pela Empresa) e o
+// "Detalhe" passa a usar gestao.fn_comunicacoes_eventos: mesmo conteúdo de
+// antes + filtro de pessoa e dia (fuso de São Paulo) + "navegou depois" — em
+// cada mensagem exibida, quantas ações a pessoa fez no app no mesmo dia, depois
+// de ver. Resumo, funil e "por empresa" seguem iguais.
+//
+// Versão anterior: v0.4.0
+//
 // v0.4.0 (bc9df144, itens 5/6, 17/09/2026) — NOVO 3º modo "Pessoas"
 // (cmModo='pessoas', botão "👤 Pessoas" ao lado de Uso/Configuração): migra
 // do App (app-dev) o disparo manual de e-mail, a config de envio
@@ -86,6 +95,7 @@ let cmPlanos = [];
 let cmPlanoAtualId = null;
 let cmEmpresas = [];
 let cmClienteId = '';
+let cmPessoasUso = []; // v0.5.0 — gestao.fn_lista_pessoas, pro filtro de Pessoa da aba Uso
 let cmMensagensDoPlano = []; // cache pra abrir o JSON/editar sem nova consulta
 let cmModo = 'uso'; // 'uso' | 'config' | 'pessoas'
 let cmCanalEditandoId = null; // id do canal com o form de edição aberto (null = nenhum)
@@ -189,9 +199,12 @@ async function telaComunicacoesInit() {
         <div id="cm-area-uso">
             <div class="flex flex-wrap gap-2 mb-5 items-center">
                 ${gestaoFiltroPeriodoHtml('cm', 30)}
-                <select id="cm-filtro-empresa" onchange="cmCarregar()" class="text-xs font-bold p-2 rounded-lg border-2" style="border-color:var(--line)">
+                <select id="cm-filtro-empresa" onchange="cmMudarEmpresaUso()" class="text-xs font-bold p-2 rounded-lg border-2" style="border-color:var(--line)">
                     <option value="">Todas as empresas</option>
                     ${cmEmpresas.map(e => `<option value="${e.id}">${pmEsc(e.nome_empresa)}</option>`).join('')}
+                </select>
+                <select id="cm-filtro-pessoa" onchange="cmCarregar()" class="text-xs font-bold p-2 rounded-lg border-2" style="border-color:var(--line);min-width:160px">
+                    <option value="">Todas as pessoas</option>
                 </select>
                 <button onclick="cmCarregar()" class="text-xs font-bold px-3 py-2 rounded-lg" style="background:var(--pine);color:#fff">Filtrar</button>
             </div>
@@ -296,6 +309,8 @@ async function cmCarregar() {
     cmClienteId = document.getElementById('cm-filtro-empresa').value;
     const periodo = gestaoLerFiltroPeriodo('cm');
     const pCliente = cmClienteId || null;
+    await cmPreencherPessoasUso();
+    const pPessoa = document.getElementById('cm-filtro-pessoa')?.value || null;
 
     const [
         { data: resumo, error: e1 },
@@ -306,7 +321,7 @@ async function cmCarregar() {
         dbAuth.schema('gestao').rpc('fn_comunicacoes_resumo', { p_plano_id: cmPlanoAtualId, p_data_inicio: periodo.inicio, p_data_fim: periodo.fim, p_cliente_id: pCliente }),
         dbAuth.schema('gestao').rpc('fn_comunicacoes_funil', { p_plano_id: cmPlanoAtualId, p_data_inicio: periodo.inicio, p_data_fim: periodo.fim, p_cliente_id: pCliente }),
         dbAuth.schema('gestao').rpc('fn_comunicacoes_por_empresa', { p_plano_id: cmPlanoAtualId, p_data_inicio: periodo.inicio, p_data_fim: periodo.fim }),
-        dbAuth.schema('gestao').rpc('fn_comunicacoes_detalhe', { p_plano_id: cmPlanoAtualId, p_cliente_id: pCliente, p_data_inicio: periodo.inicio, p_data_fim: periodo.fim, p_limite: 100 })
+        dbAuth.schema('gestao').rpc('fn_comunicacoes_eventos', { p_plano_id: cmPlanoAtualId, p_cliente_id: pCliente, p_pessoa_id: pPessoa, p_data_inicio: periodo.inicio, p_data_fim: periodo.fim, p_limite: 200 })
     ]);
     const erro = e1 || e2 || e4 || e5;
     if (erro) { gestaoErro(erro.message); return; }
@@ -346,9 +361,32 @@ async function cmCarregar() {
             <div class="text-right flex-none">
                 <div style="color:var(--ink)">${new Date(l.criado_em).toLocaleString('pt-BR')}</div>
                 <div style="color:${l.evento === 'concluiu' || l.evento === 'respondeu' ? 'var(--success)' : l.evento === 'erro' ? 'var(--danger)' : 'var(--sage)'}">${pmEsc(l.evento)}</div>
+                ${l.evento === 'exibiu' ? `<div style="color:${Number(l.acoes_app_depois) > 0 ? 'var(--success)' : 'var(--sage)'}">${Number(l.acoes_app_depois) > 0 ? `navegou depois: ${l.acoes_app_depois} ação(ões)` : 'não navegou depois'}</div>` : ''}
             </div>
         </div>
     `).join('') || `<p class="text-xs" style="color:var(--sage)">Sem interações no período/filtro selecionado.</p>`;
+}
+
+// v0.5.0 — filtro de Pessoa da aba Uso, cascateado pela Empresa.
+async function cmPreencherPessoasUso() {
+    const sel = document.getElementById('cm-filtro-pessoa');
+    if (!sel) return;
+    if (!cmPessoasUso.length) {
+        const { data, error } = await dbAuth.schema('gestao').rpc('fn_lista_pessoas');
+        if (error) { console.warn('[comunicacoes] pessoas:', error.message); return; }
+        cmPessoasUso = data || [];
+    }
+    const atual = sel.value;
+    const opcoes = cmPessoasUso.filter(p => !cmClienteId || p.cliente_id === cmClienteId);
+    sel.innerHTML = `<option value="">Todas as pessoas</option>` +
+        opcoes.map(p => `<option value="${p.pessoa_id}">${pmEsc(p.nome)} · ${pmEsc(p.nome_empresa)}</option>`).join('');
+    if (opcoes.some(p => p.pessoa_id === atual)) sel.value = atual;
+}
+
+function cmMudarEmpresaUso() {
+    const sel = document.getElementById('cm-filtro-pessoa');
+    if (sel) sel.value = '';
+    cmCarregar();
 }
 
 function cmFiltrarPorEmpresa(clienteId) {

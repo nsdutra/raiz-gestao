@@ -1,6 +1,16 @@
 // ============================================================================
 // js/telas/bot-uso.js — Raiz Gestão
 //
+// v0.12.0 (02/10/2026, sessão 20261002-1329-adocao-atividade, plano aprovado
+// pelo Nicola) — o detalhe de mensagens ganha filtros de Pessoa, Dia e Origem
+// e separa "Enviados pelo bot" (alertas, pedidos de documento, cobranças — o
+// bot que iniciou) de "Conversas" (o que a pessoa escreveu ou falou). Fonte:
+// gestao.fn_bot_eventos (substitui fn_bot_uso_detalhe nesta tela). Novo atalho
+// "Ver todas as mensagens" abre o detalhe sem escolher empresa. Ainda não dá
+// para saber se o envio foi lido no WhatsApp (demanda própria).
+//
+// Versão anterior: v0.11.0
+//
 // v0.11.0 — BUG CORRIGIDO: selecionar "Por semana" (ou "Por mês") com o
 // filtro de período ainda em "Últimos 7 dias" (o mais curto do <select>)
 // dava só 1-2 semanas no gráfico — parecia travado "na semana em
@@ -44,6 +54,8 @@ let buDias = 30;
 let buTipoInteracao = '';
 let buClienteId = '';
 let buGranularidade = 'dia';
+let buDetalheClienteId = null; // v0.12.0 — empresa do detalhe aberto (null = todas)
+let buPessoas = [];            // v0.12.0 — gestao.fn_lista_pessoas, pro filtro de Pessoa
 let buEmpresas = []; // {id, nome_empresa} — carregado uma vez por sessão da tela
 
 async function telaBotUsoInit() {
@@ -93,7 +105,10 @@ async function telaBotUsoInit() {
 
         <div class="grid md:grid-cols-2 gap-6">
             <div>
-                <h2 class="text-sm font-extrabold mb-3" style="color:var(--ink)">Por empresa</h2>
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-sm font-extrabold" style="color:var(--ink)">Por empresa</h2>
+                    <button onclick="buAbrirDetalhe(null, 'Todas as empresas')" class="text-xs font-bold" style="color:var(--pine)">Ver todas as mensagens ›</button>
+                </div>
                 <div id="bu-empresas" class="space-y-2"></div>
             </div>
             <div>
@@ -107,6 +122,27 @@ async function telaBotUsoInit() {
                 <h2 class="text-sm font-extrabold" style="color:var(--ink)">Mensagens — <span id="bu-detalhe-titulo"></span></h2>
                 <button onclick="buFecharDetalhe()" class="text-xs font-bold" style="color:var(--pine)">Fechar ✕</button>
             </div>
+            <div class="flex flex-wrap gap-2 mb-3 items-end">
+                <label class="flex flex-col gap-1">
+                    <span class="text-[10px] font-bold uppercase" style="color:var(--sage)">Pessoa</span>
+                    <select id="bu-det-pessoa" onchange="buCarregarDetalhe()" class="text-xs font-bold p-2 rounded-lg border-2" style="border-color:var(--line);min-width:160px">
+                        <option value="">Todas as pessoas</option>
+                    </select>
+                </label>
+                <label class="flex flex-col gap-1">
+                    <span class="text-[10px] font-bold uppercase" style="color:var(--sage)">Dia (opcional)</span>
+                    <input id="bu-det-dia" type="date" onchange="buCarregarDetalhe()" class="text-xs font-bold p-2 rounded-lg border-2" style="border-color:var(--line)">
+                </label>
+                <label class="flex flex-col gap-1">
+                    <span class="text-[10px] font-bold uppercase" style="color:var(--sage)">Origem</span>
+                    <select id="bu-det-origem" onchange="buCarregarDetalhe()" class="text-xs font-bold p-2 rounded-lg border-2" style="border-color:var(--line)">
+                        <option value="">Tudo</option>
+                        <option value="enviado">Enviados pelo bot</option>
+                        <option value="conversa">Conversas (a pessoa escreveu)</option>
+                    </select>
+                </label>
+            </div>
+            <div id="bu-detalhe-resumo" class="text-[11px] mb-2" style="color:var(--sage)"></div>
             <div id="bu-detalhe-lista" class="space-y-1.5"></div>
         </div>
     `;
@@ -212,32 +248,57 @@ async function buAbrirDetalhe(clienteId, nomeEmpresa) {
     const wrap = document.getElementById('bu-detalhe-wrap');
     wrap.classList.remove('hidden');
     document.getElementById('bu-detalhe-titulo').textContent = nomeEmpresa;
-    document.getElementById('bu-detalhe-lista').innerHTML = `<p class="text-xs" style="color:var(--sage)">Carregando...</p>`;
     wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    buDetalheClienteId = clienteId || null;
 
-    const { data, error } = await dbAuth.schema('gestao').rpc('fn_bot_uso_detalhe', {
-        p_cliente_id: clienteId, p_dias: buDias,
-        p_tipo_interacao: buTipoInteracao || null, p_limite: 200
-    });
-    if (error) {
-        document.getElementById('bu-detalhe-lista').innerHTML =
-            `<p class="text-xs" style="color:var(--danger)">Erro ao carregar: ${error.message}</p>`;
-        return;
+    // v0.12.0 — Pessoa: só as da empresa do detalhe (ou todas).
+    if (!buPessoas.length) {
+        const { data, error } = await dbAuth.schema('gestao').rpc('fn_lista_pessoas');
+        if (!error) buPessoas = data || [];
     }
+    const sel = document.getElementById('bu-det-pessoa');
+    const opcoes = buPessoas.filter(p => !buDetalheClienteId || p.cliente_id === buDetalheClienteId);
+    sel.innerHTML = `<option value="">Todas as pessoas</option>` +
+        opcoes.map(p => `<option value="${p.pessoa_id}">${pmEsc(p.nome)}${buDetalheClienteId ? '' : ' · ' + pmEsc(p.nome_empresa)}</option>`).join('');
+    buCarregarDetalhe();
+}
 
-    document.getElementById('bu-detalhe-lista').innerHTML = (data || []).map(m => `
-        <div class="flex items-center justify-between gap-3 p-2.5 rounded-lg border text-xs" style="border-color:var(--line)">
+async function buCarregarDetalhe() {
+    const lista = document.getElementById('bu-detalhe-lista');
+    lista.innerHTML = `<p class="text-xs" style="color:var(--sage)">Carregando...</p>`;
+    const dia = document.getElementById('bu-det-dia').value || null;
+    const hoje = new Date();
+    const ini = new Date(hoje.getTime() - (buDias - 1) * 86400000);
+    const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+    const { data, error } = await dbAuth.schema('gestao').rpc('fn_bot_eventos', {
+        p_cliente_id: buDetalheClienteId,
+        p_pessoa_id: document.getElementById('bu-det-pessoa').value || null,
+        p_data_inicio: dia || iso(ini), p_data_fim: dia || iso(hoje),
+        p_origem: document.getElementById('bu-det-origem').value || null,
+        p_limite: 500
+    });
+    if (error) { lista.innerHTML = `<p class="text-xs" style="color:var(--danger)">Erro ao carregar: ${pmEsc(error.message)}</p>`; return; }
+
+    const linhas = data || [];
+    const nEnv = linhas.filter(m => m.origem === 'enviado').length;
+    document.getElementById('bu-detalhe-resumo').textContent =
+        `${linhas.length} evento(s)${linhas.length === 500 ? ' (mostrando os 500 mais recentes)' : ''} · ${nEnv} enviado(s) pelo bot · ${linhas.length - nEnv} de conversa · ${dia ? 'dia ' + new Date(dia + 'T12:00:00').toLocaleDateString('pt-BR') : 'últimos ' + buDias + ' dias'}`;
+
+    lista.innerHTML = linhas.map(m => `
+        <div class="flex items-center justify-between gap-3 p-2.5 rounded-lg border text-xs" style="border-color:var(--line);${m.origem === 'enviado' ? 'background:var(--info-bg,#eff6ff)' : ''}">
             <div class="min-w-0">
-                <b style="color:var(--ink)">${pmEsc(m.pessoa_nome || 'Não identificado')}</b>
-                <span style="color:var(--sage)"> · ${pmEsc(m.pessoa_whatsapp || '—')}</span>
-                <div style="color:var(--sage)">${pmEsc(m.funcionalidade || '(sem funcionalidade)')} ${m.tipo_interacao ? '· ' + pmEsc(m.tipo_interacao) : ''}</div>
+                <span class="text-[10px] font-bold uppercase" style="color:${m.origem === 'enviado' ? 'var(--info)' : 'var(--pine)'}">${m.origem === 'enviado' ? 'Bot enviou' : 'Conversa'}</span>
+                <b style="color:var(--ink)"> ${pmEsc(m.pessoa_nome || 'Não identificado')}</b>
+                <span style="color:var(--sage)"> · ${pmEsc(m.pessoa_whatsapp || '—')}${buDetalheClienteId ? '' : ' · ' + pmEsc(m.empresa)}</span>
+                <div style="color:var(--sage)">${pmEsc(m.funcionalidade || '(sem funcionalidade)')}${m.titulo ? ' · ' + pmEsc(m.titulo) : ''}${m.tipo_interacao ? ' · ' + pmEsc(m.tipo_interacao) : ''}</div>
             </div>
             <div class="text-right flex-none">
                 <div style="color:var(--ink)">${new Date(m.criado_em).toLocaleString('pt-BR')}</div>
-                <div style="color:${m.resultado === 'erro' ? 'var(--danger)' : 'var(--sage)'}">${pmEsc(m.resultado)}</div>
+                <div style="color:${m.resultado === 'erro' ? 'var(--danger)' : 'var(--sage)'}">${pmEsc(m.resultado || '')}</div>
             </div>
         </div>
-    `).join('') || `<p class="text-xs" style="color:var(--sage)">Sem mensagens desta empresa no período/filtro selecionado.</p>`;
+    `).join('') || `<p class="text-xs" style="color:var(--sage)">Sem mensagens no período/filtro selecionado.</p>`;
 }
 
 function buFecharDetalhe() {
