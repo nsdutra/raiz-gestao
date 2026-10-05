@@ -1,6 +1,21 @@
 // ============================================================================
 // js/telas/suporte-backlog.js — Raiz Gestão
-// Versão: 0.3.0 · 27/09/2026
+// Versão: 0.4.0 · 04/10/2026
+//
+// v0.4.0 (04/10/2026, frente D · fatia D1, demandas 00b919b6 e 860233ca, sessão
+// 20261004-1800-indicadores; "De acordo com D1" e "SLA de 11.09" do Nicola às 22:06) — visão de
+// SUPORTE com SLA, quando só o chip Suporte está marcado:
+//   — Painel de todas as empresas (fn_suporte_painel, nova, só master): abertos, SLA estourado,
+//     sem 1ª resposta, tempo médio de 1ª resposta e de resolução, % dentro do SLA contra a meta
+//     de 90%, quantidade no período; chamados por semana com o % no SLA; por origem, empresa e
+//     severidade; tabela de chamados com empresa, severidade, prazo, 1ª resposta e responsável;
+//     a política de SLA (crítica 4 h · alta 24 h · sugestão 72 h, decisão de 11/09).
+//   — Ficha de chamado de suporte ganha o bloco SLA: severidade (trocar recalcula o prazo —
+//     fn_demanda_atualizar p_severidade), prazo e estado, "Responder" (fn_demanda_responder,
+//     nova, marca a 1ª resposta) e, quando o chamado veio de uma leitura do motor, "Abrir no
+//     Motor Documental" (a mesma tela de hoje — o chamado só guarda vínculo, SLA e registro).
+//   — Produto e Serviço seguem exatamente como estavam.
+// Versão anterior: 0.3.0 · 27/09/2026
 //
 // v0.3.0 (demanda 7af2de58) — estágio "em testes" chega na TELA (já existia
 // no banco desde a v1.4.0 do manifesto — fn_demanda_entregar/fn_demanda_
@@ -101,6 +116,8 @@ async function telaSuporteInit() {
 // LISTA
 // ----------------------------------------------------------------------------
 async function supRenderLista() {
+    // v0.4.0 (D1) — só Suporte marcado → painel com SLA, de todas as empresas
+    if (supSubtipos.length === 1 && supSubtipos[0] === 'suporte') { await supRenderPainelSuporte(); return; }
     const area = document.getElementById('area-conteudo');
     const { data, error } = await dbAuth.rpc('fn_demandas_listar', {
         p_cliente_id: supClienteId, p_subtipos: supSubtipos, p_situacao: supSituacao,
@@ -243,6 +260,8 @@ async function supRenderFicha() {
             </div>
         </div>
 
+        ${d.subtipo === 'suporte' ? '<div id="sup-sla-bloco"></div>' : ''}
+
         ${d.ativo ? `
         <div class="p-3 rounded-xl border-2 mb-3" style="border-color:var(--line);background:#fff">
             <p class="text-xs font-bold mb-1.5" style="color:var(--ink)">Agendar acompanhamento</p>
@@ -314,6 +333,7 @@ async function supRenderFicha() {
             `).join('') || '<p class="text-xs" style="color:var(--sage)">Nenhum evento ainda.</p>'}
         </div>
     `;
+    if (d.subtipo === 'suporte') supCarregarBlocoSla(d); // v0.4.0 (D1)
 }
 
 function supRotuloAcao(acao) {
@@ -471,4 +491,171 @@ async function supCriarDemanda(forcar) {
     supClienteId = document.getElementById('sup-nova-empresa').value;
     supDemandaAtual = data.id;
     await supRenderFicha();
+}
+
+
+// ============================================================================
+// v0.4.0 (D1) — SUPORTE COM SLA
+// ============================================================================
+const SUP_SEV_ROTULO = { critica: 'Crítica', alta: 'Alta', sugestao: 'Sugestão' };
+const SUP_SEV_HORAS = { critica: '4 h', alta: '24 h', sugestao: '72 h' };
+let supPainelDias = 30;
+
+function supFmtDuracao(min) {
+    if (min == null) return '—';
+    const m = Math.round(Number(min));
+    if (m < 60) return `${m} min`;
+    const h = Math.floor(m / 60), r = m % 60;
+    if (h < 48) return r ? `${h}h${String(r).padStart(2, '0')}` : `${h}h`;
+    return `${Math.round(h / 24 * 10) / 10} d`.replace('.', ',');
+}
+function supFmtPrazo(iso, ativo, estourado) {
+    if (!iso) return { txt: 'sem SLA', cor: 'var(--sage)', bg: '#eef0f1' };
+    if (!ativo) return { txt: 'encerrado', cor: 'var(--sage)', bg: '#eef0f1' };
+    const diffMin = (new Date(iso) - Date.now()) / 60000;
+    if (estourado || diffMin < 0) return { txt: `estourou há ${supFmtDuracao(-diffMin)}`, cor: '#fff', bg: 'var(--danger)' };
+    if (diffMin < 240) return { txt: `faltam ${supFmtDuracao(diffMin)}`, cor: 'var(--warning)', bg: 'var(--warning-bg)' };
+    return { txt: `faltam ${supFmtDuracao(diffMin)}`, cor: 'var(--success)', bg: 'var(--success-bg)' };
+}
+function supChipPeriodo(d) {
+    return `<button onclick="supPainelDias=${d};supRenderPainelSuporte()" class="text-xs font-bold px-3 py-1.5 rounded-lg border-2"
+        style="border-color:${supPainelDias === d ? 'var(--brass)' : 'var(--line)'};background:#fff;color:var(--ink)">${d} dias</button>`;
+}
+
+async function supRenderPainelSuporte() {
+    const area = document.getElementById('area-conteudo');
+    area.innerHTML = `<p class="text-sm" style="color:var(--sage)">Carregando suporte…</p>`;
+    const de = new Date(Date.now() - supPainelDias * 864e5).toISOString().slice(0, 10);
+    const { data: p, error } = await dbAuth.rpc('fn_suporte_painel', { p_de: de, p_ate: null, p_cliente_id: null });
+    if (error) { gestaoErro(error.message); return; }
+    const k = p.kpis || {}, meta = p.meta_pct || 90;
+    const chipSub = (v, label) => `<button onclick="supAlternarSubtipo('${v}')" class="text-xs font-bold px-3 py-1.5 rounded-lg border-2"
+        style="border-color:${supSubtipos.includes(v) ? 'var(--brass)' : 'var(--line)'};background:#fff;color:var(--ink)">${label}</button>`;
+    const sem = p.semanas || [];
+    const maxSem = Math.max(1, ...sem.map(w => w.abertos || 0));
+    const barras = (lista, campo, rotulo) => {
+        const max = Math.max(1, ...lista.map(x => x.n || 0));
+        return lista.length ? lista.map(x => gestaoBarra(rotulo(x[campo]), x.n, max)).join('') : `<p class="text-[11px]" style="color:var(--sage)">Sem chamados no período.</p>`;
+    };
+    const rotOrigem = { motor: 'Leitura fraca (motor, automático)', documento: 'Reprocessar documento (cliente pediu)', demais: 'Demais chamados' };
+    const linhas = (p.tickets || []).map(t => {
+        const pr = supFmtPrazo(t.sla_resolucao_ate, t.ativo, t.estourado);
+        const resp = t.primeira_resposta_em ? supFmtDuracao((new Date(t.primeira_resposta_em) - new Date(t.criado_em)) / 60000) : (t.ativo ? 'aguardando' : '—');
+        return `<tr onclick="supAbrirFicha('${t.id}')" style="cursor:pointer;${t.estourado ? 'box-shadow:inset 3px 0 0 var(--danger)' : ''}">
+            <td class="p-2 align-top"><b class="block">${new Date(t.criado_em).toLocaleDateString('pt-BR')}</b><span style="color:var(--sage)">${new Date(t.criado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span></td>
+            <td class="p-2 align-top font-bold">${supEsc(t.empresa)}</td>
+            <td class="p-2 align-top">${supEsc(t.titulo)}${t.extracao_id ? ` <span class="text-[10px] font-bold px-1.5 rounded" style="background:var(--brass-bg, #fbeee6);color:var(--brass-deep)">${t.origem === 'automacao' ? 'motor' : 'documento'}</span>` : ''}</td>
+            <td class="p-2 align-top">${t.severidade ? SUP_SEV_ROTULO[t.severidade] + ' · ' + SUP_SEV_HORAS[t.severidade] : '<span style="color:var(--sage)">sem severidade</span>'}</td>
+            <td class="p-2 align-top"><span class="text-[11px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap" style="background:${pr.bg};color:${pr.cor}">${pr.txt}</span></td>
+            <td class="p-2 align-top whitespace-nowrap">${resp}</td>
+            <td class="p-2 align-top">${supEsc(t.responsavel || '—')}</td>
+            <td class="p-2 align-top">${t.ativo ? 'Aberto' : (t.no_sla ? 'Resolvido · no SLA' : 'Resolvido')}</td>
+        </tr>`;
+    }).join('');
+
+    area.innerHTML = `
+        <div class="mb-4">
+            <h1 class="text-lg font-extrabold flex items-center" style="color:var(--ink)">Suporte & Backlog
+                ${gestaoInfoIcone('Visão de suporte: chamados de todas as empresas, com SLA por severidade (crítica 4 h, alta 24 h, sugestão 72 h — decisão de 11/09/2026). Fonte: fn_suporte_painel.')}</h1>
+            <p class="text-xs mt-0.5" style="color:var(--sage)">Chamados de suporte de todas as empresas, com SLA, tempos e responsável.</p>
+        </div>
+        <div class="flex flex-wrap gap-1.5 mb-2">${chipSub('produto', '📦 Produto')}${chipSub('suporte', '🎧 Suporte')}${chipSub('servico', '🛠️ Serviço')}</div>
+        <div class="flex flex-wrap gap-1.5 mb-3">${supChipPeriodo(7)}${supChipPeriodo(30)}${supChipPeriodo(90)}</div>
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 mb-3">
+            ${gestaoCardMetrica('Abertos', k.abertos ?? 0, 'ink', 'Chamados de suporte ainda abertos, de todas as empresas.')}
+            ${gestaoCardMetrica('SLA estourado', k.estourados ?? 0, k.estourados ? 'red' : 'ink', 'Abertos com o prazo da severidade já vencido. Tratar primeiro.')}
+            ${gestaoCardMetrica('Sem 1ª resposta', k.sem_resposta ?? 0, k.sem_resposta ? 'amber' : 'ink')}
+            ${gestaoCardMetrica('1ª resposta · média', supFmtDuracao(k.resposta_media_min), 'ink', 'Da abertura à primeira resposta da equipe Raiz, nos chamados abertos no período. Medida, sem meta própria.')}
+            ${gestaoCardMetrica('Resolução · média', supFmtDuracao(k.resolucao_media_min), 'ink', 'Da abertura ao encerramento, nos chamados resolvidos no período.')}
+            ${gestaoCardMetrica('Dentro do SLA', k.no_sla_pct == null ? '—' : k.no_sla_pct + '%', k.no_sla_pct == null ? 'ink' : (k.no_sla_pct >= meta ? 'green' : 'amber'), `Resolvidos dentro do prazo da severidade ÷ resolvidos com SLA, no período. Meta ${meta}%.`)}
+        </div>
+        <p class="text-[11px] mb-3" style="color:var(--sage)">${k.no_periodo ?? 0} chamado(s) aberto(s) e ${k.resolvidos_periodo ?? 0} resolvido(s) nos últimos ${supPainelDias} dias · meta ${meta}% dentro do SLA.</p>
+
+        <div class="rounded-xl border-2 mb-3 overflow-x-auto" style="border-color:var(--line);background:#fff">
+            <table class="w-full text-xs" style="min-width:820px">
+                <thead><tr style="color:var(--sage);text-align:left">
+                    <th class="p-2">Aberto</th><th class="p-2">Empresa</th><th class="p-2">Chamado</th><th class="p-2">Severidade</th>
+                    <th class="p-2">SLA</th><th class="p-2">1ª resposta</th><th class="p-2">Responsável</th><th class="p-2">Situação</th></tr></thead>
+                <tbody>${linhas || `<tr><td colspan="8" class="p-4 text-center" style="color:var(--sage)">Nenhum chamado no período.</td></tr>`}</tbody>
+            </table>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+            <div class="p-3 rounded-xl border-2" style="border-color:var(--line);background:#fff">
+                <p class="text-xs font-bold mb-2">Chamados por semana e % no SLA</p>
+                <div class="flex items-end gap-3" style="height:120px">${sem.map(w => `
+                    <div class="flex-1 flex flex-col items-center justify-end h-full gap-1">
+                        <span class="text-[11px] font-bold" style="color:${w.no_sla_pct == null ? 'var(--sage)' : (w.no_sla_pct >= meta ? 'var(--success)' : 'var(--danger)')}">${w.no_sla_pct == null ? '—' : w.no_sla_pct + '%'}</span>
+                        <div style="width:60%;max-width:34px;height:${Math.max(4, (w.abertos / maxSem) * 80)}px;background:var(--pine-light);border-radius:4px 4px 0 0"></div>
+                        <span class="text-[11px]" style="color:var(--sage)">${w.abertos} · ${w.semana.slice(8, 10)}/${w.semana.slice(5, 7)}</span>
+                    </div>`).join('') || `<p class="text-[11px]" style="color:var(--sage)">Sem chamados nas últimas 8 semanas.</p>`}</div>
+                <p class="text-[11px] mt-2" style="color:var(--sage)">Barra = chamados abertos na semana (início na segunda) · número = % resolvido dentro do SLA.</p>
+            </div>
+            <div class="p-3 rounded-xl border-2" style="border-color:var(--line);background:#fff">
+                <p class="text-xs font-bold mb-2">Por origem</p>${barras(p.por_origem || [], 'origem', v => rotOrigem[v] || v)}
+                <p class="text-xs font-bold mb-2 mt-3">Por empresa</p>${barras(p.por_empresa || [], 'empresa', v => supEsc(v))}
+                <p class="text-xs font-bold mb-2 mt-3">Por severidade</p>${barras(p.por_severidade || [], 'severidade', v => SUP_SEV_ROTULO[v] || 'Sem severidade (anterior à política)')}
+            </div>
+        </div>
+
+        <div class="p-3 rounded-xl border-2" style="border-color:var(--line);background:#fff">
+            <p class="text-xs font-bold mb-2">Política de SLA</p>
+            <table class="w-full text-xs"><tbody>
+                <tr><td class="p-1.5 font-bold">Crítica</td><td class="p-1.5">4 h</td><td class="p-1.5" style="color:var(--sage)">Erro que impede o cliente de usar o sistema</td></tr>
+                <tr><td class="p-1.5 font-bold">Alta</td><td class="p-1.5">24 h</td><td class="p-1.5" style="color:var(--sage)">Erro com contorno · reprocessar documento (padrão do motor e de chamado novo)</td></tr>
+                <tr><td class="p-1.5 font-bold">Sugestão</td><td class="p-1.5">72 h</td><td class="p-1.5" style="color:var(--sage)">Dúvida, sugestão, pesquisa</td></tr>
+            </tbody></table>
+            <p class="text-[11px] mt-2" style="color:var(--sage)">Igual para todos os planos. O prazo fica congelado na abertura e só muda se a severidade mudar. Chamados abertos antes da política ficam sem SLA.</p>
+        </div>`;
+}
+
+// Bloco SLA da ficha de um chamado de suporte (carrega depois da ficha)
+async function supCarregarBlocoSla(d) {
+    const el = document.getElementById('sup-sla-bloco');
+    if (!el) return;
+    const [{ data: it }, { data: oc }] = await Promise.all([
+        dbAuth.from('cofre_itens_controle').select('severidade, sla_resolucao_ate, criado_em, ativo').eq('id', d.id).maybeSingle(),
+        dbAuth.from('cofre_ocorrencias_controle').select('origem_id').eq('item_controle_id', d.id).eq('origem', 'cofre_extracao').limit(1),
+    ]);
+    if (!it) { el.innerHTML = ''; return; }
+    const pr = supFmtPrazo(it.sla_resolucao_ate, it.ativo, false);
+    const veioDoMotor = (oc || []).length > 0;
+    const opSev = ['critica', 'alta', 'sugestao'].map(v => `<option value="${v}" ${it.severidade === v ? 'selected' : ''}>${SUP_SEV_ROTULO[v]} · ${SUP_SEV_HORAS[v]}</option>`).join('');
+    el.innerHTML = `
+        <div class="p-3 rounded-xl border-2 mb-3" style="border-color:${pr.bg === 'var(--danger)' ? 'var(--danger)' : 'var(--line)'};background:#fff">
+            <div class="flex flex-wrap items-center gap-2 mb-2">
+                <p class="text-xs font-bold flex-1" style="color:var(--ink)">SLA do chamado</p>
+                <span class="text-[11px] font-bold px-2 py-0.5 rounded-full" style="background:${pr.bg};color:${pr.cor}">${pr.txt}</span>
+            </div>
+            <p class="text-[11px] mb-2" style="color:var(--sage)">${it.sla_resolucao_ate ? 'Prazo: ' + new Date(it.sla_resolucao_ate).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : 'Chamado anterior à política de SLA.'}</p>
+            ${it.ativo ? `
+            <div class="flex flex-wrap gap-1.5 mb-2">
+                <select id="sup-sev" class="text-xs p-2 rounded-lg border-2" style="border-color:var(--line)">${it.severidade ? '' : '<option value="">Sem severidade</option>'}${opSev}</select>
+                <button onclick="supMudarSeveridade()" class="text-xs font-bold px-3 rounded-lg border-2" style="border-color:var(--line)">Mudar severidade</button>
+                ${veioDoMotor ? `<button onclick="supAbrirMotor()" class="text-xs font-bold px-3 rounded-lg border-2" style="border-color:var(--brass);color:var(--brass-deep)">Abrir no Motor Documental</button>` : ''}
+            </div>
+            <textarea id="sup-resposta" rows="2" placeholder="Resposta da equipe Raiz (fica no registro do chamado)…" class="w-full text-xs p-2 rounded-lg border-2 mb-1.5" style="border-color:var(--line)"></textarea>
+            <button onclick="supResponder()" class="text-xs font-bold px-3 py-1.5 rounded-lg text-white" style="background:var(--pine)">Responder</button>
+            <p id="sup-sla-msg" class="text-[11px] mt-1.5" style="color:var(--sage)"></p>` : ''}
+            ${veioDoMotor ? `<p class="text-[11px] mt-1.5" style="color:var(--sage)">Este chamado veio de uma leitura do motor: o reprocessamento acontece na tela do Motor Documental; aqui ficam o SLA e o registro.</p>` : ''}
+        </div>`;
+}
+async function supMudarSeveridade() {
+    const v = document.getElementById('sup-sev').value, msg = document.getElementById('sup-sla-msg');
+    if (!v) { msg.textContent = 'Escolha uma severidade.'; return; }
+    const { data, error } = await dbAuth.rpc('fn_demanda_atualizar', { p_item_id: supDemandaAtual, p_severidade: v });
+    if (error || !data?.ok) { msg.textContent = error?.message || data?.mensagem || 'Não foi possível mudar.'; msg.style.color = 'var(--danger)'; return; }
+    await supRenderFicha();
+}
+async function supResponder() {
+    const t = document.getElementById('sup-resposta').value.trim(), msg = document.getElementById('sup-sla-msg');
+    if (t.length < 3) { msg.textContent = 'Escreva a resposta.'; return; }
+    const { data, error } = await dbAuth.rpc('fn_demanda_responder', { p_item_id: supDemandaAtual, p_texto: t });
+    if (error || !data?.ok) { msg.textContent = error?.message || data?.mensagem || 'Não foi possível registrar.'; msg.style.color = 'var(--danger)'; return; }
+    await supRenderFicha();
+}
+function supAbrirMotor() {
+    try { if (typeof pdAba !== 'undefined') pdAba = 'assertividade'; } catch (e) { /* tela ainda não carregada */ }
+    gestaoAbrirTela('parametros');
+    setTimeout(() => { if (typeof pmAbrirHub === 'function') pmAbrirHub('documental'); }, 150);
 }

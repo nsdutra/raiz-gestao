@@ -1,6 +1,20 @@
 // ============================================================================
 // js/telas/parametros-documental.js — Motor Documental no Raiz Gestão
-// Versão: 0.2.0 · 18/09/2026
+// Versão: 0.3.0 · 04/10/2026
+//
+// v0.3.0 (04/10/2026, frente D · fatia D1, demanda 00b919b6, sessão 20261004-1800-indicadores,
+// "De acordo com D1" do Nicola às 22:06) — Assertividade ganha o que faltava para ler
+// performance e oportunidade por espécie e tipo de documento, numa função do banco
+// (fn_gestao_motor_assertividade, nova — a conta sai do JS, CAN-01):
+//   — KPIs novos: reconhecidas (caiu num tipo do catálogo), aguardando revisão, tempo p90,
+//     custo médio por leitura (US$, tokens × gestao.ia_precos_modelo) e quantas viraram chamado.
+//   — Tabela por espécie (1º nível do catálogo) com abertura por tipo: leituras, reconhecidas,
+//     sem edição, confiança média, chamados e nível de oportunidade.
+//   — "Onde mexer primeiro": os 5 tipos com mais leituras perdidas (não reconhecidas +
+//     corrigidas + chamados).
+//   — Ficam como estavam: filtros, "Campos mais corrigidos" e o total de tokens.
+//   Os filtros de usuário e de tipo continuam valendo só para os campos mais corrigidos.
+// Versão anterior: 0.2.0 · 18/09/2026
 //
 // v0.2.0 — CAN-05 (Onda 2 da PROPOSTA_CATALOGO_GESTAO v1.3.0): a aba
 // Catálogo perde os campos ESTRUTURAIS do subtipo — categoria, titular,
@@ -37,7 +51,7 @@
 // muda o comportamento sem deploy.
 // ============================================================================
 
-const PD_VERSAO = '0.2.0';
+const PD_VERSAO = '0.3.0';
 let pdAba = 'catalogo';
 let pdSubtipos = [];
 let pdCategorias = [];
@@ -303,13 +317,16 @@ async function pdRenderAssertividade() {
     const f = pdFiltrosMetrica;
     // Cross-tenant por função SECURITY DEFINER (a RLS da tabela é por tenant) —
     // mesmo padrão das outras telas do Gestão. Gate de master_plataforma dentro.
-    const [rx, rc] = await Promise.all([
+    const [rx, rc, ra] = await Promise.all([
         dbAuth.rpc('fn_gestao_extracoes_documental', {
             p_cliente_id: f.empresa || null, p_de: f.de || null, p_ate: f.ate || null,
             p_pessoa_id: f.pessoa || null, p_subtipo: f.subtipo || null, p_canal: f.canal || null, p_limite: 1000,
         }),
         dbAuth.from('clientes').select('id, nome_empresa').order('nome_empresa'),
+        // v0.3.0 (D1) — agregado por espécie/tipo no banco
+        dbAuth.rpc('fn_gestao_motor_assertividade', { p_de: f.de || null, p_ate: f.ate || null, p_cliente_id: f.empresa || null, p_canal: f.canal || null }),
     ]);
+    const ag = (ra && !ra.error && ra.data) ? ra.data : null;
     if (rx.error) { cont.innerHTML = `<p class="text-xs" style="color:var(--danger)">${pdEsc(rx.error.message)}</p>`; return; }
     pdMetricas = rx.data || [];
     const empresas = rc.data || [];
@@ -373,12 +390,8 @@ async function pdRenderAssertividade() {
                 ${['app', 'bot'].map(c => `<option value="${c}" ${f.canal === c ? 'selected' : ''}>${c}</option>`).join('')}
             </select>
         </div>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
-            ${gestaoCardMetrica('Leituras', total)}
-            ${gestaoCardMetrica('Confirmadas sem edição', semEdicao === null ? '—' : semEdicao + '%', semEdicao !== null && semEdicao < 70 ? 'amber' : null, 'Do que o cliente revisou, quanto ficou exatamente como a IA leu.')}
-            ${gestaoCardMetrica('Revisor acionado', revisados_pct + '%', revisados_pct > 40 ? 'amber' : null, 'Segunda leitura por gatilho — quanto maior, mais caro.')}
-            ${gestaoCardMetrica('Tempo médio', comTempo ? Math.round(ms / comTempo / 100) / 10 + ' s' : '—')}
-        </div>
+        ${pdKpisAssertividade(ag, { total, semEdicao, revisados_pct, ms, comTempo })}
+        ${pdEspeciesAssertividade(ag)}
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div class="border rounded-xl p-3" style="border-color:var(--line)">
                 <p class="text-xs font-bold mb-2">Campos mais corrigidos</p>
@@ -386,16 +399,77 @@ async function pdRenderAssertividade() {
                     : `<p class="text-[11px]" style="color:var(--sage)">Nenhuma correção registrada no período — ou ninguém revisou ainda.</p>`}
                 <p class="text-[10px] mt-2" style="color:var(--sage)">É a lista que diz onde mexer no prompt ou nos campos do catálogo.</p>
             </div>
-            <div class="border rounded-xl p-3" style="border-color:var(--line)">
-                <p class="text-xs font-bold mb-2">Por tipo de documento</p>
-                <div class="space-y-1">${Object.entries(porSubtipo).sort((a, b) => b[1].n - a[1].n).map(([k, v]) => `
-                    <div class="flex items-center justify-between text-[11px]">
-                        <span class="font-mono">${pdEsc(k)}</span>
-                        <span style="color:var(--sage)">${v.n} leitura(s) · ${v.ok} ok · ${v.corr} corrigida(s) · ${v.rev} revisor</span>
-                    </div>`).join('') || `<p class="text-[11px]" style="color:var(--sage)">Sem dados.</p>`}</div>
-            </div>
+            ${pdOportunidades(ag)}
         </div>
         <p class="text-[10px] mt-3" style="color:var(--sage)">Tokens somados no período: ${tokens.toLocaleString('pt-BR')}. Fonte: cofre_extracoes_documento (campos × confirmado, execucao_ia, prompt_versao).</p>`;
 }
 
 function pdFiltroMetrica(chave, valor) { pdFiltrosMetrica[chave] = valor; pdRenderAssertividade(); }
+
+
+// ---------------------------------------------------------------- v0.3.0 (D1)
+const PD_ESPECIE_ROTULO = { sem_tipo: 'Sem tipo identificado', imovel: 'Imóvel', seguro: 'Seguro', veiculo: 'Veículo', contrato: 'Contrato',
+    financeiro: 'Financeiro', societario: 'Societário', operacional: 'Operacional', pessoa: 'Pessoa', outros: 'Outros' };
+const PD_OPORT = { alta: ['Alta', 'var(--danger)', 'var(--danger-bg)'], media: ['Média', 'var(--warning)', 'var(--warning-bg)'],
+    baixa: ['Baixa', 'var(--success)', 'var(--success-bg)'], pouco_volume: ['Pouco volume', 'var(--sage)', '#eef0f1'], sem_uso: ['Sem uso ainda', 'var(--sage)', '#eef0f1'] };
+let pdEspAberta = null;
+const pdPct = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
+
+function pdKpisAssertividade(ag, local) {
+    const k = ag?.kpis || {};
+    const semEd = k.sem_edicao_pct ?? local.semEdicao;
+    return `<div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+        ${gestaoCardMetrica('Leituras', k.leituras ?? local.total)}
+        ${gestaoCardMetrica('Reconhecidas', k.reconhecidas_pct == null ? '—' : k.reconhecidas_pct + '%', k.reconhecidas_pct != null && k.reconhecidas_pct < 70 ? 'amber' : null, 'Leituras que caíram num tipo do catálogo (nem sem tipo, nem "outro").')}
+        ${gestaoCardMetrica('Confirmadas sem edição', semEd == null ? '—' : semEd + '%', semEd != null && semEd < 70 ? 'amber' : null, 'Do que o cliente revisou, quanto ficou exatamente como a IA leu.')}
+        ${gestaoCardMetrica('Aguardando revisão', k.aguardando_pct == null ? '—' : k.aguardando_pct + '%', k.aguardando_pct > 40 ? 'amber' : null, `${k.aguardando ?? 0} leitura(s) que ninguém confirmou nem corrigiu ainda.`)}
+        ${gestaoCardMetrica('Revisor acionado', (k.revisor_pct ?? local.revisados_pct) + '%', (k.revisor_pct ?? local.revisados_pct) > 40 ? 'amber' : null, 'Segunda leitura por gatilho — quanto maior, mais caro.')}
+        ${gestaoCardMetrica('Tempo', k.tempo_medio_s == null ? '—' : String(k.tempo_medio_s).replace('.', ',') + ' s', null, `Médio por leitura · 90% das leituras em até ${k.tempo_p90_s == null ? '—' : String(k.tempo_p90_s).replace('.', ',') + ' s'}.`)}
+        ${gestaoCardMetrica('Custo por leitura', k.custo_medio_usd == null ? '—' : 'US$ ' + Number(k.custo_medio_usd).toFixed(3).replace('.', ','), null, 'Tokens de cada etapa × preço do modelo (gestao.ia_precos_modelo).')}
+        ${gestaoCardMetrica('Viraram chamado', k.tickets ?? 0, k.tickets ? 'amber' : null, 'Leituras com chamado de suporte (o motor abre sozinho abaixo do limiar de confiança, ou o cliente pede).')}
+    </div>`;
+}
+
+function pdEspeciesAssertividade(ag) {
+    const esp = ag?.especies || [];
+    if (!esp.length) return '';
+    const linhas = esp.map(e => {
+        const op = PD_OPORT[e.oportunidade] || PD_OPORT.baixa;
+        const aberta = pdEspAberta === e.especie;
+        const revisadas = e.confirmadas + e.corrigidas;
+        let html = `<tr onclick="pdEspAberta = pdEspAberta === '${e.especie}' ? null : '${e.especie}'; pdRenderAssertividade()" style="cursor:pointer;border-top:1px solid var(--line)">
+            <td class="p-2 font-bold">${e.tipos.length ? (aberta ? '▾ ' : '▸ ') : ''}${pdEsc(PD_ESPECIE_ROTULO[e.especie] || e.especie)}</td>
+            <td class="p-2 text-right">${e.leituras}</td><td class="p-2 text-right">${pdPct(e.reconhecidas, e.leituras)}</td>
+            <td class="p-2 text-right">${revisadas ? `${pdPct(e.confirmadas, revisadas)} (${e.confirmadas} de ${revisadas})` : '—'}</td>
+            <td class="p-2 text-right">${e.confianca_media == null ? '—' : e.confianca_media + '%'}</td><td class="p-2 text-right">${e.tickets}</td>
+            <td class="p-2"><span class="text-[11px] font-bold px-2 py-0.5 rounded-full" style="background:${op[2]};color:${op[1]}">${op[0]}</span></td></tr>`;
+        if (aberta) html += e.tipos.map(t => {
+            const rv = t.confirmadas + t.corrigidas;
+            return `<tr style="background:#fbfbfa;font-size:11px"><td class="p-2 pl-6">${pdEsc(t.tipo)}</td><td class="p-2 text-right">${t.leituras}</td>
+                <td class="p-2 text-right">${pdPct(t.reconhecidas, t.leituras)}</td><td class="p-2 text-right">${rv ? `${pdPct(t.confirmadas, rv)} (${t.corrigidas} corrigida(s))` : '—'}</td>
+                <td class="p-2 text-right">${t.confianca_media == null ? '—' : t.confianca_media + '%'}</td><td class="p-2 text-right">${t.tickets}</td><td></td></tr>`;
+        }).join('');
+        return html;
+    }).join('');
+    return `<div class="border rounded-xl p-3 mb-3 overflow-x-auto" style="border-color:var(--line)">
+        <p class="text-xs font-bold mb-2">Por espécie e tipo de documento</p>
+        <table class="w-full text-xs" style="min-width:640px"><thead><tr style="color:var(--sage)">
+            <th class="p-2 text-left">Espécie (clique para abrir os tipos)</th><th class="p-2 text-right">Leituras</th><th class="p-2 text-right">Reconhecidas</th>
+            <th class="p-2 text-right">Sem edição</th><th class="p-2 text-right">Confiança média</th><th class="p-2 text-right">Chamados</th><th class="p-2 text-left">Oportunidade</th></tr></thead>
+        <tbody>${linhas}</tbody></table>
+        <p class="text-[10px] mt-2" style="color:var(--sage)">Espécie = 1º nível da categoria do catálogo. Oportunidade = leituras perdidas (não reconhecidas + corrigidas + chamados) ÷ leituras: alta a partir de 40%, média a partir de 20%; abaixo de 3 leituras, "pouco volume".</p>
+    </div>`;
+}
+
+function pdOportunidades(ag) {
+    const ops = ag?.oportunidades || [];
+    return `<div class="border rounded-xl p-3" style="border-color:var(--line)">
+        <p class="text-xs font-bold mb-2">Onde mexer primeiro</p>
+        ${ops.length ? ops.map((o, i) => `<div class="flex gap-2 items-start py-1.5" style="${i ? 'border-top:1px solid var(--line)' : ''}">
+            <span class="text-[11px] font-bold rounded-full flex-none text-white" style="background:var(--brass);width:22px;height:22px;display:grid;place-items:center">${i + 1}</span>
+            <div class="flex-1 min-w-0"><p class="text-xs font-bold" style="color:var(--ink)">${pdEsc(o.tipo)} · ${pdEsc(PD_ESPECIE_ROTULO[o.especie] || o.especie)}</p>
+            <p class="text-[11px]" style="color:var(--sage)">${o.leituras} leitura(s) · ${o.nao_reconhecidas} sem tipo útil · ${o.corrigidas} corrigida(s) · ${o.tickets} chamado(s)${o.confianca_media != null ? ' · confiança média ' + o.confianca_media + '%' : ''}</p></div>
+        </div>`).join('') : `<p class="text-[11px]" style="color:var(--sage)">Nenhuma leitura perdida no período.</p>`}
+        <p class="text-[10px] mt-2" style="color:var(--sage)">Ajuste no Catálogo (sinônimos, "como reconhecer", prompt específico) — a versão nova aparece em Versões para comparar antes e depois.</p>
+    </div>`;
+}

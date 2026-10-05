@@ -1,6 +1,17 @@
 // ============================================================================
 // js/telas/cockpit.js — Raiz Gestão
-// Versão: 1.5.1 · 02/10/2026
+// Versão: 1.6.0 · 04/10/2026
+//
+// v1.6.0 (04/10/2026, frente D · fatia D1, demanda 00b919b6, sessão 20261004-1800-indicadores,
+// "De acordo com D1" e "SLA de 11.09" do Nicola às 22:06) — Suporte com SLA chega ao Cockpit:
+//   — Fila: item URGENTE (fundo vermelho) "N chamado(s) com SLA estourado" e item CRÍTICO
+//     (borda e número vermelhos) "N chamado(s) de suporte abertos a tratar", lidos de
+//     fn_suporte_painel (nova). Os dois abrem Suporte & Backlog já em Suporte.
+//   — Grid: card Suporte & Backlog passa a mostrar abertos e % dentro do SLA (meta 90%); card
+//     Motor Documental deixa de ser 'vazio' e mostra % de leituras reconhecidas nos últimos
+//     30 dias (fn_gestao_motor_assertividade, nova), abrindo o Motor Documental.
+//   — Falha das duas RPCs novas não derruba o Cockpit (mesmo padrão do pagamento pendente).
+// Versão anterior: 1.5.1 · 02/10/2026
 //
 // v1.5.1 (02/10/2026, pedido do Nicola: apagar a função antiga) — o item
 // urgente de pagamentos lê fn_gestao_pagamentos_pendentes_v2 (mesma lista do
@@ -171,6 +182,8 @@ async function telaCockpitInit() {
         { data: empresasLimite, error: e9 },
         { data: metricasGlobaisLinhas, error: e10 },
         { data: pagPendentes },
+        { data: suportePainel },
+        { data: motorAssert },
     ] = await Promise.all([
         dbAuth.schema('gestao').rpc('fn_cockpit_atencao'),
         dbAuth.schema('gestao').rpc('fn_financeiro_resumo'),
@@ -183,6 +196,8 @@ async function telaCockpitInit() {
         dbAuth.schema('gestao').rpc('fn_empresas_em_limite'), // v1.2.0
         dbAuth.schema('gestao').rpc('fn_cockpit_metricas_globais', { p_dias: null }), // v1.2.0 · p_dias desde v1.3.0 (Total no load inicial)
         dbAuth.rpc('fn_gestao_pagamentos_pendentes_v2'), // v1.5.0 (F10) · v2 desde v1.5.1 — falha não bloqueia o Cockpit
+        dbAuth.rpc('fn_suporte_painel', { p_de: null, p_ate: null, p_cliente_id: null }), // v1.6.0 (D1) — falha não bloqueia
+        dbAuth.rpc('fn_gestao_motor_assertividade', { p_de: new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10), p_ate: null, p_cliente_id: null, p_canal: null }), // v1.6.0 (D1)
     ]);
 
     const erros = [e1, e2, e3, e4, e5, e6, e7, e8, e9, e10].filter(Boolean);
@@ -251,6 +266,13 @@ async function telaCockpitInit() {
     cockpitFila = [];
     const nPagPend = (pagPendentes || []).length;
     if (nPagPend) cockpitFila.push({ sev: 'urgente', area: 'Financeiro', title: `${nPagPend} pagamento(s) de plano aguardando confirmação`, detail: pagPendentes.slice(0, 5).map(p => `${p.cliente_nome} (${gestaoFormatarMoedaBR(p.valor)})`).join(', '), num: String(nPagPend), abrir: () => gestaoAbrirTela('financeiro') });
+    // v1.6.0 (D1) — suporte: SLA estourado é urgente; aberto a tratar é crítico.
+    const supK = (suportePainel && suportePainel.kpis) || null;
+    if (supK && supK.estourados) {
+        const est = (suportePainel.tickets || []).filter(t => t.estourado);
+        cockpitFila.push({ sev: 'urgente', area: 'Suporte', title: `${supK.estourados} chamado(s) com SLA estourado`, detail: est.slice(0, 4).map(t => `${t.empresa}: ${t.titulo}`).join(' | '), num: String(supK.estourados), abrir: () => cockpitAbrirSuporte() });
+    }
+    if (supK && supK.abertos) cockpitFila.push({ sev: 'critico', area: 'Suporte', title: `${supK.abertos} chamado(s) de suporte abertos a tratar`, detail: `${supK.sem_resposta || 0} sem 1ª resposta.`, num: String(supK.abertos), abrir: () => cockpitAbrirSuporte() });
     if (nVencidas) cockpitFila.push({ sev: 'critico', area: 'Empresas & licenças', title: `${nVencidas} licença(s) vencida(s), ainda ativa(s)`, detail: 'Inconsistência a resolver — a licença venceu mas o status continua "ativo".', num: String(nVencidas), abrir: () => gestaoAbrirTela('empresas') });
     if (nVencendo) cockpitFila.push({ sev: 'atencao', area: 'Empresas & licenças', title: `${nVencendo} licença(s) vencendo nos próximos 7 dias`, detail: 'Vale contato do comercial antes do vencimento virar bloqueio.', num: String(nVencendo), abrir: () => gestaoAbrirTela('empresas') });
     if (nBaixoAcesso) cockpitFila.push({ sev: 'atencao', area: 'Empresas & licenças', title: `${nBaixoAcesso} empresa(s) sem acesso há 14+ dias`, detail: 'Adoção em risco — nunca acessou ou parou de acessar.', num: String(nBaixoAcesso), abrir: () => gestaoAbrirTela('empresas') });
@@ -295,18 +317,28 @@ async function telaCockpitInit() {
             detail: `De ${totalLancamentos} lançamento(s) no histórico completo (sem filtro de período).`,
             abrir: () => cockpitAbrirHub('conciliacao'),
         },
-        {
-            area: 'Motor Documental', chip: 'vazio',
-            metric: '—', unit: '',
-            detail: 'Sem RPC de resumo/pendência ligada a este painel ainda.',
-            abrir: () => cockpitAbrirHub('documental'),
-        },
-        {
-            area: 'Suporte & Backlog', chip: 'info',
-            metric: String(mg.demandas_abertas), unit: 'demanda(s) aberta(s)',
-            detail: 'cofre_itens_controle (tipo=sistema, ativo=true), todas as empresas — resolve a lacuna que este card tinha desde a v1.0.0.',
-            abrir: () => gestaoAbrirTela('suporte'),
-        },
+        (() => { // v1.6.0 (D1) — leituras reconhecidas nos últimos 30 dias
+            const k = (motorAssert && motorAssert.kpis) || null;
+            if (!k || !k.leituras) return { area: 'Motor Documental', chip: 'info', metric: '—', unit: 'sem leituras em 30 dias', detail: 'Nenhum documento lido pela IA no período.', abrir: () => cockpitAbrirHub('documental') };
+            return {
+                area: 'Motor Documental', chip: (k.reconhecidas_pct ?? 100) < 70 ? 'atencao' : 'ok',
+                metric: `${k.reconhecidas_pct ?? 0}%`, unit: 'reconhecidas (30 dias)',
+                detail: `${k.leituras} leitura(s) · ${k.aguardando_pct ?? 0}% aguardando revisão · ${k.tickets || 0} virou(aram) chamado.`,
+                abrir: () => cockpitAbrirHub('documental'),
+            };
+        })(),
+        (() => { // v1.6.0 (D1) — abertos e % no SLA
+            const k = (suportePainel && suportePainel.kpis) || null;
+            const meta = (suportePainel && suportePainel.meta_pct) || 90;
+            if (!k) return { area: 'Suporte & Backlog', chip: 'info', metric: String(mg.demandas_abertas), unit: 'demanda(s) aberta(s)', detail: 'Painel de suporte indisponível agora.', abrir: () => gestaoAbrirTela('suporte') };
+            const chip = k.estourados ? 'critico' : (k.abertos ? 'atencao' : 'ok');
+            return {
+                area: 'Suporte & Backlog', chip,
+                metric: String(k.abertos), unit: 'chamado(s) de suporte aberto(s)',
+                detail: `${k.no_sla_pct == null ? 'Sem chamado resolvido com SLA no período' : k.no_sla_pct + '% no SLA (meta ' + meta + '%)'} · ${k.estourados || 0} estourado(s).`,
+                abrir: () => cockpitAbrirSuporte(),
+            };
+        })(),
         {
             area: 'Uso de licença', chip: empresasNoLimite.length ? 'critico' : empresasPertoLimite.length ? 'atencao' : 'ok',
             metric: String(empresasNoLimite.length + empresasPertoLimite.length), unit: 'empresa(s) em algum limite',
@@ -489,6 +521,12 @@ function cockpitGridClicar(i) { const c = cockpitGrid[i]; if (c && c.abrir) c.ab
 // parametros-master.js). gestaoAbrirTela/pmAbrirHub re-renderizam
 // #area-conteudo de forma assíncrona; o setTimeout replica o mesmo padrão
 // já usado no cockpit antigo (v0.x) pra "abrir e depois focar".
+// v1.6.0 (D1) — abre Suporte & Backlog já filtrado em Suporte (variável da tela suporte-backlog.js).
+function cockpitAbrirSuporte() {
+    try { if (typeof supSubtipos !== 'undefined') { supSubtipos = ['suporte']; supDemandaAtual = null; } } catch (e) { /* tela ainda não carregada */ }
+    gestaoAbrirTela('suporte');
+}
+
 function cockpitAbrirHub(idHub) {
     gestaoAbrirTela('parametros');
     setTimeout(() => { if (typeof pmAbrirHub === 'function') pmAbrirHub(idHub); }, 150);
