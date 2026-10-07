@@ -1,6 +1,16 @@
 // ============================================================================
 // js/telas/parametros-documental.js — Motor Documental no Raiz Gestão
-// Versão: 0.3.0 · 04/10/2026
+// Versão: 0.4.0 · 07/10/2026
+//
+// v0.4.0 (07/10/2026, dem 6f4df8cc, sessão 20261007-1844-chamado-documento; ficha F1–F5 aprovada pelo
+// Nicola 07/10 19:59) — aba nova "Leituras": as leituras do motor de todas as empresas, com filtros
+// (empresa, canal, só fracas, só com chamado). Abrir uma leitura mostra o arquivo (link de 5 min pela
+// edge gestao-documento), o que a IA leu, quem enviou (contato para falar em off), a configuração
+// inicial e os chamados. "Resolver" aplica tipo, nome, ativo e vencimento no documento do cliente
+// (fn_gestao_documento_aplicar) e conclui o chamado — nada vai para o cliente. "Ler de novo como este
+// tipo" relê com a IA forçando o tipo (não conta na cota do cliente, não abre outro chamado).
+// pdVerArquivo fica global: a ficha do chamado em suporte-backlog.js usa o mesmo botão.
+// Versão anterior: 0.3.0 · 04/10/2026
 //
 // v0.3.0 (04/10/2026, frente D · fatia D1, demanda 00b919b6, sessão 20261004-1800-indicadores,
 // "De acordo com D1" do Nicola às 22:06) — Assertividade ganha o que faltava para ler
@@ -51,7 +61,7 @@
 // muda o comportamento sem deploy.
 // ============================================================================
 
-const PD_VERSAO = '0.3.0';
+const PD_VERSAO = '0.4.0';
 let pdAba = 'catalogo';
 let pdSubtipos = [];
 let pdCategorias = [];
@@ -102,16 +112,18 @@ function pdRenderAbas() {
         { id: 'catalogo', rotulo: 'Catálogo' },
         { id: 'versoes', rotulo: 'Versões de prompt' },
         { id: 'assertividade', rotulo: 'Assertividade' },
+        { id: 'leituras', rotulo: 'Leituras' },
     ];
     document.getElementById('pd-abas').innerHTML = abas.map(a =>
         `<button type="button" onclick="pdTrocarAba('${a.id}')" class="rz-chip ${pdAba === a.id ? 'rz-on' : ''}">${a.rotulo}</button>`).join('');
 }
 
-function pdTrocarAba(id) { pdAba = id; pdSubtipoAberto = null; pdRenderAbas(); pdRenderAba(); }
+function pdTrocarAba(id) { pdAba = id; pdSubtipoAberto = null; pdLeituraAberta = null; pdRenderAbas(); pdRenderAba(); }
 
 function pdRenderAba() {
     if (pdAba === 'catalogo') return pdRenderCatalogo();
     if (pdAba === 'versoes') return pdRenderVersoes();
+    if (pdAba === 'leituras') return pdRenderLeituras();
     return pdRenderAssertividade();
 }
 
@@ -472,4 +484,213 @@ function pdOportunidades(ag) {
         </div>`).join('') : `<p class="text-[11px]" style="color:var(--sage)">Nenhuma leitura perdida no período.</p>`}
         <p class="text-[10px] mt-2" style="color:var(--sage)">Ajuste no Catálogo (sinônimos, "como reconhecer", prompt específico) — a versão nova aparece em Versões para comparar antes e depois.</p>
     </div>`;
+}
+
+
+// ---------------------------------------------------------------- LEITURAS
+// A equipe trata aqui o documento de uma leitura fraca, sem devolver nada ao cliente. Tudo é
+// cross-tenant: a lista e a ficha vêm de funções do banco com checagem de master, e o arquivo só por
+// link temporário da edge gestao-documento — a RLS do Storage não deixa o master ler outra empresa.
+let pdFiltrosLeitura = { empresa: '', canal: '', fracas: true, chamado: false };
+let pdLeituraAberta = null;   // extracao_id em foco; o chamado (supAbrirMotor) também preenche
+let pdLeituraDet = null;
+let pdLeituraAviso = '';
+let pdEmpresasCache = null;
+const PD_CANAL_ROTULO = { app: 'App', bot: 'WhatsApp', whatsapp: 'WhatsApp', gestao: 'Gestão' };
+const PD_ESPERADO_ROTULO = { lista_ativos: 'Lista de ativos', documentos_ativos: 'Documentos dos ativos', contratos: 'Contratos de aluguel',
+    contas_apolices: 'Contas e apólices', documentos_pessoas: 'Documentos de pessoas' };
+
+function pdQuando(iso) { return iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'; }
+function pdPctLeitura(c) { return c == null ? '' : ' · ' + Math.round(Number(c) * 100) + '%'; }
+
+function pdSituacaoLeitura(l) {
+    if (l.chamado_ativo) return ['Chamado aberto', 'var(--warning)', 'var(--warning-bg)'];
+    if (l.status_revisao === 'descartado') return ['Descartada', 'var(--sage)', '#f1f0ea'];
+    if (l.status_revisao === 'confirmado' || l.status_revisao === 'corrigido') return [l.chamado_id ? 'Resolvida pela equipe' : 'Conferida', 'var(--success)', 'var(--success-bg)'];
+    if (l.fraca) return ['Sem revisão', 'var(--danger)', 'var(--danger-bg)'];
+    return ['Lida', 'var(--sage)', '#f1f0ea'];
+}
+
+function pdFiltroLeitura(chave, valor) { pdFiltrosLeitura[chave] = valor; pdLeituraAviso = ''; pdRenderLeituras(); }
+function pdAbrirLeitura(id) { pdLeituraAberta = id; pdLeituraAviso = ''; pdRenderLeituras(); }
+function pdFecharLeitura() { pdLeituraAberta = null; pdLeituraDet = null; pdRenderLeituras(); }
+
+async function pdRenderLeituras() {
+    if (pdLeituraAberta) return pdRenderLeitura(pdLeituraAberta);
+    const cont = document.getElementById('pd-conteudo');
+    if (!cont) return;
+    cont.innerHTML = `<p class="text-xs" style="color:var(--sage)">Carregando leituras…</p>`;
+    const f = pdFiltrosLeitura;
+    const [rl, rc] = await Promise.all([
+        dbAuth.rpc('fn_gestao_leituras', { p_cliente_id: f.empresa || null, p_canal: f.canal || null, p_so_fracas: !!f.fracas, p_so_chamado: !!f.chamado, p_limite: 200 }),
+        pdEmpresasCache ? Promise.resolve({ data: pdEmpresasCache }) : dbAuth.from('clientes').select('id, nome_empresa').order('nome_empresa'),
+    ]);
+    if (rl.error) { cont.innerHTML = `<p class="text-xs" style="color:var(--danger)">${pdEsc(rl.error.message)}</p>`; return; }
+    pdEmpresasCache = rc.data || [];
+    const linhas = rl.data || [];
+    cont.innerHTML = `
+        ${pdLeituraAviso ? `<div class="p-3 rounded-xl text-xs mb-3" style="background:var(--success-bg);color:var(--success)">${pdEsc(pdLeituraAviso)}</div>` : ''}
+        <div class="flex flex-wrap gap-2 mb-3 items-center">
+            <select onchange="pdFiltroLeitura('empresa', this.value)" class="p-2 border rounded-lg text-xs">
+                <option value="">Todas as empresas</option>
+                ${pdEmpresasCache.map(c => `<option value="${c.id}" ${f.empresa === c.id ? 'selected' : ''}>${pdEsc(c.nome_empresa)}</option>`).join('')}
+            </select>
+            <select onchange="pdFiltroLeitura('canal', this.value)" class="p-2 border rounded-lg text-xs">
+                <option value="">Todos os canais</option>
+                ${['app', 'bot', 'gestao'].map(c => `<option value="${c}" ${f.canal === c ? 'selected' : ''}>${PD_CANAL_ROTULO[c]}</option>`).join('')}
+            </select>
+            <label class="text-xs flex items-center gap-1.5 p-2 border rounded-lg"><input type="checkbox" ${f.fracas ? 'checked' : ''} onchange="pdFiltroLeitura('fracas', this.checked)"> Só fracas</label>
+            <label class="text-xs flex items-center gap-1.5 p-2 border rounded-lg"><input type="checkbox" ${f.chamado ? 'checked' : ''} onchange="pdFiltroLeitura('chamado', this.checked)"> Só com chamado</label>
+        </div>
+        ${linhas.length ? `<div class="overflow-x-auto"><table class="w-full text-xs">
+            <thead><tr style="color:var(--sage)"><th class="text-left p-2">Quando</th><th class="text-left p-2">Empresa</th><th class="text-left p-2">Documento</th><th class="text-left p-2">Leitura</th><th class="text-left p-2">Canal</th><th class="text-left p-2">Situação</th></tr></thead>
+            <tbody>${linhas.map(l => {
+                const [sit, cor, bg] = pdSituacaoLeitura(l);
+                return `<tr onclick="pdAbrirLeitura('${l.extracao_id}')" class="cursor-pointer" style="border-top:1px solid var(--line)">
+                    <td class="p-2 whitespace-nowrap">${pdQuando(l.criado_em)}</td>
+                    <td class="p-2">${pdEsc(l.nome_empresa || '—')}</td>
+                    <td class="p-2" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${pdEsc(l.documento_nome || 'sem documento no Cofre')}</td>
+                    <td class="p-2 whitespace-nowrap"><span class="font-bold px-2 py-0.5 rounded-full" style="${l.fraca ? 'background:var(--danger-bg);color:var(--danger)' : 'background:#f1f0ea;color:var(--ink)'}">${pdEsc(l.tipo_nome || l.subtipo_codigo || 'Sem tipo')}${pdPctLeitura(l.confianca)}</span></td>
+                    <td class="p-2">${pdEsc(PD_CANAL_ROTULO[l.canal] || l.canal || '—')}</td>
+                    <td class="p-2 whitespace-nowrap"><span class="font-bold px-2 py-0.5 rounded-full" style="background:${bg};color:${cor}">${sit}</span></td>
+                </tr>`; }).join('')}</tbody></table></div>`
+        : `<p class="text-xs p-4 rounded-xl" style="background:#f1f0ea;color:var(--sage)">Nenhuma leitura com esses filtros.</p>`}
+        <p class="text-[10px] mt-2" style="color:var(--sage)">Até 200 leituras, mais recentes primeiro. Clique numa linha para ver o arquivo e resolver.</p>`;
+}
+
+function pdValorCampo(v) {
+    if (v == null || v === '') return '—';
+    if (Array.isArray(v)) return v.map(pdValorCampo).join(' | ');
+    if (typeof v === 'object') return Object.values(v).filter(x => x != null && x !== '' && typeof x !== 'object').join(' · ') || '—';
+    return String(v);
+}
+
+async function pdRenderLeitura(id) {
+    const cont = document.getElementById('pd-conteudo');
+    if (!cont) return;
+    cont.innerHTML = `<p class="text-xs" style="color:var(--sage)">Abrindo a leitura…</p>`;
+    const { data, error } = await dbAuth.rpc('fn_gestao_leitura_detalhe', { p_extracao_id: id });
+    if (error || !data) { cont.innerHTML = `<p class="text-xs" style="color:var(--danger)">${pdEsc(error?.message || 'Leitura não encontrada.')}</p><button onclick="pdFecharLeitura()" class="text-xs font-bold mt-2" style="color:var(--brass-deep)">‹ Leituras</button>`; return; }
+    pdLeituraDet = data;
+    const l = data.leitura || {}, d = data.documento, emp = data.empresa || {}, quem = data.enviado_por, cfg = data.configuracao;
+    const dados = l.dados || {};
+    const chamados = data.chamados || [];
+    const chAtivo = chamados.some(c => c.ativo);
+    const campos = Object.entries(l.campos || {}).filter(([, v]) => v != null && v !== '' && !(Array.isArray(v) && !v.length));
+    const tipos = pdSubtipos.filter(s => s.ativo !== false && !String(s.codigo || '').startsWith('sistema_'));
+    const tipoAtual = d?.subtipo_codigo || l.subtipo_codigo || '';
+    const vinc = (data.ativos_vinculados || [])[0]?.id || '';
+    const venc = dados.vencimento?.data || l.campos?.validade || d?.validade_em || '';
+    const nomeSug = dados.nomeSugerido || d?.nome || '';
+    const zap = quem?.whatsapp ? String(quem.whatsapp).replace(/\D/g, '') : '';
+    cont.innerHTML = `
+        <button onclick="pdFecharLeitura()" class="text-xs font-bold mb-3" style="color:var(--brass-deep)">‹ Leituras</button>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="min-w-0">
+            <div class="border rounded-xl p-3 mb-3" style="border-color:var(--line)">
+                <p class="text-xs font-bold mb-2">Arquivo</p>
+                ${d ? `<p class="text-xs mb-1" style="color:var(--ink);word-break:break-all">${pdEsc(d.nome || 'Documento')}</p>
+                <p class="text-[11px] mb-2" style="color:var(--sage)">${pdEsc(d.mime || '')}${d.tamanho ? ' · ' + Math.max(1, Math.round(d.tamanho / 1024)) + ' KB' : ''} · ${d.nivel_acesso === 'restrito' ? 'restrito' : 'acesso da empresa'} · ${d.status === 'excluido' ? 'excluído' : 'no Cofre'}</p>
+                ${d.tem_arquivo && d.status !== 'excluido' ? `<button onclick="pdVerArquivo('${d.id}', this)" class="text-xs font-bold px-3 py-1.5 rounded-lg border-2" style="border-color:var(--brass);color:var(--brass-deep)">Ver arquivo</button>
+                <p class="text-[10px] mt-1.5" style="color:var(--sage)">Abre em nova aba por um link que vale 5 min. A abertura fica registrada.</p>` : `<p class="text-[11px]" style="color:var(--sage)">O arquivo não está mais guardado.</p>`}`
+                : `<p class="text-[11px]" style="color:var(--sage)">Esta leitura não chegou a virar documento no Cofre (leitura antes de salvar).</p>`}
+            </div>
+            <div class="border rounded-xl p-3" style="border-color:var(--line)">
+                <p class="text-xs font-bold mb-2">O que a IA leu</p>
+                <p class="text-xs mb-1"><b>${pdEsc(l.tipo_nome || l.subtipo_codigo || 'Sem tipo')}${pdPctLeitura(l.confianca)}</b> <span style="color:var(--sage)">· limite do tipo ${Math.round((l.limiar || 0.75) * 100)}%</span></p>
+                ${l.tipo_detectado ? `<p class="text-[11px] mb-1" style="color:var(--sage)">${pdEsc(l.tipo_detectado)}</p>` : ''}
+                ${dados.resumo ? `<p class="text-[11px] mb-2" style="color:var(--ink)">${pdEsc(dados.resumo)}</p>` : ''}
+                ${campos.length ? `<table class="w-full text-[11px] mb-2"><tbody>${campos.map(([k, v]) => `<tr style="border-top:1px solid var(--line)"><td class="py-1 pr-2" style="color:var(--sage);white-space:nowrap">${pdEsc(k)}</td><td class="py-1" style="word-break:break-word">${pdEsc(pdValorCampo(v))}</td></tr>`).join('')}</tbody></table>` : ''}
+                <p class="text-[10px]" style="color:var(--sage)">${pdEsc(PD_CANAL_ROTULO[l.canal] || l.canal || '')} · ${pdQuando(l.criado_em)} · motor ${pdEsc(l.motor_versao ?? '—')} · prompt v${pdEsc(l.prompt_versao ?? '—')} · ${l.etapas || 0} etapa(s)${l.total_ms ? ' · ' + Math.round(l.total_ms / 1000) + ' s' : ''} · ${pdEsc(l.status_revisao || '')}</p>
+                ${(data.outras_leituras || []).length ? `<p class="text-[10px] mt-2" style="color:var(--sage)">Outras leituras deste documento: ${data.outras_leituras.map(o => `<a onclick="pdAbrirLeitura('${o.id}')" class="cursor-pointer underline">${pdEsc(o.subtipo_codigo || 'sem tipo')}${pdPctLeitura(o.confianca)} · ${pdEsc(PD_CANAL_ROTULO[o.canal] || o.canal)} · ${pdQuando(o.criado_em)}</a>`).join(' · ')}</p>` : ''}
+            </div>
+          </div>
+          <div class="min-w-0">
+            <div class="border rounded-xl p-3 mb-3" style="border-color:var(--line)">
+                <p class="text-xs font-bold mb-2">Contexto</p>
+                <table class="w-full text-[11px]"><tbody>
+                    <tr><td class="py-1 pr-2" style="color:var(--sage)">Empresa</td><td class="py-1 font-bold">${pdEsc(emp.nome || '—')}</td></tr>
+                    <tr><td class="py-1 pr-2" style="color:var(--sage)">Enviado por</td><td class="py-1">${pdEsc(quem?.nome || '—')} · ${pdEsc(PD_CANAL_ROTULO[l.canal] || l.canal || '')} · ${pdQuando(d?.criado_em || l.criado_em)}</td></tr>
+                    <tr><td class="py-1 pr-2" style="color:var(--sage)">Contato em off</td><td class="py-1">${zap ? `${pdEsc(zap)} <button onclick="pdCopiar('${zap}', this)" class="font-bold underline" style="color:var(--brass-deep)">Copiar</button>` : '—'}${quem?.email ? ' · ' + pdEsc(quem.email) : ''}</td></tr>
+                    ${cfg ? `<tr><td class="py-1 pr-2" style="color:var(--sage)">Configuração inicial</td><td class="py-1">esperado: ${pdEsc(PD_ESPERADO_ROTULO[cfg.esperado] || cfg.esperado || '—')}</td></tr>` : ''}
+                    <tr><td class="py-1 pr-2" style="color:var(--sage)">Chamado</td><td class="py-1">${chamados.length ? chamados.map(c => `${pdEsc(String(c.id).slice(0, 8))} · ${c.ativo ? 'aberto' : 'concluído'}${c.severidade ? ' · ' + pdEsc(c.severidade) : ''}${c.ativo && c.sla_resolucao_ate ? ' · prazo ' + pdQuando(c.sla_resolucao_ate) : ''}`).join('<br>') : 'nenhum'}</td></tr>
+                </tbody></table>
+            </div>
+            ${d && d.status !== 'excluido' ? `<div class="border-2 rounded-xl p-3" style="border-color:var(--brass)">
+                <p class="text-xs font-bold mb-2">Resolver</p>
+                <label class="text-[11px] block mb-1" style="color:var(--sage)">Tipo do documento</label>
+                <select id="pd-res-tipo" class="w-full p-2 border rounded-lg text-xs mb-1">
+                    ${tipos.map(s => `<option value="${pdEsc(s.codigo)}" ${s.codigo === tipoAtual ? 'selected' : ''}>${pdEsc(s.nome)}</option>`).join('')}
+                </select>
+                <div class="mb-2"><button onclick="pdReler(this)" class="text-[11px] font-bold underline" style="color:var(--brass-deep)">Ler de novo como este tipo</button> <span class="text-[10px]" style="color:var(--sage)">opcional · a IA relê e preenche os campos abaixo</span></div>
+                <label class="text-[11px] block mb-1" style="color:var(--sage)">Nome no Cofre</label>
+                <input id="pd-res-nome" value="${pdEsc(nomeSug)}" maxlength="200" class="w-full p-2 border rounded-lg text-xs mb-2">
+                <label class="text-[11px] block mb-1" style="color:var(--sage)">Ativo</label>
+                <select id="pd-res-ativo" class="w-full p-2 border rounded-lg text-xs mb-2">
+                    <option value="">Sem ativo</option>
+                    ${(data.ativos || []).map(a => `<option value="${a.id}" ${a.id === vinc ? 'selected' : ''}>${pdEsc(a.nome)}</option>`).join('')}
+                </select>
+                <label class="text-[11px] block mb-1" style="color:var(--sage)">Vence em</label>
+                <input id="pd-res-venc" type="date" value="${pdEsc(String(venc).slice(0, 10))}" class="w-full p-2 border rounded-lg text-xs mb-2">
+                <label class="text-[11px] block mb-1" style="color:var(--sage)">Nota interna (fica no chamado)</label>
+                <textarea id="pd-res-nota" rows="2" class="w-full p-2 border rounded-lg text-xs mb-2"></textarea>
+                <button onclick="pdAplicar(this)" class="text-xs font-bold px-3 py-2 rounded-lg text-white" style="background:var(--pine)">${chAtivo ? 'Aplicar e concluir o chamado' : 'Aplicar no documento'}</button>
+                <p id="pd-res-msg" class="text-[11px] mt-1.5" style="color:var(--sage)">Nada é enviado ao cliente.</p>
+            </div>` : ''}
+          </div>
+        </div>`;
+}
+
+function pdCopiar(texto, btn) {
+    try { navigator.clipboard.writeText(texto); if (btn) btn.textContent = 'Copiado'; } catch (_) { /* navegador sem clipboard: o número já está na tela */ }
+}
+
+// Global de propósito: a ficha do chamado (suporte-backlog.js) usa o mesmo botão.
+// A aba é aberta antes da chamada à edge; aberta depois do await, o navegador bloqueia como pop-up.
+async function pdVerArquivo(documentoId, btn) {
+    const aba = window.open('', '_blank');
+    if (btn) { btn.disabled = true; btn.textContent = 'Abrindo…'; }
+    const { data, error } = await dbAuth.functions.invoke('gestao-documento', { body: { acao: 'ver', documento_id: documentoId } });
+    if (btn) { btn.disabled = false; btn.textContent = 'Ver arquivo'; }
+    if (error || !data?.url) {
+        if (aba) aba.close();
+        const msg = data?.erro || error?.message || 'Não consegui abrir o arquivo.';
+        if (btn && btn.parentElement) { const p = document.createElement('p'); p.className = 'text-[11px] mt-1'; p.style.color = 'var(--danger)'; p.textContent = msg; btn.parentElement.appendChild(p); }
+        return;
+    }
+    if (aba) aba.location.href = data.url; else window.open(data.url, '_blank');
+}
+
+async function pdReler(btn) {
+    const msg = document.getElementById('pd-res-msg');
+    const tipo = document.getElementById('pd-res-tipo')?.value;
+    const docId = pdLeituraDet?.documento?.id;
+    if (!tipo || !docId) return;
+    btn.disabled = true; btn.textContent = 'Lendo… (até 1 min)';
+    msg.style.color = 'var(--sage)'; msg.textContent = 'A IA está lendo o arquivo de novo.';
+    const { data, error } = await dbAuth.functions.invoke('gestao-documento', { body: { acao: 'reler', documento_id: docId, subtipo_codigo: tipo } });
+    btn.disabled = false; btn.textContent = 'Ler de novo como este tipo';
+    if (error || !data?.ok) { msg.style.color = 'var(--danger)'; msg.textContent = data?.erro || error?.message || 'A releitura falhou.'; return; }
+    if (data.extracao_id) { pdLeituraAberta = data.extracao_id; return pdRenderLeitura(data.extracao_id); }
+    msg.textContent = 'Releitura feita. Recarregue a leitura para ver os campos.';
+}
+
+async function pdAplicar(btn) {
+    const msg = document.getElementById('pd-res-msg');
+    const tipo = document.getElementById('pd-res-tipo')?.value;
+    if (!tipo) { msg.style.color = 'var(--danger)'; msg.textContent = 'Escolha o tipo do documento.'; return; }
+    btn.disabled = true;
+    const { data, error } = await dbAuth.rpc('fn_gestao_documento_aplicar', {
+        p_extracao_id: pdLeituraDet.leitura.id,
+        p_subtipo_codigo: tipo,
+        p_nome: document.getElementById('pd-res-nome')?.value || null,
+        p_ativo_id: document.getElementById('pd-res-ativo')?.value || null,
+        p_validade_em: document.getElementById('pd-res-venc')?.value || null,
+        p_nota: document.getElementById('pd-res-nota')?.value || null,
+    });
+    btn.disabled = false;
+    if (error || !data?.ok) { msg.style.color = 'var(--danger)'; msg.textContent = error?.message || data?.mensagem || 'Não foi possível aplicar.'; return; }
+    pdLeituraAviso = `${data.mensagem} Empresa: ${pdLeituraDet.empresa?.nome || '—'}. No app, o documento sai de "Com a equipe".`;
+    pdLeituraAberta = null; pdLeituraDet = null;
+    pdRenderLeituras();
 }

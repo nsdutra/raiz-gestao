@@ -1,6 +1,13 @@
 // ============================================================================
 // js/telas/suporte-backlog.js — Raiz Gestão
-// Versão: 0.4.0 · 04/10/2026
+// Versão: 0.5.0 · 07/10/2026
+//
+// v0.5.0 (07/10/2026, dem 6f4df8cc, sessão 20261007-1844-chamado-documento; ficha F1–F5 aprovada pelo
+// Nicola 07/10 19:59) — chamado que veio de uma leitura do motor mostra o DOCUMENTO na ficha: empresa,
+// nome do arquivo, o que a IA leu (tipo, confiança, resumo), canal e data, com "Ver arquivo" (link de
+// 5 min) e "Resolver no Motor", que abre Motor Documental › Leituras já nessa leitura (antes caía na
+// aba Assertividade, só com números). O texto da ficha deixa de prometer reprocessamento que não havia.
+// Versão anterior: 0.4.0 · 04/10/2026
 //
 // v0.4.0 (04/10/2026, frente D · fatia D1, demandas 00b919b6 e 860233ca, sessão
 // 20261004-1800-indicadores; "De acordo com D1" e "SLA de 11.09" do Nicola às 22:06) — visão de
@@ -615,11 +622,12 @@ async function supCarregarBlocoSla(d) {
     if (!el) return;
     const [{ data: it }, { data: oc }] = await Promise.all([
         dbAuth.from('cofre_itens_controle').select('severidade, sla_resolucao_ate, criado_em, ativo').eq('id', d.id).maybeSingle(),
-        dbAuth.from('cofre_ocorrencias_controle').select('origem_id').eq('item_controle_id', d.id).eq('origem', 'cofre_extracao').limit(1),
+        dbAuth.from('cofre_ocorrencias_controle').select('origem_id, documento_id').eq('item_controle_id', d.id).eq('origem', 'cofre_extracao').limit(1),
     ]);
     if (!it) { el.innerHTML = ''; return; }
     const pr = supFmtPrazo(it.sla_resolucao_ate, it.ativo, false);
     const veioDoMotor = (oc || []).length > 0;
+    const extracaoId = veioDoMotor ? oc[0].origem_id : null;
     const opSev = ['critica', 'alta', 'sugestao'].map(v => `<option value="${v}" ${it.severidade === v ? 'selected' : ''}>${SUP_SEV_ROTULO[v]} · ${SUP_SEV_HORAS[v]}</option>`).join('');
     el.innerHTML = `
         <div class="p-3 rounded-xl border-2 mb-3" style="border-color:${pr.bg === 'var(--danger)' ? 'var(--danger)' : 'var(--line)'};background:#fff">
@@ -632,14 +640,40 @@ async function supCarregarBlocoSla(d) {
             <div class="flex flex-wrap gap-1.5 mb-2">
                 <select id="sup-sev" class="text-xs p-2 rounded-lg border-2" style="border-color:var(--line)">${it.severidade ? '' : '<option value="">Sem severidade</option>'}${opSev}</select>
                 <button onclick="supMudarSeveridade()" class="text-xs font-bold px-3 rounded-lg border-2" style="border-color:var(--line)">Mudar severidade</button>
-                ${veioDoMotor ? `<button onclick="supAbrirMotor()" class="text-xs font-bold px-3 rounded-lg border-2" style="border-color:var(--brass);color:var(--brass-deep)">Abrir no Motor Documental</button>` : ''}
             </div>
             <textarea id="sup-resposta" rows="2" placeholder="Resposta da equipe Raiz (fica no registro do chamado)…" class="w-full text-xs p-2 rounded-lg border-2 mb-1.5" style="border-color:var(--line)"></textarea>
             <button onclick="supResponder()" class="text-xs font-bold px-3 py-1.5 rounded-lg text-white" style="background:var(--pine)">Responder</button>
             <p id="sup-sla-msg" class="text-[11px] mt-1.5" style="color:var(--sage)"></p>` : ''}
-            ${veioDoMotor ? `<p class="text-[11px] mt-1.5" style="color:var(--sage)">Este chamado veio de uma leitura do motor: o reprocessamento acontece na tela do Motor Documental; aqui ficam o SLA e o registro.</p>` : ''}
-        </div>`;
+        </div>
+        ${veioDoMotor ? `<div id="sup-doc-bloco" class="p-3 rounded-xl border-2 mb-3" style="border-color:var(--brass);background:#fff"><p class="text-xs" style="color:var(--sage)">Carregando o documento…</p></div>` : ''}`;
+    if (veioDoMotor) supCarregarDocumento(extracaoId);
 }
+
+// Documento do chamado de leitura fraca: a equipe vê e resolve sem devolver nada ao cliente.
+async function supCarregarDocumento(extracaoId) {
+    const el = document.getElementById('sup-doc-bloco');
+    if (!el) return;
+    const { data, error } = await dbAuth.rpc('fn_gestao_leitura_detalhe', { p_extracao_id: extracaoId });
+    if (error || !data) { el.innerHTML = `<p class="text-xs" style="color:var(--danger)">Não consegui abrir a leitura: ${supEscDoc(error?.message || 'não encontrada')}</p>`; return; }
+    const l = data.leitura || {}, d = data.documento, emp = data.empresa || {};
+    const canal = { app: 'App', bot: 'WhatsApp', whatsapp: 'WhatsApp', gestao: 'Gestão' }[l.canal] || l.canal || '';
+    const pct = l.confianca == null ? '' : ' · ' + Math.round(Number(l.confianca) * 100) + '%';
+    const quando = l.criado_em ? new Date(l.criado_em).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '';
+    el.innerHTML = `
+        <p class="text-xs font-bold mb-2" style="color:var(--ink)">Documento do chamado</p>
+        <table class="w-full text-[11px] mb-2"><tbody>
+            <tr><td class="py-0.5 pr-2" style="color:var(--sage)">Empresa</td><td class="py-0.5 font-bold">${supEscDoc(emp.nome || '—')}</td></tr>
+            <tr><td class="py-0.5 pr-2" style="color:var(--sage)">Arquivo</td><td class="py-0.5" style="word-break:break-all">${supEscDoc(d?.nome || 'sem documento no Cofre')}</td></tr>
+            <tr><td class="py-0.5 pr-2" style="color:var(--sage)">A IA leu</td><td class="py-0.5">${supEscDoc(l.tipo_nome || l.subtipo_codigo || 'Sem tipo')}${pct} · ${supEscDoc(canal)} · ${supEscDoc(quando)}</td></tr>
+            ${l.dados?.resumo ? `<tr><td class="py-0.5 pr-2" style="color:var(--sage)">Resumo</td><td class="py-0.5">${supEscDoc(l.dados.resumo)}</td></tr>` : ''}
+        </tbody></table>
+        <div class="flex flex-wrap gap-1.5">
+            <button onclick="supAbrirMotor('${extracaoId}')" class="text-xs font-bold px-3 py-1.5 rounded-lg text-white" style="background:var(--pine)">Resolver no Motor</button>
+            ${d?.tem_arquivo && d.status !== 'excluido' && typeof pdVerArquivo === 'function' ? `<button onclick="pdVerArquivo('${d.id}', this)" class="text-xs font-bold px-3 py-1.5 rounded-lg border-2" style="border-color:var(--brass);color:var(--brass-deep)">Ver arquivo</button>` : ''}
+        </div>
+        <p class="text-[11px] mt-1.5" style="color:var(--sage)">Resolver aplica tipo, nome, ativo e vencimento no documento e conclui este chamado. Nada é enviado ao cliente; se precisar falar com ele, o contato está na leitura.</p>`;
+}
+function supEscDoc(t) { return String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 async function supMudarSeveridade() {
     const v = document.getElementById('sup-sev').value, msg = document.getElementById('sup-sla-msg');
     if (!v) { msg.textContent = 'Escolha uma severidade.'; return; }
@@ -654,8 +688,9 @@ async function supResponder() {
     if (error || !data?.ok) { msg.textContent = error?.message || data?.mensagem || 'Não foi possível registrar.'; msg.style.color = 'var(--danger)'; return; }
     await supRenderFicha();
 }
-function supAbrirMotor() {
-    try { if (typeof pdAba !== 'undefined') pdAba = 'assertividade'; } catch (e) { /* tela ainda não carregada */ }
+function supAbrirMotor(extracaoId) {
+    // as variáveis da tela do Motor são globais (script clássico); a tela lê pdAba ao montar
+    try { if (typeof pdAba !== 'undefined') pdAba = 'leituras'; if (typeof pdLeituraAberta !== 'undefined') pdLeituraAberta = extracaoId || null; } catch (e) { /* tela ainda não carregada */ }
     gestaoAbrirTela('parametros');
     setTimeout(() => { if (typeof pmAbrirHub === 'function') pmAbrirHub('documental'); }, 150);
 }
