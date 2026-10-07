@@ -1,6 +1,22 @@
 // ============================================================================
 // js/telas/catalogo-patrimonio.js — Raiz Gestão
-// Versão: 1.4.0 · 18/09/2026 (rodada 5)
+// Versão: 1.5.0 · 07/10/2026
+//
+// v1.5.0 (catálogo único, fatia 3 — demanda 2923ff4d, sessão 20261007-0010-catalogo-f3; plano com as fichas
+// F-C10/F-C11 aprovado pelo Nicola em 07/10/2026 00:09) — o catálogo da árvore ganha tela:
+// (1) aba "Tipos de item" (controle_tipos via fn_controle_tipo_upsert): nome, ícone, ordem, aparece no app,
+//     categoria de lançamento padrão, ativo;
+// (2) aba "Categorias de lançamento" (lancamento_categorias via fn_lancamento_categoria_upsert): árvore por
+//     direção (grupo › subcategoria), com Resultado (entra como receita/despesa/tributo/manutenção/seguro ou
+//     fora do resultado) e o padrão da contabilidade; o banco recusa pai de outra direção, 3º nível e troca de
+//     direção com lançamentos;
+// (3) aba "Espécies de documento" (cofre_categorias via fn_cofre_categoria_upsert): nome, ordem, guardar o
+//     arquivo por padrão, ativa;
+// (4) Subtipos: "Natureza" passa a vir de controle_tipos (era lista fixa de 5), "Categoria macro" vira
+//     "Espécie do documento" e entra "Categoria de lançamento" (categoria_lancamento, via fn_cofre_catalogo_upsert).
+// Nada se apaga: desativar mantém o histórico. Código não muda depois de criado.
+//
+// Versão anterior: 1.4.0 · 18/09/2026 (rodada 5)
 //
 // v1.4.0 — 3 achados reais do Nicola (relato + prints testando a aba
 // Aplicabilidade, 18/09/2026):
@@ -114,7 +130,7 @@
 // objeto, toast no passado, vazio num formato só, sentence case).
 // ============================================================================
 
-const CP_VERSAO = '1.4.0';
+const CP_VERSAO = '1.5.0';
 let cpAba = 'subtipos';
 
 // ---- estado por aba --------------------------------------------------------
@@ -125,6 +141,12 @@ let cpSubtipos = [];
 let cpAplicabilidade = [];
 let cpCalendario = [];
 let cpPartesPadrao = [];
+let cpLancCats = [];      // v1.5.0 — lancamento_categorias (todas, inclusive inativas)
+let cpControleTipos = []; // v1.5.0 — controle_tipos
+
+let cpTipoItemEdit = null; let cpTipoItemNovo = false;          // v1.5.0
+let cpLancEdit = null; let cpLancNovo = false; let cpLancDir = 'saida'; // v1.5.0
+let cpEspecieEdit = null; let cpEspecieNova = false;            // v1.5.0
 
 let cpSubtipoAberto = null;
 let cpSubtipoNovo = false;
@@ -176,13 +198,27 @@ const CP_CATEGORIA_ATIVO_ABREV = {
 // valor tipicamente fixo por evento/período — ex.: TUF, condomínio, multa.
 // O nome do subtipo e a categoria do eixo documento/controle podem enganar;
 // texto completo em COMMENT ON COLUMN cofre_controle_subtipos.tipo.
-const CP_NATUREZAS = [
+const CP_NATUREZAS_FIXAS = [
     { v: 'documento', r: 'documento' },
     { v: 'manutencao', r: 'manutenção' },
     { v: 'seguro', r: 'seguro' },
     { v: 'taxa', r: 'taxa' },
     { v: 'tributo', r: 'tributo' },
 ];
+// v1.5.0 — natureza = tipo de item (controle_tipos); a lista fixa fica só de reserva se o catálogo não carregar
+function cpNaturezas() {
+    const doCatalogo = cpControleTipos.filter(t => t.ativo !== false && t.codigo !== 'sistema').map(t => ({ v: t.codigo, r: t.nome }));
+    return doCatalogo.length ? doCatalogo : CP_NATUREZAS_FIXAS;
+}
+const CP_GRUPOS_RESULTADO = [
+    { v: 'receita', r: 'Entra no resultado · receita' },
+    { v: 'despesa_operacional', r: 'Entra no resultado · despesa' },
+    { v: 'tributo', r: 'Entra no resultado · tributo' },
+    { v: 'manutencao', r: 'Entra no resultado · manutenção' },
+    { v: 'seguro', r: 'Entra no resultado · seguro' },
+    { v: 'fora_resultado', r: 'Fora do resultado' },
+];
+const CP_DIRECOES = [{ v: 'saida', r: 'Saída' }, { v: 'entrada', r: 'Entrada' }, { v: 'nenhuma', r: 'Sem direção' }];
 const CP_TITULARES = [
     { v: 'pessoa', r: 'pessoa' },
     { v: 'ativo', r: 'ativo' },
@@ -223,6 +259,9 @@ function cpRenderAbas() {
     const abas = [
         { id: 'subtipos', rotulo: 'Subtipos' },
         { id: 'aplicabilidade', rotulo: 'Aplicabilidade' },
+        { id: 'tipos-item', rotulo: 'Tipos de item' },                 // v1.5.0
+        { id: 'lancamento', rotulo: 'Categorias de lançamento' },      // v1.5.0
+        { id: 'especies', rotulo: 'Espécies de documento' },           // v1.5.0
         { id: 'tipos-ativo', rotulo: 'Tipos de ativo' },
         { id: 'campos-tipo', rotulo: 'Campos do tipo' },
         { id: 'calendario', rotulo: 'Calendário & partes' },
@@ -235,12 +274,16 @@ function cpTrocarAba(id) {
     cpAba = id;
     cpSubtipoAberto = null; cpCategoriaEditCodigo = null; cpTipoAtivoEditId = null;
     cpCampoEditId = null; cpAplicSubtipoAberto = null; cpCalendarioEditId = null;
+    cpTipoItemEdit = null; cpTipoItemNovo = false; cpLancEdit = null; cpLancNovo = false; cpEspecieEdit = null; cpEspecieNova = false; // v1.5.0
     cpRenderAbas(); cpRenderAba();
 }
 
 function cpRenderAba() {
     if (cpAba === 'subtipos') return cpRenderSubtipos();
     if (cpAba === 'aplicabilidade') return cpRenderAplicabilidade();
+    if (cpAba === 'tipos-item') return cpRenderTiposItem();      // v1.5.0
+    if (cpAba === 'lancamento') return cpRenderLancamento();     // v1.5.0
+    if (cpAba === 'especies') return cpRenderEspecies();         // v1.5.0
     if (cpAba === 'tipos-ativo') return cpRenderTiposAtivo();
     if (cpAba === 'campos-tipo') return cpRenderCamposTipo();
     return cpRenderCalendario();
@@ -248,7 +291,7 @@ function cpRenderAba() {
 
 async function cpCarregarTudo() {
     if (typeof dbAuth === 'undefined') throw new Error('cliente Supabase (dbAuth) não disponível nesta tela.');
-    const [rCat, rTa, rCampos, rSub, rApl, rCal, rPartes] = await Promise.all([
+    const [rCat, rTa, rCampos, rSub, rApl, rCal, rPartes, rLanc, rTipos] = await Promise.all([
         dbAuth.from('cofre_categorias').select('*').is('cliente_id', null).order('ordem', { nullsFirst: false }).order('nome'),
         dbAuth.from('ativo_tipos').select('*').is('cliente_id', null).order('categoria').order('ordem', { nullsFirst: false }).order('nome'),
         dbAuth.from('ativo_tipos_campos').select('*').order('categoria').order('ordem', { nullsFirst: false }),
@@ -256,8 +299,12 @@ async function cpCarregarTudo() {
         dbAuth.from('cofre_subtipo_aplicabilidade').select('*'),
         dbAuth.from('cofre_calendario_tributo').select('*').order('uf', { nullsFirst: true }),
         dbAuth.from('cofre_partes_padrao').select('id, nome, uf, municipio_ibge, subtipo_id').order('nome'),
+        dbAuth.from('lancamento_categorias').select('*').order('ordem').order('nome'), // v1.5.0
+        dbAuth.from('controle_tipos').select('*').order('ordem').order('nome'),        // v1.5.0
     ]);
-    for (const r of [rCat, rTa, rCampos, rSub, rApl, rCal, rPartes]) if (r.error) throw new Error(r.error.message);
+    for (const r of [rCat, rTa, rCampos, rSub, rApl, rCal, rPartes, rLanc, rTipos]) if (r.error) throw new Error(r.error.message);
+    cpLancCats = rLanc.data || [];
+    cpControleTipos = rTipos.data || [];
     cpCategorias = rCat.data || [];
     cpTiposAtivo = rTa.data || [];
     cpCamposTipo = rCampos.data || [];
@@ -307,7 +354,7 @@ function cpRenderSubtipos() {
                 <input id="cp-sub-busca" value="${cpEsc(cpFiltroSubtipo)}" oninput="cpBuscarSubtipo(this.value)" placeholder="Buscar por nome ou código…" class="flex-1 min-w-[160px] p-2 border rounded-lg text-xs">
                 <select onchange="cpFiltrarNaturezaSubtipo(this.value)" class="p-2 border rounded-lg text-xs">
                     <option value="">Todas as naturezas</option>
-                    ${CP_NATUREZAS.map(n => `<option value="${n.v}" ${cpFiltroNaturezaSubtipo === n.v ? 'selected' : ''}>${cpEsc(n.r)}</option>`).join('')}
+                    ${cpNaturezas().map(n => `<option value="${n.v}" ${cpFiltroNaturezaSubtipo === n.v ? 'selected' : ''}>${cpEsc(n.r)}</option>`).join('')}
                 </select>
             </div>
             ${pmBotaoToggle('cp-sub-novo', 'cpAbrirSubtipoNovo()')}
@@ -356,10 +403,12 @@ function cpFormSubtipo(s) {
                 <input id="cp-cod-${id}" value="${novo ? '' : cpEsc(s.codigo)}" ${novo ? '' : 'disabled'} placeholder="ex.: iptu_global" class="w-full p-1.5 border rounded text-[11px] font-mono ${novo ? '' : 'bg-slate-100'}"></div>
             <div><label class="text-[10px] font-semibold">Nome ${novo ? '<span style="color:var(--danger)">*</span>' : ''}</label>
                 <input id="cp-nome-${id}" value="${novo ? '' : cpEsc(s.nome)}" class="w-full p-1.5 border rounded text-[11px]"></div>
-            <div><label class="text-[10px] font-semibold">Natureza</label>${sel(novo ? 'documento' : s.tipo, CP_NATUREZAS, `cp-tipo-${id}`)}</div>
-            <div><label class="text-[10px] font-semibold">Categoria macro</label>
-                ${sel(novo ? '' : (s.categoria_codigo || ''), [{ v: '', r: '— nenhuma —' }].concat(cpCategorias.map(c => ({ v: c.codigo, r: c.nome }))), `cp-cat-${id}`)}</div>
+            <div><label class="text-[10px] font-semibold">Natureza</label>${sel(novo ? 'documento' : s.tipo, cpNaturezas(), `cp-tipo-${id}`)}</div>
+            <div><label class="text-[10px] font-semibold">Espécie do documento</label>
+                ${sel(novo ? '' : (s.categoria_codigo || ''), [{ v: '', r: '— nenhuma —' }].concat(cpCategorias.filter(c => c.ativo !== false || (s && c.codigo === s.categoria_codigo)).map(c => ({ v: c.codigo, r: c.nome }))), `cp-cat-${id}`)}</div>
         </div>
+        <div><label class="text-[10px] font-semibold">Categoria de lançamento (despesa/receita gerada por este subtipo)</label>
+            ${sel(novo ? '' : (s.categoria_lancamento || ''), [{ v: '', r: '— a do tipo de item —' }].concat(cpLancFolhas().map(c => ({ v: c.codigo, r: cpCaminhoLanc(c.codigo) }))), `cp-clanc-${id}`)}</div>
         <div>
             <label class="text-[10px] font-semibold">Titular (pode marcar mais de um)</label>
             <div class="flex flex-wrap gap-2 mt-1">${CP_TITULARES.map(t => `<label class="text-[11px] flex items-center gap-1"><input type="checkbox" class="cp-tit-${id}" value="${t.v}" ${titulares.includes(t.v) ? 'checked' : ''}> ${t.r}</label>`).join('')}</div>
@@ -417,6 +466,7 @@ async function cpSalvarSubtipo(id, novo) {
     const payload = {
         codigo, nome, tipo: g('tipo').value,
         categoria_codigo: g('cat').value || null,
+        categoria_lancamento: g('clanc').value || null, // v1.5.0
         titular_escopo: titulares.length ? titulares : null,
         tipo_ativo_aplicavel: cpLista(g('ta').value),
         antecedencia_padrao_dias: g('ant').value === '' ? null : Number(g('ant').value),
@@ -434,6 +484,232 @@ async function cpSalvarSubtipo(id, novo) {
     await cpCarregarTudo();
     cpSubtipoNovo = false; cpSubtipoAberto = codigo;
     cpRenderSubtipos();
+}
+
+
+// ============================================================ v1.5.0 — ÁRVORE
+// Tipos de item (controle_tipos) · Categorias de lançamento (lancamento_categorias) · Espécies (cofre_categorias).
+// Escrita só pelas funções centrais (LOG-01), master-only no banco.
+function cpLancFolhas() { return cpLancCats.filter(c => c.categoria_pai && c.ativo !== false); }
+function cpCaminhoLanc(codigo) {
+    const c = cpLancCats.find(x => x.codigo === codigo);
+    if (!c) return codigo || '';
+    const pai = c.categoria_pai ? cpLancCats.find(x => x.codigo === c.categoria_pai) : null;
+    return pai ? `${pai.nome} › ${c.nome}` : c.nome;
+}
+function cpRotuloResultado(g) { return (CP_GRUPOS_RESULTADO.find(x => x.v === g) || { r: g || '—' }).r; }
+function cpSel(id, valor, opcoes) {
+    return `<select id="${id}" class="w-full p-1.5 border rounded text-[11px]">${opcoes.map(o => `<option value="${cpEsc(o.v)}" ${String(valor ?? '') === String(o.v) ? 'selected' : ''}>${cpEsc(o.r)}</option>`).join('')}</select>`;
+}
+function cpStatus(id, txt, erro) { const st = document.getElementById(id); if (!st) return; st.textContent = txt; st.style.color = erro ? 'var(--danger)' : 'var(--sage)'; }
+function cpBadgeInativo(ativo) { return ativo === false ? ' <span class="rz-badge" style="background:#fee2e2;color:#991b1b">inativo</span>' : ''; }
+
+// ---- Tipos de item ---------------------------------------------------------
+function cpRenderTiposItem() {
+    const cont = document.getElementById('cp-conteudo');
+    cont.innerHTML = `
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <p class="text-xs" style="color:var(--sage)">${cpControleTipos.length} tipo(s) de item. O tipo é o 1º nível da árvore do item de controle; o subtipo é a folha.</p>
+            ${pmBotaoToggle('cp-ti-novo', 'cpTiAbrirNovo()')}
+        </div>
+        ${cpTipoItemNovo ? cpFormTipoItem(null) : ''}
+        <div class="space-y-1.5">${cpControleTipos.map(t => {
+            const aberto = cpTipoItemEdit === t.codigo;
+            const nSub = cpSubtipos.filter(s => s.tipo === t.codigo).length;
+            return `<div class="border rounded-xl overflow-hidden" style="border-color:var(--line)">
+                <button type="button" onclick="cpTiAbrir('${cpEsc(t.codigo)}')" class="w-full text-left px-3 py-2 flex items-center justify-between gap-2" style="background:${aberto ? '#faf9f5' : '#fff'}">
+                    <p class="text-sm font-medium" style="color:var(--ink)">${cpEsc(t.nome)} <span class="text-[11px] font-mono font-normal" style="color:var(--sage)">${cpEsc(t.codigo)} · ${nSub} subtipo(s)${t.categoria_lancamento_padrao ? ' · ' + cpEsc(cpCaminhoLanc(t.categoria_lancamento_padrao)) : ''}${t.selecionavel_app === false ? ' · interno' : ''}</span>${cpBadgeInativo(t.ativo)}</p>
+                    <span class="text-xs" style="color:var(--sage)">${aberto ? '▲' : '▼'}</span>
+                </button>
+                ${aberto ? cpFormTipoItem(t) : ''}
+            </div>`;
+        }).join('') || pmVazio('Nenhum tipo de item.')}</div>`;
+}
+function cpTiAbrirNovo() { cpTipoItemNovo = !cpTipoItemNovo; cpTipoItemEdit = null; cpRenderTiposItem(); }
+function cpTiAbrir(c) { cpTipoItemEdit = cpTipoItemEdit === c ? null : c; cpTipoItemNovo = false; cpRenderTiposItem(); }
+function cpFormTipoItem(t) {
+    const novo = !t; const id = novo ? 'novo' : t.codigo;
+    return `<div class="p-3 border-t space-y-2" style="border-color:var(--line);background:#faf9f5">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div><label class="text-[10px] font-semibold">Código ${novo ? '<span style="color:var(--danger)">*</span>' : ''}</label>
+                <input id="cp-ti-cod-${id}" value="${novo ? '' : cpEsc(t.codigo)}" ${novo ? '' : 'disabled'} placeholder="ex.: seguro" class="w-full p-1.5 border rounded text-[11px] font-mono ${novo ? '' : 'bg-slate-100'}"></div>
+            <div><label class="text-[10px] font-semibold">Nome <span style="color:var(--danger)">*</span></label><input id="cp-ti-nome-${id}" value="${novo ? '' : cpEsc(t.nome)}" class="w-full p-1.5 border rounded text-[11px]"></div>
+            <div><label class="text-[10px] font-semibold">Ícone (lucide)</label><input id="cp-ti-icone-${id}" value="${novo ? '' : cpEsc(t.icone || '')}" placeholder="ex.: shield-check" class="w-full p-1.5 border rounded text-[11px] font-mono"></div>
+            <div><label class="text-[10px] font-semibold">Ordem</label><input type="number" id="cp-ti-ordem-${id}" value="${novo ? '' : (t.ordem ?? '')}" class="w-full p-1.5 border rounded text-[11px]"></div>
+        </div>
+        <div><label class="text-[10px] font-semibold">Categoria de lançamento padrão (despesa gerada pelos itens deste tipo)</label>
+            ${cpSel(`cp-ti-cat-${id}`, novo ? '' : (t.categoria_lancamento_padrao || ''), [{ v: '', r: '— nenhuma —' }].concat(cpLancFolhas().map(c => ({ v: c.codigo, r: cpCaminhoLanc(c.codigo) }))))}</div>
+        <div class="flex flex-wrap gap-4">
+            <label class="text-[11px] flex items-center gap-1"><input type="checkbox" id="cp-ti-app-${id}" ${novo || t.selecionavel_app !== false ? 'checked' : ''}> aparece no app (formulário do item)</label>
+            <label class="text-[11px] flex items-center gap-1"><input type="checkbox" id="cp-ti-ativo-${id}" ${novo || t.ativo !== false ? 'checked' : ''}> ativo</label>
+        </div>
+        <div class="flex items-center gap-2">
+            <button onclick="cpTiSalvar('${cpEsc(id)}', ${novo})" class="px-3 py-1.5 rounded-lg text-xs font-bold text-white" style="background:var(--pine)">${novo ? 'Criar tipo' : 'Salvar alterações'}</button>
+            <span id="cp-ti-status-${id}" class="text-[11px]" style="color:var(--sage)"></span>
+        </div>
+    </div>`;
+}
+async function cpTiSalvar(id, novo) {
+    const g = suf => document.getElementById(`cp-ti-${suf}-${id}`);
+    const stId = `cp-ti-status-${id}`;
+    const codigo = novo ? g('cod').value.trim().toLowerCase() : id;
+    const nome = g('nome').value.trim();
+    if (!codigo) return cpStatus(stId, 'Informe o código.', true);
+    if (!nome) return cpStatus(stId, 'Informe o nome.', true);
+    const payload = { codigo, nome, icone: g('icone').value.trim(), ordem: g('ordem').value, categoria_lancamento_padrao: g('cat').value, selecionavel_app: g('app').checked, ativo: g('ativo').checked };
+    cpStatus(stId, 'Salvando…');
+    const { error } = await dbAuth.rpc('fn_controle_tipo_upsert', { r: payload });
+    if (error) return cpStatus(stId, '❌ ' + error.message, true);
+    await cpCarregarTudo();
+    cpTipoItemNovo = false; cpTipoItemEdit = codigo;
+    cpRenderTiposItem();
+    cpStatus(`cp-ti-status-${codigo}`, 'Tipo salvo.');
+}
+
+// ---- Categorias de lançamento ----------------------------------------------
+function cpRenderLancamento() {
+    const cont = document.getElementById('cp-conteudo');
+    const grupos = cpLancCats.filter(c => !c.categoria_pai && c.direcao === cpLancDir);
+    cont.innerHTML = `
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div class="rz-chips">${CP_DIRECOES.map(d => `<button type="button" onclick="cpLancTrocarDir('${d.v}')" class="rz-chip ${cpLancDir === d.v ? 'rz-on' : ''}">${d.r}</button>`).join('')}</div>
+            ${pmBotaoToggle('cp-lc-novo', 'cpLcAbrirNovo()')}
+        </div>
+        <p class="text-xs mb-2" style="color:var(--sage)">Grupo (nível 1) › subcategoria (folha). A subcategoria diz se entra no resultado e se vai, por padrão, para a contabilidade. Desativar não apaga: o histórico continua.</p>
+        ${cpLancNovo ? cpFormLanc(null) : ''}
+        <div class="space-y-3">${grupos.map(gr => {
+            const folhas = cpLancCats.filter(f => f.categoria_pai === gr.codigo);
+            return `<div>
+                ${cpLinhaLanc(gr, true)}
+                <div class="space-y-1.5 mt-1.5 ml-4">${folhas.map(f => cpLinhaLanc(f, false)).join('')}</div>
+            </div>`;
+        }).join('') || pmVazio('Nenhuma categoria nesta direção.')}</div>`;
+}
+function cpLancTrocarDir(d) { cpLancDir = d; cpLancEdit = null; cpLancNovo = false; cpRenderLancamento(); }
+function cpLcAbrirNovo() { cpLancNovo = !cpLancNovo; cpLancEdit = null; cpRenderLancamento(); }
+function cpLcAbrir(c) { cpLancEdit = cpLancEdit === c ? null : c; cpLancNovo = false; cpRenderLancamento(); }
+function cpLinhaLanc(c, grupo) {
+    const aberto = cpLancEdit === c.codigo;
+    const info = grupo
+        ? `${cpLancCats.filter(f => f.categoria_pai === c.codigo).length} subcategoria(s)`
+        : `${cpRotuloResultado(c.grupo_resultado)} · contabilidade: ${c.contabilidade_padrao === false ? 'não' : 'sim'}`;
+    return `<div class="border rounded-xl overflow-hidden" style="border-color:var(--line)">
+        <button type="button" onclick="cpLcAbrir('${cpEsc(c.codigo)}')" class="w-full text-left px-3 py-2 flex items-center justify-between gap-2" style="background:${aberto ? '#faf9f5' : '#fff'}">
+            <p class="text-sm ${grupo ? 'font-bold' : 'font-medium'}" style="color:var(--ink)">${cpEsc(c.nome)} <span class="text-[11px] font-mono font-normal" style="color:var(--sage)">${cpEsc(c.codigo)} · ${cpEsc(info)}</span>${cpBadgeInativo(c.ativo)}</p>
+            <span class="text-xs" style="color:var(--sage)">${aberto ? '▲' : '▼'}</span>
+        </button>
+        ${aberto ? cpFormLanc(c) : ''}
+    </div>`;
+}
+function cpFormLanc(c) {
+    const novo = !c; const id = novo ? 'novo' : c.codigo;
+    const temFilhas = !novo && cpLancCats.some(f => f.categoria_pai === c.codigo);
+    const dir = novo ? cpLancDir : c.direcao;
+    const grupos = cpLancCats.filter(g => !g.categoria_pai && g.direcao === dir && (novo || g.codigo !== c.codigo));
+    return `<div class="p-3 border-t space-y-2" style="border-color:var(--line);background:#faf9f5">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div><label class="text-[10px] font-semibold">Código ${novo ? '<span style="color:var(--danger)">*</span>' : ''}</label>
+                <input id="cp-lc-cod-${id}" value="${novo ? '' : cpEsc(c.codigo)}" ${novo ? '' : 'disabled'} placeholder="ex.: venda_bem" class="w-full p-1.5 border rounded text-[11px] font-mono ${novo ? '' : 'bg-slate-100'}"></div>
+            <div><label class="text-[10px] font-semibold">Nome <span style="color:var(--danger)">*</span></label><input id="cp-lc-nome-${id}" value="${novo ? '' : cpEsc(c.nome)}" class="w-full p-1.5 border rounded text-[11px]"></div>
+            <div><label class="text-[10px] font-semibold">Direção</label>${cpSel(`cp-lc-dir-${id}`, dir, CP_DIRECOES)}</div>
+            <div><label class="text-[10px] font-semibold">Grupo (nível 1)</label>
+                ${temFilhas ? '<p class="text-[11px] pt-1.5" style="color:var(--sage)">é grupo de outras</p>' : cpSel(`cp-lc-pai-${id}`, novo ? '' : (c.categoria_pai || ''), [{ v: '', r: '— é um grupo —' }].concat(grupos.map(g => ({ v: g.codigo, r: g.nome }))))}</div>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div class="col-span-2"><label class="text-[10px] font-semibold">Resultado</label>${cpSel(`cp-lc-res-${id}`, novo ? (dir === 'entrada' ? 'receita' : dir === 'saida' ? 'despesa_operacional' : 'fora_resultado') : c.grupo_resultado, CP_GRUPOS_RESULTADO)}</div>
+            <div><label class="text-[10px] font-semibold">Ícone (lucide)</label><input id="cp-lc-icone-${id}" value="${novo ? '' : cpEsc(c.icone || '')}" class="w-full p-1.5 border rounded text-[11px] font-mono"></div>
+            <div><label class="text-[10px] font-semibold">Ordem</label><input type="number" id="cp-lc-ordem-${id}" value="${novo ? '' : (c.ordem ?? '')}" class="w-full p-1.5 border rounded text-[11px]"></div>
+        </div>
+        <div class="flex flex-wrap gap-4">
+            <label class="text-[11px] flex items-center gap-1"><input type="checkbox" id="cp-lc-contab-${id}" ${novo || c.contabilidade_padrao !== false ? 'checked' : ''}> entra na contabilidade por padrão</label>
+            <label class="text-[11px] flex items-center gap-1"><input type="checkbox" id="cp-lc-ativo-${id}" ${novo || c.ativo !== false ? 'checked' : ''}> ativa</label>
+        </div>
+        <div class="flex items-center gap-2">
+            <button onclick="cpLcSalvar('${cpEsc(id)}', ${novo})" class="px-3 py-1.5 rounded-lg text-xs font-bold text-white" style="background:var(--pine)">${novo ? 'Criar categoria' : 'Salvar alterações'}</button>
+            <span id="cp-lc-status-${id}" class="text-[11px]" style="color:var(--sage)"></span>
+        </div>
+    </div>`;
+}
+async function cpLcSalvar(id, novo) {
+    const g = suf => document.getElementById(`cp-lc-${suf}-${id}`);
+    const stId = `cp-lc-status-${id}`;
+    const codigo = novo ? g('cod').value.trim().toLowerCase() : id;
+    const nome = g('nome').value.trim();
+    if (!codigo) return cpStatus(stId, 'Informe o código.', true);
+    if (!nome) return cpStatus(stId, 'Informe o nome.', true);
+    const payload = { codigo, nome, direcao: g('dir').value, grupo_resultado: g('res').value, icone: g('icone').value.trim(), ordem: g('ordem').value, contabilidade_padrao: g('contab').checked, ativo: g('ativo').checked };
+    if (g('pai')) payload.categoria_pai = g('pai').value;
+    cpStatus(stId, 'Salvando…');
+    const { error } = await dbAuth.rpc('fn_lancamento_categoria_upsert', { r: payload });
+    if (error) return cpStatus(stId, '❌ ' + error.message, true);
+    await cpCarregarTudo();
+    cpLancNovo = false; cpLancEdit = codigo; cpLancDir = payload.direcao;
+    cpRenderLancamento();
+    cpStatus(`cp-lc-status-${codigo}`, 'Categoria salva.');
+}
+
+// ---- Espécies de documento -------------------------------------------------
+function cpRenderEspecies() {
+    const cont = document.getElementById('cp-conteudo');
+    const ativas = cpCategorias.filter(c => c.ativo !== false);
+    const inativas = cpCategorias.filter(c => c.ativo === false);
+    cont.innerHTML = `
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <p class="text-xs" style="color:var(--sage)">${ativas.length} espécie(s) ativa(s). A espécie diz o que o papel é (apólice, boleto, contrato…); o caminho do documento vem do tipo e do vínculo.</p>
+            ${pmBotaoToggle('cp-es-novo', 'cpEsAbrirNovo()')}
+        </div>
+        ${cpEspecieNova ? cpFormEspecie(null) : ''}
+        <div class="space-y-1.5">${ativas.map(cpLinhaEspecie).join('') || pmVazio('Nenhuma espécie ativa.')}</div>
+        ${inativas.length ? `<p class="text-[11px] font-bold uppercase tracking-wide mt-4 mb-1" style="color:var(--sage)">Desativadas (${inativas.length})</p><div class="space-y-1.5">${inativas.map(cpLinhaEspecie).join('')}</div>` : ''}`;
+}
+function cpEsAbrirNovo() { cpEspecieNova = !cpEspecieNova; cpEspecieEdit = null; cpRenderEspecies(); }
+function cpEsAbrir(c) { cpEspecieEdit = cpEspecieEdit === c ? null : c; cpEspecieNova = false; cpRenderEspecies(); }
+function cpLinhaEspecie(c) {
+    const aberto = cpEspecieEdit === c.codigo;
+    const nSub = cpSubtipos.filter(s => s.categoria_codigo === c.codigo).length;
+    return `<div class="border rounded-xl overflow-hidden" style="border-color:var(--line)">
+        <button type="button" onclick="cpEsAbrir('${cpEsc(c.codigo)}')" class="w-full text-left px-3 py-2 flex items-center justify-between gap-2" style="background:${aberto ? '#faf9f5' : '#fff'}">
+            <p class="text-sm font-medium" style="color:var(--ink)">${cpEsc(c.nome)} <span class="text-[11px] font-mono font-normal" style="color:var(--sage)">${cpEsc(c.codigo)} · ${nSub} subtipo(s)${c.manter_arquivo_padrao === false ? ' · só dados' : ''}</span>${cpBadgeInativo(c.ativo)}</p>
+            <span class="text-xs" style="color:var(--sage)">${aberto ? '▲' : '▼'}</span>
+        </button>
+        ${aberto ? cpFormEspecie(c) : ''}
+    </div>`;
+}
+function cpFormEspecie(c) {
+    const novo = !c; const id = novo ? 'novo' : c.codigo;
+    return `<div class="p-3 border-t space-y-2" style="border-color:var(--line);background:#faf9f5">
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+            <div><label class="text-[10px] font-semibold">Código ${novo ? '<span style="color:var(--danger)">*</span>' : ''}</label>
+                <input id="cp-es-cod-${id}" value="${novo ? '' : cpEsc(c.codigo)}" ${novo ? '' : 'disabled'} placeholder="ex.: documento.laudo" class="w-full p-1.5 border rounded text-[11px] font-mono ${novo ? '' : 'bg-slate-100'}"></div>
+            <div><label class="text-[10px] font-semibold">Nome <span style="color:var(--danger)">*</span></label><input id="cp-es-nome-${id}" value="${novo ? '' : cpEsc(c.nome)}" class="w-full p-1.5 border rounded text-[11px]"></div>
+            <div><label class="text-[10px] font-semibold">Ordem</label><input type="number" id="cp-es-ordem-${id}" value="${novo ? '' : (c.ordem ?? '')}" class="w-full p-1.5 border rounded text-[11px]"></div>
+        </div>
+        <div class="flex flex-wrap gap-4">
+            <label class="text-[11px] flex items-center gap-1"><input type="checkbox" id="cp-es-arq-${id}" ${novo || c.manter_arquivo_padrao !== false ? 'checked' : ''}> guarda o arquivo por padrão</label>
+            <label class="text-[11px] flex items-center gap-1"><input type="checkbox" id="cp-es-ativo-${id}" ${novo || c.ativo !== false ? 'checked' : ''}> ativa</label>
+        </div>
+        <div class="flex items-center gap-2">
+            <button onclick="cpEsSalvar('${cpEsc(id)}', ${novo})" class="px-3 py-1.5 rounded-lg text-xs font-bold text-white" style="background:var(--pine)">${novo ? 'Criar espécie' : 'Salvar alterações'}</button>
+            <span id="cp-es-status-${id}" class="text-[11px]" style="color:var(--sage)"></span>
+        </div>
+    </div>`;
+}
+async function cpEsSalvar(id, novo) {
+    const g = suf => document.getElementById(`cp-es-${suf}-${id}`);
+    const stId = `cp-es-status-${id}`;
+    const codigo = novo ? g('cod').value.trim().toLowerCase() : id;
+    const nome = g('nome').value.trim();
+    if (!codigo) return cpStatus(stId, 'Informe o código.', true);
+    if (!nome) return cpStatus(stId, 'Informe o nome.', true);
+    const payload = { codigo, nome, ordem: g('ordem').value, manter_arquivo_padrao: g('arq').checked, ativo: g('ativo').checked };
+    if (novo) payload.grupo = 'especie';
+    cpStatus(stId, 'Salvando…');
+    const { error } = await dbAuth.rpc('fn_cofre_categoria_upsert', { r: payload });
+    if (error) return cpStatus(stId, '❌ ' + error.message, true);
+    await cpCarregarTudo();
+    cpEspecieNova = false; cpEspecieEdit = codigo;
+    cpRenderEspecies();
+    cpStatus(`cp-es-status-${codigo}`, 'Espécie salva.');
 }
 
 // ========================================================= 2. APLICABILIDADE
