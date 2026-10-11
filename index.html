@@ -5,9 +5,17 @@
    RAIZ GESTÃO — MÓDULO DE GESTÃO DA RAIZ PATRIMÔNIO
    (painel interno/master, separado do app de Imóveis)
 
-   VERSÃO: v0.34.0
-   LINHAS: 1299
-   DATA: 2026-10-07
+   VERSÃO: v0.35.0
+   LINHAS: 1309
+   DATA: 2026-10-11
+   TÍTULO: MARCA RAIZ NO GESTÃO (MARCA E RAMOS, FASE 7)
+   NOVIDADES (v0.35.0):
+     - Demanda 680ee9f8, sessão 20261011-1315-marca-saidas (plano de marca aprovado pelo Nicola 11/10 11:20):
+       símbolo da marca (árvore com raízes e 5 pontas nas cores dos ramos — DIRETRIZES_MARCA_RAIZ) no login e no
+       cabeçalho, no lugar do emoji 🧭; ícones novos (símbolo + "Gestão" no fundo ardósia); apple-touch-icon.
+       A paleta ardósia/cobre continua (painel interno, distinto do app do cliente).
+     - APP_VERSAO estava em 'v0.31.0' enquanto o cabeçalho dizia v0.34.0 (VER-04): sincronizado em v0.35.0.
+   VERSÃO ANTERIOR: v0.34.0 · 2026-10-07
    TÍTULO: CATÁLOGO DA ÁRVORE NO GESTÃO (CATÁLOGO ÚNICO, FATIA 3)
    NOVIDADES (v0.34.0):
      - Demanda 2923ff4d, sessão 20261007-0010-catalogo-f3 (plano e fichas F-C10/F-C11
@@ -1002,7 +1010,7 @@
 <script>
     // Fonte única da versão exibida na tela — mantida em sincronia com o
     // bloco de controle no topo deste arquivo. Atualizar as duas juntas.
-    const APP_VERSAO = 'v0.31.0';
+    const APP_VERSAO = 'v0.35.0';
 </script>
 
 <!-- ===== PWA: permite "instalar" no celular (Android e iPhone) ===== -->
@@ -1013,13 +1021,14 @@
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 
 <!-- iPhone/Safari (o iOS ignora o manifest.json pro ícone; precisa destas tags) -->
-<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-512-maskable.png"> <!-- v0.35.0: fundo inteiro, o iPhone arredonda sozinho -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Raiz Gestão">
 
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<style>.rz-gmarca{display:flex;align-items:center;gap:10px}.rz-gmarca .rz-simb{flex:none}</style> <!-- v0.35.0: símbolo da marca ao lado do nome -->
 
 <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -1196,7 +1205,7 @@
     <!-- ===================== ÁREA DE LOGIN ===================== -->
     <div id="area-login" class="min-h-screen flex items-center justify-center p-4">
         <div class="w-full max-w-sm rounded-2xl p-8 shadow-xl" style="background:var(--pine-deep)">
-            <h1 class="text-2xl font-bold text-white mb-1">Raiz Gestão</h1>
+            <h1 class="rz-gmarca text-2xl font-bold text-white mb-1"><svg class="rz-simb" viewBox="16 2 88 112" width="28" height="36" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M60 64 C60 50 26 52 26 30"/><path d="M60 64 C60 50 44 38 44 16"/><path d="M60 64 C60 50 60 32 60 10"/><path d="M60 64 C60 50 76 38 76 16"/><path d="M60 64 C60 50 94 52 94 30"/><path d="M60 64 V92"/><path d="M60 80 C52 86 44 88 36 98"/><path d="M60 80 C68 86 76 88 84 98"/><path d="M60 92 C56 98 54 102 52 110"/><path d="M60 92 C64 98 66 102 68 110"/><path d="M30 72 H90" stroke-opacity=".3"/><circle cx="26" cy="30" r="6.5" fill="#7e6596" stroke="none"/><circle cx="44" cy="16" r="6.5" fill="#3c4f9a" stroke="none"/><circle cx="60" cy="10" r="6.5" fill="#3f8163" stroke="none"/><circle cx="76" cy="16" r="6.5" fill="#7a8f3c" stroke="none"/><circle cx="94" cy="30" r="6.5" fill="#966040" stroke="none"/></svg>Raiz Gestão</h1>
             <p class="text-sm mb-1" style="color:var(--brass-light)">Painel interno · Raízes Tech</p>
             <p class="text-[10px] mb-6" style="color:var(--pine-light)" id="badge-versao-login"></p>
 
@@ -1221,7 +1230,7 @@
     <!-- ===================== ÁREA LOGADA ===================== -->
     <div id="area-app" class="hidden min-h-screen">
         <header class="flex items-center justify-between px-5 py-4 shadow" style="background:var(--pine)">
-            <h1 class="text-lg font-bold text-white">🧭 Raiz Gestão</h1>
+            <h1 class="rz-gmarca text-lg font-bold text-white"><svg class="rz-simb" viewBox="16 2 88 112" width="20" height="25" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M60 64 C60 50 26 52 26 30"/><path d="M60 64 C60 50 44 38 44 16"/><path d="M60 64 C60 50 60 32 60 10"/><path d="M60 64 C60 50 76 38 76 16"/><path d="M60 64 C60 50 94 52 94 30"/><path d="M60 64 V92"/><path d="M60 80 C52 86 44 88 36 98"/><path d="M60 80 C68 86 76 88 84 98"/><path d="M60 92 C56 98 54 102 52 110"/><path d="M60 92 C64 98 66 102 68 110"/><path d="M30 72 H90" stroke-opacity=".3"/><circle cx="26" cy="30" r="6.5" fill="#7e6596" stroke="none"/><circle cx="44" cy="16" r="6.5" fill="#3c4f9a" stroke="none"/><circle cx="60" cy="10" r="6.5" fill="#3f8163" stroke="none"/><circle cx="76" cy="16" r="6.5" fill="#7a8f3c" stroke="none"/><circle cx="94" cy="30" r="6.5" fill="#966040" stroke="none"/></svg>Raiz Gestão</h1>
             <div class="flex items-center gap-3">
                 <span class="text-sm text-white/80" id="nome-pessoa-logada"></span>
                 <span class="text-[10px] text-white/50" id="badge-versao-app"></span>
