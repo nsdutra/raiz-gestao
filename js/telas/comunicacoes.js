@@ -1,6 +1,14 @@
 // ============================================================================
 // js/telas/comunicacoes.js — Raiz Gestão
 //
+// v0.6.0 (17/10/2026 — demanda d25da554, sessão 20261017-1623-gestao-ramos; de acordo do Nicola 17/10 08:37 com o plano
+// e 16:23 "a parte do gestão pode fazer") — modo Pessoas ganha o cartão "Ramos dos alertas": quais ramos (Família,
+// Imóveis…) entram no convite diário e no "Ver alertas" do robô para a pessoa; nenhum marcado = todos. Lê e grava por
+// gestao.fn_pessoa_alertas_ramos_obter/_definir (só master). Botão "Enviar agora (teste)": chama o diario-eventos no
+// modo consolidado_teste com o login do master — manda o convite só para essa pessoa, na hora, e mostra quantos
+// alertas entraram e se o modo restrito desviou o número.
+// Versão anterior: v0.5.0
+//
 // v0.5.0 (02/10/2026, sessão 20261002-1329-adocao-atividade, plano aprovado
 // pelo Nicola) — aba Uso ganha filtro de Pessoa (cascateado pela Empresa) e o
 // "Detalhe" passa a usar gestao.fn_comunicacoes_eventos: mesmo conteúdo de
@@ -887,6 +895,19 @@ async function cmPessoasRenderConteudo() {
                 <h4 class="text-sm font-extrabold mb-2" style="color:var(--ink)">Avisos automáticos (avisos proativos)</h4>
                 <div id="cm-pessoa-comunicacoes-lista"></div>
             </div>
+
+            <div class="rounded-2xl border-2 p-3 mt-4" style="border-color:var(--line);background:#fff">
+                <h4 class="text-sm font-extrabold mb-1" style="color:var(--ink)">Ramos dos alertas</h4>
+                <p class="text-[11px] mb-2" style="color:var(--sage)">Vale para o convite diário e para o "Ver alertas" do robô. Nenhum marcado = todos os ramos.</p>
+                <div id="cm-pessoa-ramos-lista" class="flex flex-wrap gap-x-4 gap-y-1"></div>
+                <button onclick="cmSalvarRamosPessoa()" class="mt-2 text-xs font-bold px-3 py-2 rounded-lg text-white" style="background:var(--pine)">Salvar ramos</button>
+                <span id="cm-ramos-status" class="text-[11px] font-bold ml-2"></span>
+                <div class="border-t mt-3 pt-3" style="border-color:var(--line)">
+                    <button onclick="cmEnviarConviteTeste()" class="text-xs font-bold px-3 py-2 rounded-lg border-2" style="border-color:var(--pine);color:var(--pine)">Enviar agora (teste)</button>
+                    <p class="text-[10px] mt-1" style="color:var(--sage)">Manda o convite diário só para esta pessoa, agora, sem esperar as 08:00 nem a frequência. Usa os ramos e avisos salvos.</p>
+                    <p id="cm-teste-status" class="text-[11px] font-bold mt-1"></p>
+                </div>
+            </div>
         </div>
     `;
 }
@@ -902,6 +923,46 @@ function cmPessoaMudarSelecionada() {
         : '';
     document.getElementById('cm-email-disparo-status').textContent = '';
     cmCarregarComunicacoesPessoa();
+    cmCarregarRamosPessoa(); // v0.6.0
+    const st = document.getElementById('cm-teste-status'); if (st) st.textContent = '';
+}
+
+// v0.6.0 — ramos dos alertas da pessoa (pessoas.alertas_ramos) e envio de teste do convite.
+async function cmCarregarRamosPessoa() {
+    const el = document.getElementById('cm-pessoa-ramos-lista');
+    if (!el) return;
+    el.innerHTML = '<p class="text-xs" style="color:var(--sage)">Carregando...</p>';
+    const { data, error } = await dbAuth.schema('gestao').rpc('fn_pessoa_alertas_ramos_obter', { p_pessoa_id: cmPessoaSelecionadaId });
+    if (error) { el.innerHTML = `<p class="text-xs" style="color:var(--danger)">${pmEsc(error.message)}</p>`; return; }
+    const marcados = new Set((data && data.selecionados) || []);
+    el.innerHTML = ((data && data.ramos) || []).map(r => `
+        <label class="flex items-center gap-1.5 text-xs" style="color:var(--ink)">
+            <input type="checkbox" class="cm-ramo" data-codigo="${pmEsc(r.codigo)}" ${marcados.has(r.codigo) ? 'checked' : ''}>
+            <span>${cmEscTexto(r.nome)}</span>
+        </label>`).join('');
+}
+
+async function cmSalvarRamosPessoa() {
+    const status = document.getElementById('cm-ramos-status');
+    const ramos = Array.from(document.querySelectorAll('#cm-pessoa-ramos-lista .cm-ramo:checked')).map(c => c.dataset.codigo);
+    status.textContent = 'Salvando...'; status.style.color = 'var(--sage)';
+    const { error } = await dbAuth.schema('gestao').rpc('fn_pessoa_alertas_ramos_definir', { p_pessoa_id: cmPessoaSelecionadaId, p_ramos: ramos });
+    if (error) { status.textContent = 'Erro: ' + error.message; status.style.color = 'var(--danger)'; return; }
+    status.textContent = ramos.length ? '✓ Salvo' : '✓ Salvo — todos os ramos'; status.style.color = 'var(--success)';
+    setTimeout(() => { if (status) status.textContent = ''; }, 2500);
+}
+
+async function cmEnviarConviteTeste() {
+    const status = document.getElementById('cm-teste-status');
+    status.textContent = 'Enviando...'; status.style.color = 'var(--sage)';
+    const { data, error } = await dbAuth.functions.invoke('diario-eventos', { body: { modo: 'consolidado_teste', pessoa_id: cmPessoaSelecionadaId } });
+    let r = data;
+    if (error && error.context && typeof error.context.json === 'function') { try { r = await error.context.json(); } catch (e) { /* segue com o erro */ } }
+    if (!r) { status.textContent = 'Erro: ' + (error ? error.message : 'sem resposta'); status.style.color = 'var(--danger)'; return; }
+    if (!r.ok) { status.textContent = 'Não enviado: ' + (r.motivo || 'falha no envio'); status.style.color = 'var(--danger)'; return; }
+    const ramos = Array.isArray(r.ramos) ? r.ramos.join(', ') : r.ramos;
+    status.textContent = `✅ Convite enviado — ${r.total} alerta(s) (ramos: ${ramos})` + (r.desviado_modo_restrito ? ' · ⚠️ modo restrito: foi para o número de teste, não o da pessoa' : '');
+    status.style.color = r.desviado_modo_restrito ? 'var(--danger)' : 'var(--success)';
 }
 
 async function cmCarregarComunicacoesPessoa() {
