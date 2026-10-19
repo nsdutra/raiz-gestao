@@ -1,6 +1,14 @@
 // ============================================================================
 // js/telas/empresas.js — Raiz Gestão
 //
+// v0.26.0 (19/10/2026, sessão 20261018-2336-usos-lotes, fatia 9b, demanda 1ee2e3be; de acordo do Nicola 18/10 23:36 —
+// FICHA_FATIA9B_LICENCA_POR_RAMO_RAIZ) — a ficha da empresa ganha a seção "Ramos": uma linha por ramo do catálogo com a
+// situação (ligado pela licença do ramo, incluído com Imóveis ou desligado), a validade, quantos ativos a empresa tem no
+// ramo e a última mudança. Ligar (com validade opcional; sem data acompanha Imóveis) e Desligar (com motivo) chamam
+// gestao.fn_ramo_licenca_definir; a leitura é gestao.fn_ramos_da_empresa. Desligar não apaga nada: só a lente do ramo some
+// do app (D9b-4).
+// Versão anterior: v0.25.0
+//
 // v0.25.0 (19/10/2026 — demanda 91a30125, sessão 20261018-2344-temas; FICHA_ROTINAS_E_ALERTAS_POR_TEMA_RAIZ v1.0.0, de acordo do
 // Nicola 18/10 23:44) — ficha da empresa ganha "Rotinas e alertas": por tema, o liga/desliga dos alertas da empresa
 // (fn_empresa_tema_alertas_definir) e as rotinas do tema (fn_rotina_empresa_ligar/_desligar — as mesmas do app, que agora
@@ -672,6 +680,7 @@ async function empresasAbrirFicha(clienteId) {
                     <div class="p-3 rounded-xl" style="background:var(--paper)"><p class="text-[10px]" style="color:var(--sage)">Nota média feedback (180d)</p><p class="text-sm font-bold">${f.nota_media_feedback ?? 'sem feedback'}</p></div>
                 </div>
                 <div id="ed-licencas-wrapper" class="hidden mb-4"></div>
+                <div id="ed-ramos-wrapper" class="mb-4"></div>
                 <p class="text-xs" style="color:var(--sage)">Cliente desde ${f.cliente_desde ? new Date(f.cliente_desde).toLocaleDateString('pt-BR') : '—'} · licença expira em ${f.data_expiracao ? new Date(f.data_expiracao).toLocaleDateString('pt-BR') : 'sem data'}</p>
 
                 <div class="mt-5 pt-4 border-t" style="border-color:var(--line)">
@@ -750,6 +759,7 @@ async function empresasAbrirFicha(clienteId) {
         </div>
     `;
     edCarregarTemas(clienteId); // v0.25.0
+    edCarregarRamos(clienteId); // v0.26.0 (fatia 9b)
 }
 
 // v0.25.0 — Rotinas e alertas por tema (mesmas funções do app).
@@ -841,6 +851,114 @@ function empresasFecharFicha() {
     document.getElementById('empresas-modal').classList.add('hidden');
     document.getElementById('empresas-modal').innerHTML = '';
     edMudarSubAba('lista');
+}
+
+// ============================================================================
+// RAMOS DA EMPRESA (v0.26.0, fatia 9b) — liga e desliga cada ramo licenciável.
+// Leitura: gestao.fn_ramos_da_empresa(p_cliente_id) → [{ramo, nome, ligado,
+// origem, editavel, plano, status, data_expiracao, acompanha_imoveis, vencida,
+// ativos, ultima_mudanca}]. Escrita: gestao.fn_ramo_licenca_definir(p_cliente_id,
+// p_ramo, p_ligar, p_expiracao, p_motivo). Só master (o banco confere).
+// ============================================================================
+let edRamosCache = [];
+
+async function edCarregarRamos(clienteId) {
+    const w = document.getElementById('ed-ramos-wrapper');
+    if (!w) return;
+    w.innerHTML = `<p class="text-xs" style="color:var(--sage)">Carregando ramos…</p>`;
+    const { data, error } = await dbAuth.schema('gestao').rpc('fn_ramos_da_empresa', { p_cliente_id: clienteId });
+    if (error) { w.innerHTML = `<p class="text-xs" style="color:var(--danger)">Ramos indisponíveis: ${pmEsc(error.message)}</p>`; return; }
+    edRamosCache = Array.isArray(data) ? data : [];
+    edRenderRamos(clienteId);
+}
+
+function edRamoSituacao(r) {
+    if (r.origem === 'imoveis') return r.ligado ? 'ligado · licença de Imóveis' : 'sem licença ativa de Imóveis';
+    if (r.origem === 'incluido') return r.ligado ? 'ligado · vem com Imóveis' : 'desligado · sem Imóveis ativo';
+    if (r.ligado) return 'ligado · licença do ramo';
+    if (r.vencida) return 'desligado · validade vencida';
+    return 'desligado';
+}
+
+function edRamoValidade(r) {
+    if (r.origem !== 'licenca') return r.data_expiracao ? 'validade de Imóveis: ' + new Date(r.data_expiracao).toLocaleDateString('pt-BR') : 'Imóveis sem data';
+    if (!r.licenca_id || (!r.ligado && !r.vencida)) return '';
+    if (r.acompanha_imoveis) return 'validade: acompanha Imóveis';
+    return r.data_expiracao ? 'validade: ' + new Date(r.data_expiracao).toLocaleDateString('pt-BR') : '';
+}
+
+function edRenderRamos(clienteId) {
+    const w = document.getElementById('ed-ramos-wrapper');
+    if (!w) return;
+    const linhas = edRamosCache.map(r => {
+        const um = r.ultima_mudanca;
+        const umTxt = um ? `${um.acao === 'gestao.ramo.desligar' ? 'Desligado' : um.acao === 'fatia9b.migracao' ? 'Migrado do Premium Ampliado' : 'Ligado'} em ${new Date(um.quando).toLocaleDateString('pt-BR')}${um.quem ? ' por ' + pmEsc(um.quem) : ''}${um.motivo && um.acao !== 'fatia9b.migracao' ? ' · ' + pmEsc(um.motivo) : ''}` : '';
+        const cor = r.ligado ? 'var(--pine)' : 'var(--sage)';
+        const validade = edRamoValidade(r);
+        const botao = !r.editavel ? '' : r.ligado
+            ? `<button onclick="edRamoAbrirForm('${clienteId}','${r.ramo}',false)" class="px-3 py-1.5 rounded-lg text-[11px] font-bold" style="background:#f1f5f9;color:var(--ink)">Desligar</button>`
+            : `<button onclick="edRamoAbrirForm('${clienteId}','${r.ramo}',true)" class="px-3 py-1.5 rounded-lg text-[11px] font-bold text-white" style="background:var(--pine)">Ligar</button>`;
+        return `
+            <div class="p-2.5 rounded-xl mb-2" style="background:var(--paper)">
+                <div class="flex items-center justify-between gap-2">
+                    <div class="min-w-0">
+                        <p class="text-xs font-bold" style="color:var(--ink)">${pmEsc(r.nome)} <span class="text-[10px] font-normal" style="color:var(--sage)">· ${r.ativos} ativo(s)</span></p>
+                        <p class="text-[10px] font-bold" style="color:${cor}">${edRamoSituacao(r)}${validade ? ' <span class="font-normal" style="color:var(--sage)">· ' + validade + '</span>' : ''}</p>
+                        ${umTxt ? `<p class="text-[10px]" style="color:var(--sage)">${umTxt}</p>` : ''}
+                    </div>
+                    ${botao}
+                </div>
+                <div id="ed-ramo-form-${r.ramo}"></div>
+            </div>`;
+    }).join('');
+    w.innerHTML = `
+        <div class="border-2 rounded-xl p-3" style="border-color:var(--line);background:#fff">
+            <p class="text-xs font-extrabold mb-1" style="color:var(--ink)">Ramos</p>
+            <p class="text-[10px] mb-2" style="color:var(--sage)">Desligar um ramo tira a lente dele do app; os ativos continuam em Todo o patrimônio. Família e Outros bens vêm com Imóveis.</p>
+            ${linhas || `<p class="text-xs" style="color:var(--sage)">Nenhum ramo no catálogo.</p>`}
+        </div>`;
+}
+
+function edRamoAbrirForm(clienteId, ramo, ligar) {
+    document.querySelectorAll('[id^="ed-ramo-form-"]').forEach(el => { el.innerHTML = ''; });
+    const el = document.getElementById(`ed-ramo-form-${ramo}`);
+    if (!el) return;
+    const r = edRamosCache.find(x => x.ramo === ramo) || {};
+    const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    el.innerHTML = ligar ? `
+        <div class="flex flex-wrap items-end gap-2 mt-2">
+            <div><label class="text-[10px] block" style="color:var(--sage)">Validade (opcional)</label>
+                <input type="date" id="ed-ramo-data-${ramo}" min="${amanha}" class="p-1.5 border rounded text-[11px]">
+                <span class="text-[9px] block" style="color:var(--sage)">em branco = acompanha Imóveis</span></div>
+            <button onclick="edRamoConfirmar('${clienteId}','${ramo}',true)" class="px-3 py-1.5 rounded-lg text-[11px] font-bold text-white" style="background:var(--pine)">Ligar ${pmEsc(r.nome || '')}</button>
+            <button onclick="edRenderRamos('${clienteId}')" class="px-2 py-1.5 rounded-lg text-[11px]" style="color:var(--sage)">Cancelar</button>
+        </div>
+        <p id="ed-ramo-msg-${ramo}" class="text-[10px] mt-1" style="color:var(--danger)"></p>` : `
+        <div class="flex flex-wrap items-end gap-2 mt-2">
+            <div class="flex-1 min-w-[160px]"><label class="text-[10px] block" style="color:var(--sage)">Motivo (obrigatório, fica no log)</label>
+                <input type="text" id="ed-ramo-motivo-${ramo}" placeholder="ex.: cliente não usa ${pmEsc((r.nome || '').toLowerCase())}" class="w-full p-1.5 border rounded text-[11px]"></div>
+            <button onclick="edRamoConfirmar('${clienteId}','${ramo}',false)" class="px-3 py-1.5 rounded-lg text-[11px] font-bold text-white" style="background:var(--danger)">Desligar ${pmEsc(r.nome || '')}</button>
+            <button onclick="edRenderRamos('${clienteId}')" class="px-2 py-1.5 rounded-lg text-[11px]" style="color:var(--sage)">Cancelar</button>
+        </div>
+        <p class="text-[10px] mt-1" style="color:var(--sage)">${r.ativos || 0} ativo(s) continuam no banco e em Todo o patrimônio.</p>
+        <p id="ed-ramo-msg-${ramo}" class="text-[10px] mt-1" style="color:var(--danger)"></p>`;
+}
+
+async function edRamoConfirmar(clienteId, ramo, ligar) {
+    const msg = document.getElementById(`ed-ramo-msg-${ramo}`);
+    let expiracao = null, motivo = null;
+    if (ligar) {
+        const v = (document.getElementById(`ed-ramo-data-${ramo}`) || {}).value || '';
+        expiracao = v ? v + 'T23:59:59-03:00' : null;
+    } else {
+        motivo = ((document.getElementById(`ed-ramo-motivo-${ramo}`) || {}).value || '').trim();
+        if (!motivo) { if (msg) msg.textContent = 'Diga o motivo para desligar.'; return; }
+    }
+    const { data, error } = await dbAuth.schema('gestao').rpc('fn_ramo_licenca_definir', {
+        p_cliente_id: clienteId, p_ramo: ramo, p_ligar: ligar, p_expiracao: expiracao, p_motivo: motivo
+    });
+    if (error) { if (msg) msg.textContent = error.message; return; }
+    await edCarregarRamos(clienteId);
 }
 
 // ============================================================================
