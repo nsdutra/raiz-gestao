@@ -1,6 +1,12 @@
 // ============================================================================
 // js/telas/empresas.js — Raiz Gestão
 //
+// v0.25.0 (19/10/2026 — demanda 91a30125, sessão 20261018-2344-temas; FICHA_ROTINAS_E_ALERTAS_POR_TEMA_RAIZ v1.0.0, de acordo do
+// Nicola 18/10 23:44) — ficha da empresa ganha "Rotinas e alertas": por tema, o liga/desliga dos alertas da empresa
+// (fn_empresa_tema_alertas_definir) e as rotinas do tema (fn_rotina_empresa_ligar/_desligar — as mesmas do app, que agora
+// aceitam o master). Temas fora do plano aparecem apagados.
+// Versão anterior: v0.24.0
+//
 // v0.24.0 (02/10/2026, sessão 20261002-1329-adocao-atividade, plano aprovado
 // pelo Nicola) — Adoção passa a contar app + bot: cada pessoa mostra dias no
 // app, dias no bot, dias ativos no total (app OU bot), ações no app, mensagens
@@ -722,6 +728,12 @@ async function empresasAbrirFicha(clienteId) {
                     </div>
                 </div>
 
+                <div class="mt-5 pt-4 border-t" style="border-color:var(--line)">
+                    <h4 class="text-sm font-extrabold mb-1" style="color:var(--ink)">Rotinas e alertas</h4>
+                    <p class="text-[11px] mb-2" style="color:var(--sage)">Alerta desligado some do app, do robô e do convite diário da empresa inteira. É o mesmo que o administrador vê em Minha empresa › Rotinas.</p>
+                    <div id="ed-temas"><p class="text-xs" style="color:var(--sage)">Carregando...</p></div>
+                </div>
+
                 <p class="text-[11px] mt-4 p-3 rounded-xl" style="background:var(--info-bg);color:var(--info)">
                     "Entrar nesta empresa" segue pendente de decisão de arquitetura (mecanismo de troca de empresa do master) — ver MODULO_GESTAO_ESTRATEGIA_ARQUITETURA.md, seção 8. Licença já é gerenciável aqui (lápis em Plano ou Status licença).
                 </p>
@@ -737,6 +749,43 @@ async function empresasAbrirFicha(clienteId) {
             </div>
         </div>
     `;
+    edCarregarTemas(clienteId); // v0.25.0
+}
+
+// v0.25.0 — Rotinas e alertas por tema (mesmas funções do app).
+async function edCarregarTemas(clienteId) {
+    const el = document.getElementById('ed-temas');
+    if (!el) return;
+    const { data, error } = await dbAuth.rpc('fn_empresa_temas_listar', { p_cliente_id: clienteId });
+    if (error) { el.innerHTML = `<p class="text-xs" style="color:var(--danger)">${pmEsc(error.message)}</p>`; return; }
+    const temas = (data || []).filter(t => t.controle_empresa);
+    const btn = (ligado, onclick, rotulo) => `<button onclick="${onclick}" class="text-[11px] font-bold px-2 py-1 rounded-lg border-2" style="border-color:${ligado ? 'var(--pine)' : 'var(--line)'};background:${ligado ? 'var(--pine)' : '#fff'};color:${ligado ? '#fff' : 'var(--sage)'}">${rotulo}</button>`;
+    el.innerHTML = temas.map(t => `
+        <div class="flex items-start justify-between gap-2 py-2 border-t" style="border-color:var(--line);${t.liberado ? '' : 'opacity:.5'}">
+            <div class="min-w-0">
+                <p class="text-xs font-bold" style="color:var(--ink)">${pmEsc(t.nome)}${t.liberado ? '' : ' <span class="font-normal" style="color:var(--sage)">· fora do plano</span>'}${t.origem === 'padrao' ? ' <span class="font-normal" style="color:var(--sage)">· padrão</span>' : ''}</p>
+                <div class="flex flex-wrap gap-1 mt-1">${(t.rotinas || []).map(r => btn(r.ligada,
+                    r.ligada ? `edRotinaDesligar('${clienteId}','${r.item_id}')` : `edRotinaLigar('${clienteId}','${pmEsc(r.codigo)}')`,
+                    'Rotina: ' + pmEsc(r.nome) + (r.ligada ? ' ✓' : ''))).join('')}</div>
+            </div>
+            ${btn(t.alertas_ligados, `edTemaAlertas('${clienteId}','${pmEsc(t.tema)}',${!t.alertas_ligados})`, t.alertas_ligados ? 'Alertas ligados' : 'Alertas desligados')}
+        </div>`).join('') || '<p class="text-xs" style="color:var(--sage)">Nenhum tema.</p>';
+}
+async function edTemaAlertas(clienteId, tema, ligar) {
+    const { error } = await dbAuth.rpc('fn_empresa_tema_alertas_definir', { p_cliente_id: clienteId, p_tema: tema, p_ligado: ligar });
+    if (error) { alert('Erro: ' + error.message); return; }
+    edCarregarTemas(clienteId);
+}
+async function edRotinaLigar(clienteId, codigo) {
+    const { error } = await dbAuth.rpc('fn_rotina_empresa_ligar', { p_cliente_id: clienteId, p_subtipo_codigo: codigo });
+    if (error) { alert('Erro: ' + error.message); return; }
+    edCarregarTemas(clienteId);
+}
+async function edRotinaDesligar(clienteId, itemId) {
+    if (!confirm('Desligar esta rotina? O controle da empresa para de ser gerado.')) return;
+    const { error } = await dbAuth.rpc('fn_rotina_empresa_desligar', { p_item_id: itemId, p_motivo: 'Desligada pelo master no Gestão' });
+    if (error) { alert('Erro: ' + error.message); return; }
+    edCarregarTemas(clienteId);
 }
 
 // v0.15.0 (bc9df144, item 9, 17/09/2026) — "Apagar Empresa e Acessos" MIGROU

@@ -1,6 +1,12 @@
 // ============================================================================
 // js/telas/comunicacoes.js — Raiz Gestão
 //
+// v0.7.0 (19/10/2026 — demanda 91a30125, sessão 20261018-2344-temas; FICHA_ROTINAS_E_ALERTAS_POR_TEMA_RAIZ v1.0.0, de acordo do
+// Nicola 18/10 23:44) — avisos da pessoa agrupados por tema (catálogo aviso_temas, tema de cada tipo em
+// alerta_tipos); tema desligado na empresa aparece apagado, sem caixa; frequência só no convite diário (único envio que ela
+// muda). A lista em si vem de gestao.fn_pessoa_comunicacoes_obter, que passou a listar só avisos de verdade.
+// Versão anterior: v0.6.0
+//
 // v0.6.0 (17/10/2026 — demanda d25da554, sessão 20261017-1623-gestao-ramos; de acordo do Nicola 17/10 08:37 com o plano
 // e 16:23 "a parte do gestão pode fazer") — modo Pessoas ganha o cartão "Ramos dos alertas": quais ramos (Família,
 // Imóveis…) entram no convite diário e no "Ver alertas" do robô para a pessoa; nenhum marcado = todos. Lê e grava por
@@ -977,16 +983,41 @@ async function cmCarregarComunicacoesPessoa() {
         return;
     }
     const opcoesFreq = ['diario', 'semanal', 'quinzenal', 'mensal', 'trimestral'];
-    el.innerHTML = proativas.map(f => `
+    // v0.7.0 — tema de cada aviso e estado do tema na empresa
+    const [rTipos, rTemas, rEmp] = await Promise.all([
+        dbAuth.from('alerta_tipos').select('funcionalidade_codigo, tema'),
+        dbAuth.from('aviso_temas').select('codigo, nome, ordem, controle_empresa'),
+        dbAuth.rpc('fn_empresa_temas_listar', { p_cliente_id: cmPessoasClienteId }),
+    ]);
+    const temaDaFunc = new Map((rTipos.data || []).filter(t => t.funcionalidade_codigo).map(t => [t.funcionalidade_codigo, t.tema]));
+    const temas = new Map((rTemas.data || []).map(t => [t.codigo, t]));
+    const ligadoEmp = new Map((rEmp.data || []).map(t => [t.tema, t.alertas_ligados]));
+    const itens = proativas.map(f => {
+        const tema = temaDaFunc.get(f.funcionalidade_codigo) || 'raiz';
+        const t = temas.get(tema) || { nome: 'Raiz', ordem: 999, controle_empresa: false };
+        return { ...f, tema, temaNome: t.nome, temaOrdem: t.ordem, empresaLigada: !t.controle_empresa || ligadoEmp.get(tema) !== false,
+                 temFrequencia: f.funcionalidade_codigo === 'alertar.consolidado_carteira' };
+    }).sort((x, y) => x.temaOrdem - y.temaOrdem || String(x.descricao).localeCompare(String(y.descricao)));
+    let temaAtual = null;
+    el.innerHTML = itens.map(f => {
+        const cab = f.tema !== temaAtual ? `<p class="text-[11px] font-extrabold uppercase mt-3 mb-1" style="color:var(--sage)">${cmEscTexto(f.temaNome)}</p>` : '';
+        temaAtual = f.tema;
+        if (!f.empresaLigada) return cab + `
+        <div class="flex items-start justify-between gap-2 py-1.5 border-t" style="border-color:var(--line);opacity:.5">
+            <span class="text-xs" style="color:var(--ink)">${cmEscTexto(f.descricao)}</span>
+            <span class="text-[10px] flex-none" style="color:var(--sage)">desligado na empresa</span>
+        </div>`;
+        return cab + `
         <div class="flex items-start justify-between gap-2 py-1.5 border-t" style="border-color:var(--line)">
             <label class="flex items-start gap-1.5 text-xs flex-1 min-w-0" style="color:var(--ink)">
                 <input type="checkbox" class="cm-pref-habilitado mt-0.5" data-codigo="${f.funcionalidade_codigo}" ${f.habilitado ? 'checked' : ''}>
                 <span>${cmEscTexto(f.descricao)}</span>
             </label>
-            <select class="cm-pref-frequencia text-[11px] border-2 rounded px-1 py-1 flex-none" style="border-color:var(--line)" data-codigo="${f.funcionalidade_codigo}">
+            ${f.temFrequencia ? `<select class="cm-pref-frequencia text-[11px] border-2 rounded px-1 py-1 flex-none" style="border-color:var(--line)" data-codigo="${f.funcionalidade_codigo}">
                 ${opcoesFreq.map(v => `<option value="${v}" ${f.frequencia === v ? 'selected' : ''}>${v}</option>`).join('')}
-            </select>
-        </div>`).join('') +
+            </select>` : ''}
+        </div>`;
+    }).join('') +
         `<button onclick="cmSalvarComunicacoesPessoa()" class="mt-2 text-xs font-bold px-3 py-2 rounded-lg text-white" style="background:var(--pine)">Salvar avisos</button>
          <span id="cm-pref-status" class="text-[11px] font-bold ml-2"></span>`;
 }
