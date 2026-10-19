@@ -1,6 +1,10 @@
 // ============================================================================
 // js/telas/parametros-master.js — Raiz Gestão
 //
+// v0.10.0 (18/10/2026) — usos fatia 9 (demandas 3022603b, 2fb81d05, ec3aaef5; sessão 20261018-2230-usos-fatia9; FICHA_FATIA9 v1.0.0,
+// de acordo do Nicola 18/10 22:47, D9-2): PM_HUB ganha o cartão "Catálogo de usos" (js/telas/catalogo-usos.js, novo), logo depois
+// do Catálogo do patrimônio. Único trecho alterado nesta versão.
+//
 // v0.9.6 (23/09/2026) — Frente fiscal, Fase 1 (demanda 976fcbf6): PM_HUB
 // ganha o card "Regras fiscais" (js/telas/regras-fiscais.js, novo) — regras
 // fiscais versionadas (public.fiscal_parametros, migration fiscal_
@@ -125,6 +129,7 @@ const PM_HUB = [
     { id: 'catalogos', icone: '🧱', titulo: 'Catálogo Técnico', desc: 'Módulos, funcionalidades e categorias de limite.', init: () => pmRenderCatalogos() },
     { id: 'documental', icone: '📄', titulo: 'Motor Documental', desc: 'Tipos de documento que a IA reconhece, prompts, versões e assertividade da leitura.', init: () => telaParametrosDocumentalInit() },
     { id: 'catalogo-patrimonio', icone: '🗂️', titulo: 'Catálogo do patrimônio', desc: 'Os dois eixos do catálogo global: o que o ativo é (categoria + tipo) e o que se controla sobre ele (natureza → subtipo → aplicabilidade → calendário).', init: () => telaCatalogoPatrimonioInit() },
+    { id: 'catalogo-usos', icone: '🌱', titulo: 'Catálogo de usos', desc: 'Como o ativo é usado: ramos, tipos de contrato, programas e fases, itens sugeridos, transições e categorias de animal.', init: () => telaCatalogoUsosInit() }, // v0.10.0 (fatia 9)
     { id: 'partes-padrao', icone: '🏛️', titulo: 'Partes padrão', desc: 'Prefeituras e órgãos recolhedores por subtipo de controle — vale pra todas as empresas.', init: () => telaPartesPadraoInit() },
     { id: 'conciliacao', icone: '🔄', titulo: 'Conciliação', desc: 'Fontes e regras de conciliação automática, e a visão por empresa × regra — global, master-only.', init: () => telaConciliacaoCatalogoInit() },
     { id: 'alertas', icone: '🔔', titulo: 'Alertas', desc: 'Catálogo de tipos de alerta do motor central (severidade, antecedência, agrupamento, teto diário) e informativos fiscais publicados.', init: () => telaAlertasCatalogoInit() },

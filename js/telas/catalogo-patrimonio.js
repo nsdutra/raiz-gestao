@@ -1,6 +1,15 @@
 // ============================================================================
 // js/telas/catalogo-patrimonio.js — Raiz Gestão
-// Versão: 1.5.0 · 07/10/2026
+// Versão: 1.6.0 · 18/10/2026
+//
+// v1.6.0 (usos fatia 9 — demandas 3022603b, 2fb81d05, ec3aaef5; sessão 20261018-2230-usos-fatia9; FICHA_FATIA9_CATALOGOS_GESTAO_RAIZ
+// v1.0.0, de acordo do Nicola 18/10 22:47, D9-1) — a aba Tipos de ativo ganha os campos de uso: ramo, segmento, repouso padrão,
+// aceita sub-ativos, pode ser sub-ativo, exemplo de nome e membros (modo, singular, plural, espécie). Entram as categorias Agro e
+// Pecuária (os tipos delas não apareciam na lista). CORREÇÃO: salvar um tipo existente mandava o id no lugar do código e a função
+// recusava ("código obrigatório"); agora manda o código. Gravação por fn_cofre_tipo_ativo_upsert, que passa a registrar antes e
+// depois em gestao.log_acoes.
+//
+// Versão anterior: 1.5.0 · 07/10/2026
 //
 // v1.5.0 (catálogo único, fatia 3 — demanda 2923ff4d, sessão 20261007-0010-catalogo-f3; plano com as fichas
 // F-C10/F-C11 aprovado pelo Nicola em 07/10/2026 00:09) — o catálogo da árvore ganha tela:
@@ -130,7 +139,7 @@
 // objeto, toast no passado, vazio num formato só, sentence case).
 // ============================================================================
 
-const CP_VERSAO = '1.5.0';
+const CP_VERSAO = '1.6.0';
 let cpAba = 'subtipos';
 
 // ---- estado por aba --------------------------------------------------------
@@ -143,6 +152,7 @@ let cpCalendario = [];
 let cpPartesPadrao = [];
 let cpLancCats = [];      // v1.5.0 — lancamento_categorias (todas, inclusive inativas)
 let cpControleTipos = []; // v1.5.0 — controle_tipos
+let cpRamos = []; let cpModelosUso = []; let cpEspecies = []; // v1.6.0 — ramo, repouso e espécie do tipo de ativo
 
 let cpTipoItemEdit = null; let cpTipoItemNovo = false;          // v1.5.0
 let cpLancEdit = null; let cpLancNovo = false; let cpLancDir = 'saida'; // v1.5.0
@@ -174,21 +184,21 @@ let cpCalendarioNovo = false;
 let cpCalendarioSubtipoAberto = null;
 let cpFiltroCalendario = ''; // v1.3.0 — demanda 34f5d60f
 
-const CP_CATEGORIAS_ATIVO = ['imovel_predial', 'imovel_territorial', 'veiculo', 'embarcacao', 'aeronave', 'vida', 'bem_valor', 'outro'];
+const CP_CATEGORIAS_ATIVO = ['imovel_predial', 'imovel_territorial', 'veiculo', 'embarcacao', 'aeronave', 'vida', 'bem_valor', 'agro', 'pecuaria', 'outro']; // v1.6.0 — agro e pecuaria
 // Rótulo amigável do eixo do ATIVO (ativo_tipos.categoria — CHECK fixo, 8
 // valores). Não confundir com cofre_categorias (eixo do controle/documento,
 // usado só no campo "Categoria macro" do form de Subtipos).
 const CP_CATEGORIA_ATIVO_LABEL = {
     imovel_predial: 'imóvel predial', imovel_territorial: 'imóvel territorial',
     veiculo: 'veículo', embarcacao: 'embarcação', aeronave: 'aeronave',
-    vida: 'vida', bem_valor: 'bem de valor', outro: 'outro',
+    vida: 'vida', bem_valor: 'bem de valor', agro: 'agro', pecuaria: 'pecuária', outro: 'outro',
 };
 // Abreviação de 4 letras pra caber na matriz de aplicabilidade (largura fixa,
 // nunca quebra linha — ver changelog v1.2.0).
 const CP_CATEGORIA_ATIVO_ABREV = {
     imovel_predial: 'Pred', imovel_territorial: 'Terr',
     veiculo: 'Veíc', embarcacao: 'Emb', aeronave: 'Aero',
-    vida: 'Vida', bem_valor: 'Bem', outro: 'Outro',
+    vida: 'Vida', bem_valor: 'Bem', agro: 'Agro', pecuaria: 'Pec', outro: 'Outro',
 };
 // Critério taxa vs. tributo (demanda e6bad120, fechada 18/09/2026): tributo é
 // cobrança fiscal cujo valor deriva de uma característica do próprio bem
@@ -291,7 +301,7 @@ function cpRenderAba() {
 
 async function cpCarregarTudo() {
     if (typeof dbAuth === 'undefined') throw new Error('cliente Supabase (dbAuth) não disponível nesta tela.');
-    const [rCat, rTa, rCampos, rSub, rApl, rCal, rPartes, rLanc, rTipos] = await Promise.all([
+    const [rCat, rTa, rCampos, rSub, rApl, rCal, rPartes, rLanc, rTipos, rRamos, rModelos, rEsp] = await Promise.all([
         dbAuth.from('cofre_categorias').select('*').is('cliente_id', null).order('ordem', { nullsFirst: false }).order('nome'),
         dbAuth.from('ativo_tipos').select('*').is('cliente_id', null).order('categoria').order('ordem', { nullsFirst: false }).order('nome'),
         dbAuth.from('ativo_tipos_campos').select('*').order('categoria').order('ordem', { nullsFirst: false }),
@@ -301,8 +311,12 @@ async function cpCarregarTudo() {
         dbAuth.from('cofre_partes_padrao').select('id, nome, uf, municipio_ibge, subtipo_id').order('nome'),
         dbAuth.from('lancamento_categorias').select('*').order('ordem').order('nome'), // v1.5.0
         dbAuth.from('controle_tipos').select('*').order('ordem').order('nome'),        // v1.5.0
+        dbAuth.from('ativo_ramos').select('codigo, nome, ordem').order('ordem'),                              // v1.6.0
+        dbAuth.from('operacao_modelos').select('codigo, nome, ramo, universal, status').order('ordem'),        // v1.6.0
+        dbAuth.from('membro_especies').select('codigo, nome').order('ordem'),                                 // v1.6.0
     ]);
-    for (const r of [rCat, rTa, rCampos, rSub, rApl, rCal, rPartes, rLanc, rTipos]) if (r.error) throw new Error(r.error.message);
+    for (const r of [rCat, rTa, rCampos, rSub, rApl, rCal, rPartes, rLanc, rTipos, rRamos, rModelos, rEsp]) if (r.error) throw new Error(r.error.message);
+    cpRamos = rRamos.data || []; cpModelosUso = (rModelos.data || []).filter(m => m.status === 'ativo'); cpEspecies = rEsp.data || [];
     cpLancCats = rLanc.data || [];
     cpControleTipos = rTipos.data || [];
     cpCategorias = rCat.data || [];
@@ -918,7 +932,8 @@ function cpLinhaTipoAtivo(t) {
     return `
     <div class="border rounded-xl overflow-hidden" style="border-color:var(--line)">
         <button type="button" onclick="cpTaAbrirEdicao('${t.id}')" class="w-full text-left px-3 py-2 flex items-center justify-between gap-2" style="background:${aberto ? '#faf9f5' : '#fff'}">
-            <p class="text-sm font-medium" style="color:var(--ink)">${cpEsc(t.nome)} <span class="text-[11px] font-mono font-normal" style="color:var(--sage)">${cpEsc(t.codigo)}</span>${t.ativo ? '' : ' <span class="rz-badge" style="background:#fee2e2;color:#991b1b">inativo</span>'}</p>
+            <p class="text-sm font-medium" style="color:var(--ink)">${cpEsc(t.nome)} <span class="text-[11px] font-mono font-normal" style="color:var(--sage)">${cpEsc(t.codigo)}</span>${t.ativo ? '' : ' <span class="rz-badge" style="background:#fee2e2;color:#991b1b">inativo</span>'}
+                <span class="block text-[11px] font-normal" style="color:var(--sage)">${cpEsc(cpNomeRamo(t.ramo))}${t.segmento ? ' · ' + cpEsc(t.segmento) : ''} · nasce em ${cpEsc(cpNomeModelo(t.modelo_repouso_padrao))}${t.aceita_subativos ? ' · aceita partes' : ''}${t.modo_membro && t.modo_membro !== 'nenhum' ? ' · ' + cpEsc(t.membro_plural || t.modo_membro) : ''}</span></p>
             <span class="text-xs" style="color:var(--sage)">${aberto ? '▲' : '▼'}</span>
         </button>
         ${aberto ? cpFormTipoAtivo(t) : ''}
@@ -939,6 +954,7 @@ function cpFormTipoAtivo(t) {
                 <input id="cp-ta-cod-${id}" value="${novo ? '' : cpEsc(t.codigo)}" ${novo ? '' : 'disabled'} class="w-full p-1.5 border rounded text-[11px] font-mono ${novo ? '' : 'bg-slate-100'}"></div>
         </div>
         <div><label class="text-[10px] font-semibold">Nome</label><input id="cp-ta-nome-${id}" value="${novo ? '' : cpEsc(t.nome)}" class="w-full p-1.5 border rounded text-[11px]"></div>
+        ${cpCamposUsoTipoAtivo(t, id)}
         <label class="text-[11px] flex items-center gap-1"><input type="checkbox" id="cp-ta-ativo-${id}" ${novo || t.ativo ? 'checked' : ''}> ativo</label>
         <div class="flex items-center gap-2">
             <button onclick="cpTaSalvar('${id}', ${novo})" class="px-3 py-1.5 rounded-lg text-xs font-bold text-white" style="background:var(--pine)">${novo ? 'Criar tipo' : 'Salvar alterações'}</button>
@@ -954,15 +970,51 @@ async function cpTaSalvar(id, novo) {
     const nome = g('nome').value.trim();
     if (novo && !codigo) { st.textContent = 'Informe o código.'; st.style.color = 'var(--danger)'; return; }
     if (!nome) { st.textContent = 'Informe o nome.'; st.style.color = 'var(--danger)'; return; }
-    const payload = novo
-        ? { categoria: g('cat').value, codigo, nome, ativo: g('ativo').checked }
-        : { id, categoria: g('cat').value, nome, ativo: g('ativo').checked };
+    // v1.6.0 — o código vai sempre (a função acha o tipo pelo código; antes ia o id e ela recusava) + os campos de uso
+    const tAtual = novo ? null : cpTiposAtivo.find(x => x.id === id);
+    const payload = Object.assign({ codigo: novo ? codigo : tAtual?.codigo, categoria: g('cat').value, nome, ativo: g('ativo').checked }, cpLerCamposUso(id));
     st.textContent = 'Salvando…'; st.style.color = 'var(--sage)';
     const { error } = await dbAuth.rpc('fn_cofre_tipo_ativo_upsert', { r: payload });
     if (error) { st.textContent = '❌ ' + error.message; st.style.color = 'var(--danger)'; return; }
     await cpCarregarTudo();
     cpTipoAtivoNovo = false; cpTipoAtivoEditId = null;
     cpRenderTiposAtivo();
+}
+
+// v1.6.0 (fatia 9, D9-1) — os campos de uso do tipo: ramo, segmento, repouso, partes, membros
+function cpNomeRamo(c) { const r = cpRamos.find(x => x.codigo === c); return r ? r.nome : (c || 'sem ramo'); }
+function cpNomeModelo(c) { const m = cpModelosUso.find(x => x.codigo === c); return m ? m.nome : (c || 'sem repouso'); }
+function cpCamposUsoTipoAtivo(t, id) {
+    const v = k => t ? (t[k] ?? '') : '';
+    const sel = (suf, lista, atual, vazio) => `<select id="cp-ta-${suf}-${id}" class="w-full p-1.5 border rounded text-[11px]">${vazio ? `<option value="">${vazio}</option>` : ''}${lista.map(o => `<option value="${cpEsc(o.v)}" ${String(atual) === String(o.v) ? 'selected' : ''}>${cpEsc(o.r)}</option>`).join('')}</select>`;
+    const modoAtual = v('modo_membro') || 'nenhum';
+    return `
+        <div class="grid grid-cols-2 gap-2">
+            <div><label class="text-[10px] font-semibold">Ramo sugerido</label>${sel('ramo', cpRamos.map(r => ({ v: r.codigo, r: r.nome })), v('ramo') || 'outros')}</div>
+            <div><label class="text-[10px] font-semibold">Segmento (agrupa a lista)</label><input id="cp-ta-seg-${id}" value="${cpEsc(v('segmento'))}" class="w-full p-1.5 border rounded text-[11px]"></div>
+            <div><label class="text-[10px] font-semibold">Nasce em (repouso)</label>${sel('rep', cpModelosUso.map(m => ({ v: m.codigo, r: m.nome + (m.universal ? '' : ' · ' + cpNomeRamo(m.ramo)) })), v('modelo_repouso_padrao'), 'sem repouso')}</div>
+            <div><label class="text-[10px] font-semibold">Exemplo de nome</label><input id="cp-ta-ex-${id}" value="${cpEsc(v('exemplo_nome'))}" placeholder="Ex.: Talhão 3" class="w-full p-1.5 border rounded text-[11px]"></div>
+        </div>
+        <div class="flex flex-wrap gap-3">
+            <label class="text-[11px] flex items-center gap-1"><input type="checkbox" id="cp-ta-asub-${id}" ${t && t.aceita_subativos ? 'checked' : ''}> aceita partes (sub-ativos)</label>
+            <label class="text-[11px] flex items-center gap-1"><input type="checkbox" id="cp-ta-psub-${id}" ${t && t.pode_ser_subativo ? 'checked' : ''}> pode ser parte de outro ativo</label>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+            <div><label class="text-[10px] font-semibold">Membros</label>${sel('mm', [{ v: 'nenhum', r: 'nenhum' }, { v: 'individuo', r: 'indivíduo (animal)' }, { v: 'quantidade', r: 'quantidade (garrafas)' }], modoAtual)}</div>
+            <div><label class="text-[10px] font-semibold">Espécie</label>${sel('esp', cpEspecies.map(e => ({ v: e.codigo, r: e.nome })), v('membro_especie'), '—')}</div>
+            <div><label class="text-[10px] font-semibold">Membro (singular)</label><input id="cp-ta-msing-${id}" value="${cpEsc(v('membro_singular'))}" placeholder="animal" class="w-full p-1.5 border rounded text-[11px]"></div>
+            <div><label class="text-[10px] font-semibold">Membro (plural)</label><input id="cp-ta-mplur-${id}" value="${cpEsc(v('membro_plural'))}" placeholder="animais" class="w-full p-1.5 border rounded text-[11px]"></div>
+        </div>
+        <p class="text-[10px]" style="color:var(--sage)">Repouso e membros valem para os ativos novos; com animais ou garrafas cadastrados, o modo de membro não muda.</p>`;
+}
+function cpLerCamposUso(id) {
+    const g = suf => document.getElementById(`cp-ta-${suf}-${id}`);
+    return {
+        ramo: g('ramo')?.value || '', segmento: g('seg')?.value.trim() || '', modelo_repouso_padrao: g('rep')?.value || '',
+        exemplo_nome: g('ex')?.value.trim() || '', aceita_subativos: !!g('asub')?.checked, pode_ser_subativo: !!g('psub')?.checked,
+        modo_membro: g('mm')?.value || 'nenhum', membro_especie: g('esp')?.value || '',
+        membro_singular: g('msing')?.value.trim() || '', membro_plural: g('mplur')?.value.trim() || '',
+    };
 }
 
 // ========================================================= 4. CAMPOS DO TIPO
