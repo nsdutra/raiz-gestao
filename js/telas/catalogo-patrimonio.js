@@ -1,6 +1,14 @@
 // ============================================================================
 // js/telas/catalogo-patrimonio.js — Raiz Gestão
-// Versão: 1.6.0 · 18/10/2026
+// Versão: 1.7.0 · 20/10/2026
+//
+// v1.7.0 (20/10/2026 — demanda bf1c1ba7, sessão 20261020-1834-feriados; FICHA_FAMILIA_CALENDARIO_E_FERIADOS_RAIZ v1.0.0, de acordo
+// do Nicola 20/10 18:34, E1) — aba nova "Feriados": o catálogo global public.feriados (regra por data fixa ou Páscoa±N),
+// com filtro por situação e UF, aprovar / recusar / voltar a proposto, editar e criar. "Pesquisar cidade (IA)" chama a Edge
+// feriados-pesquisar, que grava o que achar como PROPOSTO com a fonte — só vale na agenda das empresas depois de aprovado aqui.
+// Leitura e escrita só pelas funções do Gestão (master): gestao.fn_feriados_listar, fn_feriado_salvar, fn_feriado_decidir.
+//
+// Versão anterior: 1.6.0 · 18/10/2026
 //
 // v1.6.0 (usos fatia 9 — demandas 3022603b, 2fb81d05, ec3aaef5; sessão 20261018-2230-usos-fatia9; FICHA_FATIA9_CATALOGOS_GESTAO_RAIZ
 // v1.0.0, de acordo do Nicola 18/10 22:47, D9-1) — a aba Tipos de ativo ganha os campos de uso: ramo, segmento, repouso padrão,
@@ -139,7 +147,7 @@
 // objeto, toast no passado, vazio num formato só, sentence case).
 // ============================================================================
 
-const CP_VERSAO = '1.6.0';
+const CP_VERSAO = '1.7.0';
 let cpAba = 'subtipos';
 
 // ---- estado por aba --------------------------------------------------------
@@ -183,6 +191,9 @@ let cpCalendarioEditId = null;
 let cpCalendarioNovo = false;
 let cpCalendarioSubtipoAberto = null;
 let cpFiltroCalendario = ''; // v1.3.0 — demanda 34f5d60f
+// v1.7.0 — feriados (bf1c1ba7)
+let cpFeriados = []; let cpFeriadoEdit = null; let cpFeriadoNovo = false;
+let cpFerStatus = 'proposto'; let cpFerUf = ''; let cpFerPesquisando = false;
 
 const CP_CATEGORIAS_ATIVO = ['imovel_predial', 'imovel_territorial', 'veiculo', 'embarcacao', 'aeronave', 'vida', 'bem_valor', 'agro', 'pecuaria', 'outro']; // v1.6.0 — agro e pecuaria
 // Rótulo amigável do eixo do ATIVO (ativo_tipos.categoria — CHECK fixo, 8
@@ -275,6 +286,7 @@ function cpRenderAbas() {
         { id: 'tipos-ativo', rotulo: 'Tipos de ativo' },
         { id: 'campos-tipo', rotulo: 'Campos do tipo' },
         { id: 'calendario', rotulo: 'Calendário & partes' },
+        { id: 'feriados', rotulo: 'Feriados' },                         // v1.7.0
     ];
     document.getElementById('cp-abas').innerHTML = abas.map(a =>
         `<button type="button" onclick="cpTrocarAba('${a.id}')" class="rz-chip ${cpAba === a.id ? 'rz-on' : ''}">${a.rotulo}</button>`).join('');
@@ -285,7 +297,10 @@ function cpTrocarAba(id) {
     cpSubtipoAberto = null; cpCategoriaEditCodigo = null; cpTipoAtivoEditId = null;
     cpCampoEditId = null; cpAplicSubtipoAberto = null; cpCalendarioEditId = null;
     cpTipoItemEdit = null; cpTipoItemNovo = false; cpLancEdit = null; cpLancNovo = false; cpEspecieEdit = null; cpEspecieNova = false; // v1.5.0
-    cpRenderAbas(); cpRenderAba();
+    cpFeriadoEdit = null; cpFeriadoNovo = false; // v1.7.0
+    cpRenderAbas();
+    if (id === 'feriados') { cpCarregarFeriados(); return; } // v1.7.0 — carrega só ao abrir a aba
+    cpRenderAba();
 }
 
 function cpRenderAba() {
@@ -296,6 +311,7 @@ function cpRenderAba() {
     if (cpAba === 'especies') return cpRenderEspecies();         // v1.5.0
     if (cpAba === 'tipos-ativo') return cpRenderTiposAtivo();
     if (cpAba === 'campos-tipo') return cpRenderCamposTipo();
+    if (cpAba === 'feriados') return cpRenderFeriados(); // v1.7.0
     return cpRenderCalendario();
 }
 
@@ -1226,3 +1242,169 @@ async function cpCalSalvar(id, novo) {
 // telaConciliacaoCatalogoInit), a pedido do Nicola: não tem relação com
 // categoria/subtipo do patrimônio, é outro assunto (regras de conciliação
 // bancária). Ver changelog v1.1.0 acima.
+
+// ============================================================================
+// v1.7.0 — FERIADOS (demanda bf1c1ba7). Catálogo global por regra; aprovação do master.
+// ============================================================================
+const CP_FER_MES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+const CP_FER_STATUS = [['proposto', 'Propostos'], ['aprovado', 'Aprovados'], ['recusado', 'Recusados'], ['', 'Todos']];
+
+async function cpCarregarFeriados() {
+    const cont = document.getElementById('cp-conteudo');
+    cont.innerHTML = '<p class="text-xs" style="color:var(--sage)">Carregando feriados…</p>';
+    const { data, error } = await dbAuth.schema('gestao').rpc('fn_feriados_listar', { p_status: cpFerStatus || null, p_uf: cpFerUf || null });
+    if (error) { cont.innerHTML = `<p class="text-xs" style="color:var(--danger)">Não consegui carregar: ${cpEsc(error.message)}</p>`; return; }
+    cpFeriados = data || [];
+    cpRenderFeriados();
+}
+
+function cpFerQuando(f) {
+    if (f.regra_movel) {
+        const n = Number(f.regra_movel.slice(6));
+        const conhecidas = { '-48': 'Carnaval (segunda)', '-47': 'Carnaval (terça)', '-2': 'Sexta-feira Santa', '+60': 'Corpus Christi' };
+        return conhecidas[f.regra_movel.slice(6)] ? `${conhecidas[f.regra_movel.slice(6)]} · Páscoa ${n >= 0 ? '+' : ''}${n}` : `Páscoa ${n >= 0 ? '+' : ''}${n} dias`;
+    }
+    return `${String(f.dia).padStart(2, '0')} ${CP_FER_MES[(f.mes || 1) - 1]}`;
+}
+function cpFerLocal(f) {
+    if (f.abrangencia === 'nacional') return 'Nacional';
+    if (f.abrangencia === 'estadual') return `Estadual · ${f.uf}`;
+    return `${cpEsc(f.municipio_nome || 'IBGE ' + f.municipio_ibge)} · ${f.uf}`;
+}
+
+function cpRenderFeriados() {
+    const cont = document.getElementById('cp-conteudo');
+    const n = (st) => cpFeriados.filter(f => f.status === st).length;
+    cont.innerHTML = `
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+            ${gestaoCardMetrica('Na lista', cpFeriados.length)}
+            ${gestaoCardMetrica('Propostos', n('proposto'), null, 'Só valem na agenda das empresas depois de aprovados.')}
+            ${gestaoCardMetrica('Aprovados', n('aprovado'))}
+            ${gestaoCardMetrica('Recusados', n('recusado'))}
+        </div>
+        <div class="flex flex-wrap items-center gap-2 mb-2">
+            ${CP_FER_STATUS.map(([k, r]) => `<button type="button" onclick="cpFerFiltrar('${k}', null)" class="rz-chip ${cpFerStatus === k ? 'rz-on' : ''}">${r}</button>`).join('')}
+            <input id="cp-fer-uf" value="${cpEsc(cpFerUf)}" maxlength="2" placeholder="UF" onchange="cpFerFiltrar(null, this.value)" class="w-14 p-1.5 border rounded text-xs uppercase">
+            <span class="flex-1"></span>
+            ${pmBotaoToggle('cp-fer-novo', 'cpFerAbrirNovo()')}
+        </div>
+        <div class="p-3 mb-3 border rounded-xl space-y-2" style="border-color:var(--line);background:#faf9f5">
+            <p class="text-[11px] font-semibold" style="color:var(--ink)">Pesquisar feriados estaduais e municipais de uma cidade (IA com busca na web)</p>
+            <div class="flex flex-wrap items-center gap-2">
+                <input id="cp-fer-p-uf" maxlength="2" placeholder="UF" class="w-14 p-1.5 border rounded text-xs uppercase">
+                <input id="cp-fer-p-cid" placeholder="Cidade (ex.: Nova Lima)" class="flex-1 min-w-[160px] p-1.5 border rounded text-xs">
+                <input id="cp-fer-p-ibge" placeholder="IBGE (opcional)" class="w-32 p-1.5 border rounded text-xs">
+                <button type="button" onclick="cpFerPesquisar()" ${cpFerPesquisando ? 'disabled' : ''} class="px-3 py-1.5 rounded-lg text-xs font-bold text-white" style="background:var(--pine)">${cpFerPesquisando ? 'Pesquisando…' : 'Pesquisar cidade'}</button>
+            </div>
+            <p id="cp-fer-p-status" class="text-[11px]" style="color:var(--sage)">O que for achado entra como Proposto, com a fonte. Confira a fonte antes de aprovar.</p>
+        </div>
+        ${cpFeriadoNovo ? cpFormFeriado(null) : ''}
+        <div class="space-y-2">${cpFeriados.map(cpLinhaFeriado).join('') || pmVazio('Nenhum feriado com esse filtro.')}</div>`;
+}
+
+function cpFerFiltrar(status, uf) {
+    if (status !== null) cpFerStatus = status;
+    if (uf !== null) cpFerUf = String(uf || '').trim().toUpperCase();
+    cpFeriadoEdit = null; cpFeriadoNovo = false;
+    cpCarregarFeriados();
+}
+function cpFerAbrirNovo() { cpFeriadoNovo = !cpFeriadoNovo; cpFeriadoEdit = null; cpRenderFeriados(); }
+function cpFerAbrirEdicao(id) { cpFeriadoEdit = cpFeriadoEdit === id ? null : id; cpFeriadoNovo = false; cpRenderFeriados(); }
+
+function cpLinhaFeriado(f) {
+    const aberto = cpFeriadoEdit === f.id;
+    const cor = f.status === 'aprovado' ? 'background:#dcfce7;color:#166534' : f.status === 'recusado' ? 'background:#fee2e2;color:#991b1b' : 'background:#fef3c7;color:#92400e';
+    return `
+    <div class="border rounded-xl overflow-hidden" style="border-color:var(--line)">
+        <div class="px-3 py-2 flex items-center justify-between gap-2" style="background:${aberto ? '#faf9f5' : '#fff'}">
+            <button type="button" onclick="cpFerAbrirEdicao('${f.id}')" class="text-left flex-1">
+                <p class="text-sm font-medium" style="color:var(--ink)">${cpEsc(f.nome)}${f.tipo === 'ponto_facultativo' ? ' <span class="text-[11px] font-normal" style="color:var(--sage)">(ponto facultativo)</span>' : ''}
+                   <span class="rz-badge" style="${cor}">${f.status}</span></p>
+                <p class="text-[11px]" style="color:var(--sage)">${cpFerQuando(f)} · ${cpFerLocal(f)}${f.ano_inicio ? ' · desde ' + f.ano_inicio : ''}${f.fonte ? ' · ' + cpEsc(String(f.fonte).slice(0, 140)) : ''}</p>
+            </button>
+            <div class="flex items-center gap-1 shrink-0">
+                ${f.status !== 'aprovado' ? `<button type="button" onclick="cpFerDecidir('${f.id}', 'aprovado')" class="px-2 py-1 rounded text-[11px] font-bold text-white" style="background:var(--pine)">Aprovar</button>` : ''}
+                ${f.status !== 'recusado' ? `<button type="button" onclick="cpFerDecidir('${f.id}', 'recusado')" class="px-2 py-1 rounded text-[11px] border" style="border-color:var(--line)">Recusar</button>` : ''}
+                ${f.status !== 'proposto' ? `<button type="button" onclick="cpFerDecidir('${f.id}', 'proposto')" class="px-2 py-1 rounded text-[11px] border" style="border-color:var(--line)">Proposto</button>` : ''}
+            </div>
+        </div>
+        ${aberto ? cpFormFeriado(f) : ''}
+    </div>`;
+}
+
+function cpFormFeriado(f) {
+    const novo = !f; const id = novo ? 'novo' : f.id; const v = (k) => novo ? '' : cpEsc(f[k] ?? '');
+    const sel = (k, val) => (!novo && f[k] === val) ? 'selected' : '';
+    return `
+    <div class="p-3 border-t space-y-2" style="border-color:var(--line);background:#faf9f5">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div><label class="text-[10px] font-semibold">Abrangência</label>
+                <select id="cp-fer-abr-${id}" class="w-full p-1.5 border rounded text-[11px]">
+                    <option value="municipal" ${sel('abrangencia', 'municipal')}>Municipal</option>
+                    <option value="estadual" ${sel('abrangencia', 'estadual')}>Estadual</option>
+                    <option value="nacional" ${sel('abrangencia', 'nacional')}>Nacional</option></select></div>
+            <div><label class="text-[10px] font-semibold">UF</label><input id="cp-fer-uf-${id}" value="${v('uf')}" maxlength="2" class="w-full p-1.5 border rounded text-[11px] uppercase"></div>
+            <div><label class="text-[10px] font-semibold">Cidade</label><input id="cp-fer-cid-${id}" value="${v('municipio_nome')}" class="w-full p-1.5 border rounded text-[11px]"></div>
+            <div><label class="text-[10px] font-semibold">IBGE</label><input id="cp-fer-ibge-${id}" value="${v('municipio_ibge')}" class="w-full p-1.5 border rounded text-[11px]"></div>
+        </div>
+        <div><label class="text-[10px] font-semibold">Nome <span style="color:var(--danger)">*</span></label><input id="cp-fer-nome-${id}" value="${v('nome')}" class="w-full p-1.5 border rounded text-[11px]"></div>
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
+            <div><label class="text-[10px] font-semibold">Dia</label><input type="number" id="cp-fer-dia-${id}" value="${v('dia')}" min="1" max="31" class="w-full p-1.5 border rounded text-[11px]"></div>
+            <div><label class="text-[10px] font-semibold">Mês</label><input type="number" id="cp-fer-mes-${id}" value="${v('mes')}" min="1" max="12" class="w-full p-1.5 border rounded text-[11px]"></div>
+            <div><label class="text-[10px] font-semibold">ou Páscoa ±N</label><input id="cp-fer-mov-${id}" value="${v('regra_movel')}" placeholder="pascoa+60" class="w-full p-1.5 border rounded text-[11px]"></div>
+            <div><label class="text-[10px] font-semibold">Tipo</label>
+                <select id="cp-fer-tipo-${id}" class="w-full p-1.5 border rounded text-[11px]">
+                    <option value="feriado" ${sel('tipo', 'feriado')}>Feriado</option>
+                    <option value="ponto_facultativo" ${sel('tipo', 'ponto_facultativo')}>Ponto facultativo</option></select></div>
+            <div><label class="text-[10px] font-semibold">Desde (ano)</label><input type="number" id="cp-fer-ini-${id}" value="${v('ano_inicio')}" class="w-full p-1.5 border rounded text-[11px]"></div>
+        </div>
+        <div><label class="text-[10px] font-semibold">Fonte (lei, decreto ou link)</label><input id="cp-fer-fonte-${id}" value="${v('fonte')}" class="w-full p-1.5 border rounded text-[11px]"></div>
+        <div class="flex items-center gap-2">
+            <button onclick="cpFerSalvar('${id}', ${novo})" class="px-3 py-1.5 rounded-lg text-xs font-bold text-white" style="background:var(--pine)">${novo ? 'Criar (proposto)' : 'Salvar'}</button>
+            <span id="cp-fer-status-${id}" class="text-[11px]" style="color:var(--sage)">${novo ? 'Nasce Proposto: aprove na lista depois de conferir a fonte.' : 'Salvar mantém a situação atual (' + f.status + ').'}</span>
+        </div>
+    </div>`;
+}
+
+async function cpFerSalvar(id, novo) {
+    const g = (suf) => document.getElementById(`cp-fer-${suf}-${id}`);
+    const st = document.getElementById(`cp-fer-status-${id}`);
+    const atual = novo ? null : cpFeriados.find(x => x.id === id);
+    const p = {
+        id: novo ? null : id, abrangencia: g('abr').value, uf: g('uf').value.trim().toUpperCase(),
+        municipio_nome: g('cid').value.trim(), municipio_ibge: g('ibge').value.trim(), nome: g('nome').value.trim(),
+        dia: g('dia').value, mes: g('mes').value, regra_movel: g('mov').value.trim().toLowerCase(), tipo: g('tipo').value,
+        ano_inicio: g('ini').value, fonte: g('fonte').value.trim(), status: novo ? 'proposto' : atual?.status,
+    };
+    if (p.abrangencia === 'nacional') { p.uf = ''; p.municipio_nome = ''; p.municipio_ibge = ''; }
+    if (p.abrangencia === 'estadual') { p.municipio_nome = ''; p.municipio_ibge = ''; }
+    if (p.regra_movel) { p.dia = ''; p.mes = ''; }
+    if (!p.nome) { st.textContent = 'Informe o nome.'; st.style.color = 'var(--danger)'; return; }
+    st.textContent = 'Salvando…'; st.style.color = 'var(--sage)';
+    const { error } = await dbAuth.schema('gestao').rpc('fn_feriado_salvar', { p });
+    if (error) { st.textContent = '⚠️ ' + error.message; st.style.color = 'var(--danger)'; return; }
+    cpFeriadoEdit = null; cpFeriadoNovo = false;
+    cpCarregarFeriados();
+}
+
+async function cpFerDecidir(id, status) {
+    const { error } = await dbAuth.schema('gestao').rpc('fn_feriado_decidir', { p_id: id, p_status: status });
+    if (error) { console.error('fn_feriado_decidir:', error.message); window.alert('Não consegui alterar: ' + error.message); return; }
+    cpCarregarFeriados();
+}
+
+async function cpFerPesquisar() {
+    const uf = document.getElementById('cp-fer-p-uf').value.trim().toUpperCase();
+    const cidade = document.getElementById('cp-fer-p-cid').value.trim();
+    const ibge = document.getElementById('cp-fer-p-ibge').value.trim();
+    const st = document.getElementById('cp-fer-p-status');
+    if (!/^[A-Z]{2}$/.test(uf) || cidade.length < 2) { st.textContent = 'Informe a UF (2 letras) e a cidade.'; st.style.color = 'var(--danger)'; return; }
+    cpFerPesquisando = true; st.textContent = 'Pesquisando… (pode levar até 1 minuto)'; st.style.color = 'var(--sage)';
+    const { data, error } = await dbAuth.functions.invoke('feriados-pesquisar', { body: { uf, municipio_nome: cidade, municipio_ibge: ibge || null } });
+    cpFerPesquisando = false;
+    if (error || !data?.ok) { st.textContent = '⚠️ ' + (data?.erro || error?.message || 'A pesquisa falhou.'); st.style.color = 'var(--danger)'; return; }
+    cpFerStatus = 'proposto'; cpFerUf = uf;
+    await cpCarregarFeriados();
+    const st2 = document.getElementById('cp-fer-p-status');
+    if (st2) st2.textContent = `${cidade}/${uf}: ${data.inseridos} novo(s) proposto(s)${data.ja_existiam ? `, ${data.ja_existiam} já estava(m) no catálogo` : ''}${!data.itens?.length ? ' — nada com fonte confiável' : ''}.`;
+}
