@@ -1,6 +1,12 @@
 // ============================================================================
 // js/telas/comercial.js — Raiz Gestão
 //
+// v0.12.0 (02/11/2026 — demanda a28a6805, sessão 20261102-0827-bot-convite; de acordo do Nicola 02/11 13:58) — aba nova
+// "Bot WhatsApp": funil do teste grátis criado na conversa do bot (números novos → botões → dados → teste criado),
+// testes criados pelo bot (entrou no app / usou o bot depois) e "Quem entrou no bot" (número mascarado, cliente ou
+// prospect, primeira vez ou recorrente, última ação). Fonte única: gestao.fn_comercial_funil_whatsapp (jsonb), com o
+// mesmo filtro de período das outras listas. Versão anterior: 0.11.1.
+//
 // v0.11.1 (22/09/2026) — Ofertas por origem: "Oferta no Site" lista só as
 // ofertas-base da origem 'site' (gestao.fn_comercial_oferta_site v2, plano
 // pela campanha). Só a mensagem de lista vazia mudou neste arquivo.
@@ -41,7 +47,8 @@
 const PCO_ABAS = [
     { id: 'visao', label: 'Visão Geral', init: () => pcoVisaoGeralInit() },
     { id: 'oferta', label: 'Oferta no Site', init: () => pcoOfertaInit() },
-    { id: 'campanhas', label: 'Campanhas', init: () => pcoCampanhasInit() }
+    { id: 'campanhas', label: 'Campanhas', init: () => pcoCampanhasInit() },
+    { id: 'bot', label: 'Bot WhatsApp', init: () => pcoBotInit() } // v0.12.0
 ];
 
 async function telaComercialInit() {
@@ -317,4 +324,100 @@ function pcoAlternarPublico() {
         wrap.innerHTML = `<div id="pm-conteudo-subaba"></div>`;
         pmRenderPublico();
     }
+}
+
+
+// ----------------------------------------------------------------------------
+// v0.12.0 — Bot WhatsApp: teste grátis pela conversa + quem entrou no bot.
+// gestao.fn_comercial_funil_whatsapp(p_data_inicio, p_data_fim) → { funil[], trials[], entradas[] }.
+// ----------------------------------------------------------------------------
+async function pcoBotInit() {
+    const el = document.getElementById('pco-conteudo');
+    el.innerHTML = `
+        <div class="flex items-center justify-between gap-2 flex-wrap mb-4">
+            <h2 class="text-sm font-extrabold flex items-center" style="color:var(--ink)">
+                Teste grátis pelo bot
+                ${gestaoInfoIcone('Número que não está em nenhum cadastro e fala com o bot recebe a apresentação do Raiz e pode criar o teste grátis na conversa (Essencial, Patrimônio ou Plus, 30 dias, pela faixa de imóveis). Contagem por número distinto em cada etapa. Fonte: ia_eventos_log e clientes de origem whatsapp-bot.')}
+            </h2>
+            <div class="flex items-center gap-2 flex-wrap">
+                ${gestaoFiltroPeriodoHtml('pcb', 7)}
+                <button onclick="pcoBotAtualizar()" class="text-xs font-bold px-3 py-2 rounded-lg text-white" style="background:var(--pine)">Aplicar</button>
+            </div>
+        </div>
+        <div id="pcb-corpo"></div>
+    `;
+    await pcoBotAtualizar();
+}
+
+function pcoBotEsc(t) { return String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function pcoBotData(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+async function pcoBotAtualizar() {
+    const corpo = document.getElementById('pcb-corpo');
+    if (!corpo) return;
+    corpo.innerHTML = `<p class="text-sm" style="color:var(--sage)">Carregando...</p>`;
+    const { inicio, fim } = gestaoLerFiltroPeriodo('pcb');
+    const { data, error } = await dbAuth.schema('gestao').rpc('fn_comercial_funil_whatsapp', { p_data_inicio: inicio, p_data_fim: fim });
+    if (error) {
+        corpo.innerHTML = `<div class="p-4 rounded-xl border-2" style="background:var(--danger-bg);border-color:var(--danger);color:var(--danger)"><strong>Não foi possível carregar:</strong> ${pcoBotEsc(error.message)}</div>`;
+        return;
+    }
+    const funil = (data && data.funil) || [];
+    const trials = (data && data.trials) || [];
+    const entradas = (data && data.entradas) || [];
+    const n = etapa => Number((funil.find(f => f.etapa === etapa) || {}).numeros || 0);
+    const novos = n('apresentacao');
+    const criados = n('trial_criado');
+    const taxa = novos > 0 ? Math.round((criados / novos) * 100) + '%' : '—';
+    const maior = Math.max(1, ...funil.map(f => Number(f.numeros || 0)));
+    const clientes = entradas.filter(e => e.tipo === 'cliente').length;
+
+    corpo.innerHTML = `
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+            ${gestaoCardMetrica('Números novos no bot', novos)}
+            ${gestaoCardMetrica('Testes criados', criados, criados > 0 ? 'green' : undefined)}
+            ${gestaoCardMetrica('Conversão', taxa)}
+            ${gestaoCardMetrica('Entraram no bot (período)', entradas.length, undefined, clientes + ' cliente(s) · ' + (entradas.length - clientes) + ' prospect(s)')}
+        </div>
+
+        <h3 class="text-xs font-bold uppercase tracking-wide mb-2" style="color:var(--sage)">Funil por etapa (números distintos)</h3>
+        <div class="space-y-2 mb-6">${funil.map(f => gestaoBarra(f.nome, Number(f.numeros || 0), maior)).join('')}</div>
+
+        <h3 class="text-xs font-bold uppercase tracking-wide mb-2" style="color:var(--sage)">Testes criados pelo bot</h3>
+        <div class="space-y-2 mb-6">${trials.map(t => `
+            <div class="p-3 rounded-xl border-2" style="border-color:var(--line);background:#fff">
+                <div class="flex items-center justify-between gap-2 flex-wrap">
+                    <p class="text-sm font-bold" style="color:var(--ink)">${pcoBotEsc(t.empresa)}</p>
+                    <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background:var(--warning-bg);color:var(--warning)">${pcoBotEsc(t.plano || '—')} · até ${t.expira_em ? new Date(t.expira_em).toLocaleDateString('pt-BR') : '—'}</span>
+                </div>
+                <p class="text-xs mt-1" style="color:var(--sage)">Criado ${pcoBotData(t.criado_em)} · porte ${pcoBotEsc(t.faixa || 'não informado')} · ${t.entrou_no_app ? '✅ entrou no app' : '⏳ ainda não entrou no app'} · ${t.usou_bot_depois ? '✅ usou o bot' : '⏳ ainda não usou o bot'}</p>
+            </div>`).join('') || `<p class="text-sm" style="color:var(--sage)">Nenhum teste criado pelo bot no período.</p>`}</div>
+
+        <h3 class="text-xs font-bold uppercase tracking-wide mb-2 flex items-center" style="color:var(--sage)">
+            Quem entrou no bot
+            ${gestaoInfoIcone('Todos os números que falaram com o bot no período, clientes e prospects. Número mascarado (LGPD). Primeira vez = sem nenhuma conversa antes do período.')}
+        </h3>
+        <div class="overflow-x-auto mb-2">
+            <table class="w-full text-xs" style="color:var(--ink)">
+                <thead><tr style="color:var(--sage)">
+                    <th class="text-left py-1.5 pr-2">Número</th><th class="text-left py-1.5 pr-2">Tipo</th><th class="text-left py-1.5 pr-2">Empresa</th>
+                    <th class="text-left py-1.5 pr-2">1ª vez</th><th class="text-right py-1.5 pr-2">Eventos</th><th class="text-left py-1.5 pr-2">Última ação</th><th class="text-left py-1.5">Quando</th>
+                </tr></thead>
+                <tbody>${entradas.map(e => `
+                    <tr class="border-t" style="border-color:var(--line)">
+                        <td class="py-1.5 pr-2 whitespace-nowrap">${pcoBotEsc(e.numero)}</td>
+                        <td class="py-1.5 pr-2">${e.tipo === 'cliente' ? 'Cliente' : '<strong style="color:var(--brass)">Prospect</strong>'}</td>
+                        <td class="py-1.5 pr-2">${pcoBotEsc(e.empresas || '—')}</td>
+                        <td class="py-1.5 pr-2">${e.primeira_vez ? 'Sim' : 'Não'}</td>
+                        <td class="py-1.5 pr-2 text-right">${Number(e.eventos || 0)}</td>
+                        <td class="py-1.5 pr-2">${pcoBotEsc(e.ultima_acao || '—')}</td>
+                        <td class="py-1.5 whitespace-nowrap">${pcoBotData(e.ultimo_em)}</td>
+                    </tr>`).join('') || `<tr><td colspan="7" class="py-4 text-center" style="color:var(--sage)">Ninguém falou com o bot no período.</td></tr>`}</tbody>
+            </table>
+        </div>
+    `;
 }
