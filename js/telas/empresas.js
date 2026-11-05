@@ -1,6 +1,12 @@
 // ============================================================================
 // js/telas/empresas.js — Raiz Gestão
 //
+// v0.27.0 (04/11/2026, sessão 20261104-2301-bot-convite, demanda 8db4cd5f; de acordo do Nicola 04/11 23:01) — Links de
+// convite: cada link mostra a situação (Ativo ou Expirado, calculada pelo banco), o telefone quando o link veio do bot e,
+// ao tocar nos acessos, a data e a hora de cada um (gestao.fn_convites_pessoais_listar → telefone, situacao, acessos_em).
+// "Digite o nome do convidado" sai do alert() e vai para o status da própria tela.
+// Versão anterior: v0.26.0
+//
 // v0.26.0 (19/10/2026, sessão 20261018-2336-usos-lotes, fatia 9b, demanda 1ee2e3be; de acordo do Nicola 18/10 23:36 —
 // FICHA_FATIA9B_LICENCA_POR_RAMO_RAIZ) — a ficha da empresa ganha a seção "Ramos": uma linha por ramo do catálogo com a
 // situação (ligado pela licença do ramo, incluído com Imóveis ou desligado), a validade, quantos ativos a empresa tem no
@@ -564,22 +570,45 @@ async function edCarregarConvites() {
     const { data, error } = await dbAuth.schema('gestao').rpc('fn_convites_pessoais_listar', { p_cliente_id: clienteId });
     if (error) { el.innerHTML = `<p class="text-xs" style="color:var(--danger)">Erro: ${error.message}</p>`; return; }
     const linhas = data || [];
-    el.innerHTML = linhas.map(c => {
+    el.innerHTML = linhas.map((c, i) => {
         const criado = new Date(c.criado_em).toLocaleDateString('pt-BR');
         const expira = c.data_expiracao ? new Date(c.data_expiracao).toLocaleDateString('pt-BR') : 'sem validade';
         const link = 'https://raizpatrimonio.com.br/amigos?c=' + c.token;
+        const ativo = c.situacao !== 'expirado';
+        const selo = ativo
+            ? `<span class="text-[10px] font-bold px-2 py-1 rounded-full" style="background:var(--sprout-bg);color:var(--pine)">Ativo</span>`
+            : `<span class="text-[10px] font-bold px-2 py-1 rounded-full" style="background:var(--paper);color:var(--sage)">Expirado</span>`;
+        const tel = c.telefone ? ' · ' + edFormatarTelefone(c.telefone) : '';
+        const acessos = Array.isArray(c.acessos_em) ? c.acessos_em.slice().reverse() : [];
+        const lista = acessos.length
+            ? acessos.map(a => `<li>${new Date(a).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</li>`).join('')
+            : `<li>${c.acessos ? 'Acessos anteriores a 04/11/2026 não têm data e hora guardadas.' : 'Nenhum acesso ainda.'}</li>`;
         return `
-            <div class="rounded-xl border-2 p-3 flex items-center justify-between gap-2" style="border-color:var(--line);background:#fff">
-                <div class="min-w-0 flex-1">
-                    <p class="text-sm font-bold truncate" style="color:var(--ink)">${pmEsc(c.nome_convidado || '—')} <span class="text-[10px] font-normal" style="color:var(--sage)">· ${pmEsc(c.tipo || '—')}</span></p>
-                    <p class="text-[11px] truncate" style="color:var(--sage)">${c.nome_empresa ? pmEsc(c.nome_empresa) + ' · ' : 'pré-cadastro · '}gerado por ${pmEsc(c.criado_por_nome || '—')} · ${criado} · expira ${expira}</p>
+            <div class="rounded-xl border-2 p-3" style="border-color:var(--line);background:#fff">
+                <div class="flex items-center justify-between gap-2">
+                    <div class="min-w-0 flex-1">
+                        <p class="text-sm font-bold truncate" style="color:var(--ink)">${pmEsc(c.nome_convidado || '—')}<span class="text-[11px] font-normal" style="color:var(--sage)">${pmEsc(tel)}</span> <span class="text-[10px] font-normal" style="color:var(--sage)">· ${pmEsc(c.tipo || '—')}</span></p>
+                        <p class="text-[11px] truncate" style="color:var(--sage)">${c.nome_empresa ? pmEsc(c.nome_empresa) + ' · ' : 'pré-cadastro · '}gerado por ${pmEsc(c.criado_por_nome || '—')} · ${criado} · expira ${expira}</p>
+                    </div>
+                    <div class="flex items-center gap-2 flex-none">
+                        ${selo}
+                        <button onclick="edAlternarAcessosConvite(${i})" class="text-[10px] font-bold px-2 py-1 rounded-full" style="background:var(--paper);color:var(--pine)">${c.acessos} acesso${c.acessos === 1 ? '' : 's'} ▾</button>
+                        <button onclick="edCopiarLinkConvite('${link}')" class="text-[11px] font-bold px-2 py-1.5 rounded-lg" style="background:var(--sprout-bg);color:var(--pine)">Copiar link</button>
+                    </div>
                 </div>
-                <div class="flex items-center gap-2 flex-none">
-                    <span class="text-[10px] font-bold px-2 py-1 rounded-full" style="background:var(--paper);color:var(--pine)">${c.acessos} acesso${c.acessos === 1 ? '' : 's'}</span>
-                    <button onclick="edCopiarLinkConvite('${link}')" class="text-[11px] font-bold px-2 py-1.5 rounded-lg" style="background:var(--sprout-bg);color:var(--pine)">Copiar link</button>
-                </div>
+                <ul id="ed-conv-acessos-${i}" class="hidden mt-2 pt-2 border-t text-[11px] space-y-0.5" style="border-color:var(--line);color:var(--ink)">${lista}</ul>
             </div>`;
     }).join('') || `<p class="text-sm text-center py-6" style="color:var(--sage)">Nenhum convite gerado ainda.</p>`;
+}
+
+function edAlternarAcessosConvite(i) {
+    document.getElementById('ed-conv-acessos-' + i)?.classList.toggle('hidden');
+}
+
+// 5511987654321 → +55 (11) 98765-4321; o que não tiver esse formato volta como veio
+function edFormatarTelefone(t) {
+    const m = String(t).match(/^(\d{2})(\d{2})(\d{4,5})(\d{4})$/);
+    return m ? `+${m[1]} (${m[2]}) ${m[3]}-${m[4]}` : String(t);
 }
 
 function edCopiarLinkConvite(link) {
@@ -594,7 +623,7 @@ async function edGerarConvite() {
     const tipo = document.getElementById('ed-conv-tipo').value;
     const dias = document.getElementById('ed-conv-dias').value.trim();
     const st = document.getElementById('ed-conv-status');
-    if (!nome) { alert('Digite o nome do convidado.'); return; }
+    if (!nome) { if (st) st.textContent = 'Digite o nome do convidado.'; return; }
     const clienteId = document.getElementById('ed-conv-filtro-empresa').value || null;
     const btn = document.getElementById('ed-conv-gerar-btn');
     btn.disabled = true; btn.textContent = 'Gerando...';
