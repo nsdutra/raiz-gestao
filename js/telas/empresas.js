@@ -1,6 +1,12 @@
 // ============================================================================
 // js/telas/empresas.js — Raiz Gestão
 //
+// v0.28.0 (11/11/2026, sessão 20261111-0820-levantamento-gestao, demanda 5bd5b826; de acordo do Nicola 11/11 08:20) — Links de
+// convite: tipo novo "Levantamento (antes da reunião)" no seletor (gestao.fn_convite_pessoal_criar aceita 'levantamento',
+// migration levantamento_convite_tipo_v1). O link gerado e o "Copiar link" seguem o tipo: levantamento abre
+// raizpatrimonio.com.br/levantamento/?c=<token>; amigo continua em /amigos?c=<token>.
+// Versão anterior: v0.27.0
+//
 // v0.27.0 (04/11/2026, sessão 20261104-2301-bot-convite, demanda 8db4cd5f; de acordo do Nicola 04/11 23:01) — Links de
 // convite: cada link mostra a situação (Ativo ou Expirado, calculada pelo banco), o telefone quando o link veio do bot e,
 // ao tocar nos acessos, a data e a hora de cada um (gestao.fn_convites_pessoais_listar → telefone, situacao, acessos_em).
@@ -547,6 +553,7 @@ function edRenderConvites() {
                     <span class="text-[10px] font-bold uppercase" style="color:var(--sage)">Tipo</span>
                     <select id="ed-conv-tipo" class="text-xs font-bold p-2 rounded-lg border-2" style="border-color:var(--line)">
                         <option value="amigo">Amigo (pré-cadastro)</option>
+                        <option value="levantamento">Levantamento (antes da reunião)</option>
                     </select>
                 </label>
                 <label class="flex flex-col gap-1">
@@ -573,7 +580,7 @@ async function edCarregarConvites() {
     el.innerHTML = linhas.map((c, i) => {
         const criado = new Date(c.criado_em).toLocaleDateString('pt-BR');
         const expira = c.data_expiracao ? new Date(c.data_expiracao).toLocaleDateString('pt-BR') : 'sem validade';
-        const link = 'https://raizpatrimonio.com.br/amigos?c=' + c.token;
+        const link = edLinkConvite(c.tipo, c.token);
         const ativo = c.situacao !== 'expirado';
         const selo = ativo
             ? `<span class="text-[10px] font-bold px-2 py-1 rounded-full" style="background:var(--sprout-bg);color:var(--pine)">Ativo</span>`
@@ -611,6 +618,13 @@ function edFormatarTelefone(t) {
     return m ? `+${m[1]} (${m[2]}) ${m[3]}-${m[4]}` : String(t);
 }
 
+// v0.28.0 — o endereço segue o tipo do convite (o token é o mesmo formato nos dois)
+function edLinkConvite(tipo, token) {
+    return tipo === 'levantamento'
+        ? 'https://raizpatrimonio.com.br/levantamento/?c=' + token
+        : 'https://raizpatrimonio.com.br/amigos?c=' + token;
+}
+
 function edCopiarLinkConvite(link) {
     const st = document.getElementById('ed-conv-status');
     navigator.clipboard?.writeText(link)
@@ -634,7 +648,7 @@ async function edGerarConvite() {
     if (error) { if (st) st.textContent = 'Erro ao gerar: ' + error.message; return; }
     document.getElementById('ed-conv-nome').value = '';
     document.getElementById('ed-conv-dias').value = '';
-    edCopiarLinkConvite('https://raizpatrimonio.com.br/amigos?c=' + data);
+    edCopiarLinkConvite(edLinkConvite(tipo, data));
     edCarregarConvites();
 }
 
