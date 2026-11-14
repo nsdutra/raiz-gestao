@@ -1,6 +1,12 @@
 // ============================================================================
 // js/telas/comercial-leads.js — Raiz Gestão
 //
+// v0.4.0 (14/11/2026 — demanda 09277cba, sessão 20261114-1955-crm-reuniao-2; pedidos do Nicola 14/11 19:51) — (1) a lista agrupa
+// por status da esteira com chips e contador (Hoje · cada etapa aberta · Clientes e perdidos · Todos): só o grupo escolhido
+// aparece, a tela não fica inteira aberta; (2) na Adoção, escolher uma pessoa da empresa filtra os dias ativos, o último acesso
+// e as funções mais usadas no app e no robô (gestao.fn_empresas_adocao / fn_empresas_adocao_funcionalidades, por pessoa).
+// Versão anterior: 0.3.0.
+//
 // v0.3.0 (14/11/2026 — demanda 09277cba, sessão 20261114-1910-crm-reuniao-1; FICHA_REUNIAO_LEAD_GOOGLE_MEET_RAIZ v1.0.2, de acordo
 // do Nicola 14/11 18:42) — na ficha do lead: "O que ele disse" (dores do robô e do levantamento do site), Adoção da empresa
 // vinculada (mesmas funções do chip Adoção de Empresas), Preferências de horário (dias, janelas, evitar; dados_origem.
@@ -27,6 +33,7 @@
 // ============================================================================
 
 let pclDados = { leads: [], etapas: [], empresas: [], raiz: null };
+let pclGrupo = null; // v0.4.0 — grupo escolhido nos chips (null = escolhe sozinho: Hoje, se houver)
 
 function pclEsc(t) { return String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function pclDias(iso) { if (!iso) return null; return Math.floor((Date.now() - new Date(iso).getTime()) / 864e5); }
@@ -92,13 +99,13 @@ function pclDesenhar() {
             ${gestaoCardMetrica('Em teste', n('em_teste'))}
             ${gestaoCardMetrica('Clientes', n('cliente'), n('cliente') ? 'green' : undefined)}
         </div>
-        <h3 class="text-xs font-bold mb-2" style="color:var(--sage)">Hoje · ${hoje.length}</h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-6">${hoje.map(l => pclCartao(l, idx(l), 'h')).join('') || '<p class="text-sm" style="color:var(--sage)">Nada para hoje.</p>'}</div>
-        ${grupos.map(g => `
+        ${pclChipsGrupos(hoje, grupos, fechados, leads)}
+        ${pclGrupoAtual(hoje, grupos, fechados) === 'hoje' ? `<div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-6">${hoje.map(l => pclCartao(l, idx(l), 'h')).join('') || '<p class="text-sm" style="color:var(--sage)">Nada para hoje.</p>'}</div>` : ''}
+        ${grupos.filter(g => ['todos', g.e.etapa_codigo].includes(pclGrupoAtual(hoje, grupos, fechados))).map(g => `
             <h3 class="text-xs font-bold mb-2 flex items-center" style="color:var(--sage)">${pclEsc(g.e.etapa_nome)}${g.e.opcional ? ' (opcional)' : ''} · ${g.ls.length}${g.e.descricao ? gestaoInfoIcone(pclEsc(g.e.descricao)) : ''}</h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-4">${g.ls.map(l => pclCartao(l, idx(l), 'g')).join('')}</div>`).join('') || '<p class="text-sm mb-4" style="color:var(--sage)">Nenhum lead em andamento.</p>'}
-        ${fechados.length ? `<details class="mb-4"><summary class="text-xs font-bold mb-2" style="color:var(--sage);cursor:pointer">Clientes e perdidos · ${fechados.length}</summary>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">${fechados.map(l => pclCartao(l, idx(l), 'f')).join('')}</div></details>` : ''}
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-4">${g.ls.map(l => pclCartao(l, idx(l), 'g')).join('')}</div>`).join('')}
+        ${['todos', 'fechados'].includes(pclGrupoAtual(hoje, grupos, fechados)) && fechados.length ? `<h3 class="text-xs font-bold mb-2" style="color:var(--sage)">Clientes e perdidos · ${fechados.length}</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-4">${fechados.map(l => pclCartao(l, idx(l), 'f')).join('')}</div>` : ''}
     `;
 }
 
@@ -320,22 +327,51 @@ function pclLerPreferencias(u) {
     if (obs) p.obs = obs;
     return Object.keys(p).length ? p : null;
 }
-async function pclDesenharAdocao(u, l) {
+async function pclDesenharAdocao(u, l, pessoaId) {
     const el = document.getElementById('pcl-ad-' + u); if (!el) return;
     const cli = l.dados_origem && l.dados_origem.cliente_lead_id;
     if (!cli) { el.innerHTML = `<p class="text-xs mb-2" style="color:var(--sage)">Adoção: vincule a empresa no Raiz para ver o uso.</p>`; return; }
-    const [r1, r2] = await Promise.all([
-        dbAuth.schema('gestao').rpc('fn_uso_empresa_resumo', { p_cliente_id: cli }),
-        dbAuth.schema('gestao').rpc('fn_empresas_adocao', { p_cliente_id: cli }),
+    const g = dbAuth.schema('gestao');
+    const [r1, r2, r3] = await Promise.all([
+        pessoaId ? Promise.resolve({ data: null }) : g.rpc('fn_uso_empresa_resumo', { p_cliente_id: cli }),
+        g.rpc('fn_empresas_adocao', { p_cliente_id: cli }),
+        g.rpc('fn_empresas_adocao_funcionalidades', { p_cliente_id: cli, p_pessoa_id: pessoaId || null }),
     ]);
+    if (r2.error && r1.error) { el.innerHTML = `<p class="text-xs mb-2" style="color:var(--danger)">Adoção: ${pclEsc(r2.error.message)}</p>`; return; }
     const res = Array.isArray(r1.data) ? r1.data[0] : r1.data;
-    const pessoas = r2.data || [];
-    if (r1.error && r2.error) { el.innerHTML = `<p class="text-xs mb-2" style="color:var(--danger)">Adoção: ${pclEsc(r1.error.message)}</p>`; return; }
+    const todas = r2.data || [];
+    const pessoas = pessoaId ? todas.filter(p => p.pessoa_id === pessoaId) : todas;
     const ult = pessoas.map(p => p.ultimo_login).filter(Boolean).sort().pop();
+    const funcs = (r3.data || []).slice().sort((a, b) => Number(b.qtd) - Number(a.qtd));
+    const top = (canal) => funcs.filter(f => String(f.canal || '').toLowerCase().includes(canal)).slice(0, 3).map(f => `${pclEsc(f.item)} (${f.qtd})`).join(', ');
+    const app = top('app'), bot = top('bot') || top('whats');
     el.innerHTML = `<div class="p-3 rounded-xl mb-3" style="background:var(--info-bg,#e8f0f5)">
-        <p class="text-xs font-bold mb-1" style="color:var(--ink)">Adoção · ${pclEsc(pclEmpresaNome(cli))}${res ? ` · ${pclEsc(res.plano_codigo || '')} ${pclEsc(res.licenca_status || '')}` : ''}</p>
-        <p class="text-xs" style="color:var(--ink)">${res ? `${Number(res.total_acoes_app_30d || 0)} ações no app e ${Number(res.total_eventos_bot_30d || 0)} no robô em 30 dias` : ''}${ult ? ` · último acesso ${pclDataHora(ult)}` : ''}</p>
-        ${pessoas.length ? `<p class="text-xs mt-1" style="color:var(--sage)">${pessoas.map(p => `${pclEsc(p.pessoa_nome)}: ${p.dias_ativos}/${p.dias_periodo} dias ativos`).join(' · ')}</p>` : ''}
+        <div class="flex items-center justify-between gap-2 flex-wrap mb-1">
+            <p class="text-xs font-bold" style="color:var(--ink)">Adoção · ${pclEsc(pclEmpresaNome(cli))}${res ? ` · ${pclEsc(res.plano_codigo || '')} ${pclEsc(res.licenca_status || '')}` : ''}</p>
+            ${todas.length > 1 ? `<select onchange="pclDesenharAdocao('${u}', (window.__pclLista || []).find(x => x.id === '${l.id}'), this.value || null)" class="text-xs p-1 rounded border" style="border-color:var(--line)">
+                <option value="">Todas as pessoas</option>${todas.map(p => `<option value="${p.pessoa_id}"${p.pessoa_id === pessoaId ? ' selected' : ''}>${pclEsc(p.pessoa_nome)}</option>`).join('')}</select>` : ''}
+        </div>
+        ${res && !pessoaId ? `<p class="text-xs" style="color:var(--ink)">${Number(res.total_acoes_app_30d || 0)} ações no app e ${Number(res.total_eventos_bot_30d || 0)} no robô em 30 dias</p>` : ''}
+        <p class="text-xs" style="color:var(--ink)">${pessoas.map(p => `${pclEsc(p.pessoa_nome)}: ${p.dias_ativos}/${p.dias_periodo} dias ativos`).join(' · ') || 'Sem uso no período.'}${ult ? ` · último acesso ${pclDataHora(ult)}` : ''}</p>
+        ${app ? `<p class="text-xs mt-1" style="color:var(--sage)">Mais usado no app: ${app}</p>` : ''}
+        ${bot ? `<p class="text-xs" style="color:var(--sage)">Mais usado no robô: ${bot}</p>` : ''}
+    </div>`;
+}
+// v0.4.0 — chips dos grupos da esteira (com contador); só o grupo escolhido aparece
+function pclGrupoAtual(hoje, grupos, fechados) {
+    const validos = ['todos', ...(hoje.length ? ['hoje'] : []), ...grupos.map(g => g.e.etapa_codigo), ...(fechados.length ? ['fechados'] : [])];
+    if (pclGrupo && validos.includes(pclGrupo)) return pclGrupo; // grupo que esvaziou volta ao padrão
+    return hoje.length ? 'hoje' : (grupos[0] ? grupos[0].e.etapa_codigo : 'todos');
+}
+function pclChipsGrupos(hoje, grupos, fechados, leads) {
+    const atual = pclGrupoAtual(hoje, grupos, fechados);
+    const chip = (id, rot, n) => `<button type="button" onclick="pclGrupo='${id}';pclDesenhar()" class="text-xs font-bold px-3 py-1.5 rounded-full border whitespace-nowrap"
+        style="border-color:${atual === id ? 'var(--pine)' : 'var(--line)'};background:${atual === id ? 'var(--pine)' : '#fff'};color:${atual === id ? '#fff' : 'var(--ink)'}">${rot} · ${n}</button>`;
+    return `<div class="flex gap-2 mb-4 overflow-x-auto pb-1">
+        ${chip('hoje', 'Hoje', hoje.length)}
+        ${grupos.map(g => chip(g.e.etapa_codigo, pclEsc(g.e.etapa_nome), g.ls.length)).join('')}
+        ${fechados.length ? chip('fechados', 'Clientes e perdidos', fechados.length) : ''}
+        ${chip('todos', 'Todos', leads.length)}
     </div>`;
 }
 async function pclDesenharReunioes(i, u, l) {
