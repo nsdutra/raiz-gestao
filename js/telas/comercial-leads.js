@@ -1,6 +1,12 @@
 // ============================================================================
 // js/telas/comercial-leads.js — Raiz Gestão
 //
+// v0.3.0 (14/11/2026 — demanda 09277cba, sessão 20261114-1910-crm-reuniao-1; FICHA_REUNIAO_LEAD_GOOGLE_MEET_RAIZ v1.0.2, de acordo
+// do Nicola 14/11 18:42) — na ficha do lead: "O que ele disse" (dores do robô e do levantamento do site), Adoção da empresa
+// vinculada (mesmas funções do chip Adoção de Empresas), Preferências de horário (dias, janelas, evitar; dados_origem.
+// preferencias_agenda), Reuniões (pedidos e confirmadas, com o link do Meet e Aprovar · Outra data · Recusar) e "Propor
+// reunião" com até 3 faixas de dias, duração e prévia dos horários (Edge agenda-google). Versão anterior: 0.2.0.
+//
 // v0.2.0 (14/11/2026 — demanda 09277cba, sessão 20261114-1710-crm-f3-3; FICHA_LEADS_AJUSTES_RAIZ v1.0.0, de acordo do Nicola
 // 14/11 17:09) — três ajustes: (A1) "Empresa no Raiz" na ficha do lead, vincular e desvincular o tenant (vários leads podem
 // apontar a mesma empresa; fica em dados_origem.cliente_lead_id); (A2) "+ Lead" para prospecção, só o nome basta (WhatsApp e
@@ -131,7 +137,10 @@ async function pclAlternar(i, u) {
     const waLink = wa ? (wa.startsWith('55') ? wa : '55' + wa) : '';
     box.innerHTML = `
         <div class="mt-3 pt-3" style="border-top:1px solid var(--line)">
+            <div id="pcl-dor-${u}"></div>
+            <div id="pcl-ad-${u}"></div>
             ${pclCamposContato(u, l)}
+            ${pclCamposPreferencias(u, l)}
             <label class="text-xs font-bold" style="color:var(--sage)">Etapa</label>
             <select id="pcl-et-${u}" onchange="pclMostrarDescricao('${u}')" class="w-full text-sm p-2 rounded-lg border mt-1" style="border-color:var(--line)">
                 ${pclDados.etapas.map(e => `<option value="${e.etapa_codigo}"${e.etapa_codigo === l.etapa_codigo ? ' selected' : ''}>${pclEsc(e.etapa_nome)}${e.opcional ? ' (opcional)' : ''}</option>`).join('')}
@@ -144,17 +153,26 @@ async function pclAlternar(i, u) {
             <div class="flex gap-2 flex-wrap mb-3">
                 <button onclick="pclSalvar(${i}, '${u}')" class="text-xs font-bold px-3 py-2 rounded-lg text-white" style="background:var(--pine)">Salvar</button>
                 ${waLink ? `<a href="https://wa.me/${waLink}" target="_blank" rel="noopener" class="text-xs font-bold px-3 py-2 rounded-lg border-2" style="border-color:var(--pine);color:var(--pine)">WhatsApp</a>` : ''}
-                <button disabled title="Chega com a agenda do Google (link do Meet por reunião)" class="text-xs font-bold px-3 py-2 rounded-lg border-2" style="border-color:var(--line);color:var(--sage);opacity:.6">Propor reunião</button>
+                <button onclick="pclProporAbrir(${i}, '${u}')" ${waLink ? '' : 'disabled title="Complete o WhatsApp para propor reunião"'} class="text-xs font-bold px-3 py-2 rounded-lg border-2" style="border-color:var(--brass);color:var(--brass);${waLink ? '' : 'opacity:.5'}">Propor reunião</button>
             </div>
+            <div id="pcl-pr-${u}" class="mb-3" hidden></div>
+            <p class="text-xs font-bold mb-1" style="color:var(--sage)">Reuniões</p>
+            <div id="pcl-re-${u}" class="mb-3"><p class="text-xs" style="color:var(--sage)">Carregando...</p></div>
             <p class="text-xs font-bold mb-1" style="color:var(--sage)">Linha do tempo</p>
             <div id="pcl-tl-${u}"><p class="text-xs" style="color:var(--sage)">Carregando...</p></div>
         </div>`;
     box.hidden = false;
+    pclDesenharAdocao(u, l); pclDesenharReunioes(i, u, l);
     const { data, error } = await dbAuth.rpc('fn_comunicacoes_pessoa', { p_cliente_id: l.partes?.cliente_id, p_parte_id: l.parte_id, p_whatsapp: null, p_limite: 40 });
     const tl = document.getElementById('pcl-tl-' + u); if (!tl) return;
     if (error) { tl.innerHTML = `<p class="text-xs" style="color:var(--danger)">Não consegui ler: ${pclEsc(error.message)}</p>`; return; }
-    const cor = { robo: 'var(--sage)', comunicacao: 'var(--info,#3d6b8c)', app: 'var(--success)', esteira: 'var(--brass)' };
-    const nome = { robo: 'robô', comunicacao: 'comunicação', app: 'app', esteira: 'esteira' };
+    const dores = (data || []).filter(p => p.fonte === 'dor');
+    const db = document.getElementById('pcl-dor-' + u);
+    if (db && dores.length) db.innerHTML = `<div class="p-3 rounded-xl mb-3" style="background:var(--warning-bg,#fff7e6)">
+        <p class="text-xs font-bold mb-1" style="color:var(--ink)">O que ele disse</p>
+        ${dores.map(d => `<p class="text-xs mb-1" style="color:var(--ink)"><b>${pclEsc(d.titulo)}</b> (${pclData(String(d.quando).slice(0, 10))}): ${pclEsc(d.texto || '—')}</p>`).join('')}</div>`;
+    const cor = { robo: 'var(--sage)', comunicacao: 'var(--info,#3d6b8c)', app: 'var(--success)', esteira: 'var(--brass)', dor: 'var(--warning)' };
+    const nome = { robo: 'robô', comunicacao: 'comunicação', app: 'app', esteira: 'esteira', dor: 'dor' };
     tl.innerHTML = `<div class="pl-3" style="border-left:2px solid var(--line)">${(data || []).map(p => `
         <div class="py-1">
             <p class="text-xs" style="color:var(--ink)"><span style="color:${cor[p.fonte] || 'var(--sage)'}">●</span> ${pclEsc(p.titulo || p.fonte)}${p.texto ? ' — ' + pclEsc(p.texto) : ''}</p>
@@ -218,6 +236,8 @@ async function pclGravarContato(u, l) {
     if (emp) d.empresa = emp; else delete d.empresa;
     if (obs) d.obs = obs; else delete d.obs;
     if (cli) d.cliente_lead_id = cli; else delete d.cliente_lead_id;
+    const pref = pclLerPreferencias(u);
+    if (pref) d.preferencias_agenda = pref; else delete d.preferencias_agenda;
     if (JSON.stringify(d) !== JSON.stringify(l.dados_origem || {})) {
         const { error } = await dbAuth.from('partes_papeis').update({ dados_origem: d }).eq('id', l.id);
         if (error) { alert('Não consegui salvar a empresa: ' + error.message); return false; }
@@ -262,4 +282,117 @@ async function pclNovoSalvar() {
         if (r.error || !r.data?.ok) { alert(r.error?.message || r.data?.mensagem || 'Lead criado, mas não consegui mudar a etapa.'); }
     }
     await pcoLeadsInit();
+}
+
+// ---------------------------------------------------------------- v0.3.0 · preferências, adoção, reuniões e Propor reunião
+const PCL_DIAS = [[1, 'Seg'], [2, 'Ter'], [3, 'Qua'], [4, 'Qui'], [5, 'Sex'], [6, 'Sáb'], [7, 'Dom']];
+const PCL_EVITAR = [['manha', 'Manhã'], ['tarde', 'Tarde'], ['noite', 'Noite']];
+function pclChip(attr, val, rot, on) {
+    return `<button type="button" ${attr}="${val}" onclick="this.classList.toggle('pcl-on');this.style.background=this.classList.contains('pcl-on')?'var(--pine)':'#fff';this.style.color=this.classList.contains('pcl-on')?'#fff':'var(--ink)'"
+        class="text-xs px-2 py-1 rounded-full border${on ? ' pcl-on' : ''}" style="border-color:var(--line);background:${on ? 'var(--pine)' : '#fff'};color:${on ? '#fff' : 'var(--ink)'}">${rot}</button>`;
+}
+function pclCamposPreferencias(u, l) {
+    const p = (l.dados_origem && l.dados_origem.preferencias_agenda) || {};
+    const j = (p.janelas && p.janelas[0]) || {};
+    return `<details class="mb-2" ${p.dias || p.janelas || p.evitar || p.obs ? 'open' : ''}><summary class="text-xs font-bold flex items-center" style="color:var(--sage);cursor:pointer">Preferências de horário${gestaoInfoIcone('Usadas para escolher os horários do convite de reunião. Ex.: só de segunda a sexta, depois das 16:00; evitar a noite.')}</summary>
+        <div class="mt-2" id="pcl-pf-${u}">
+            <p class="text-xs mb-1" style="color:var(--sage)">Dias (nenhum marcado = todos)</p>
+            <div class="flex gap-1 flex-wrap mb-2">${PCL_DIAS.map(([n, r]) => pclChip('data-pf-dia', n, r, (p.dias || []).includes(n))).join('')}</div>
+            <div class="grid grid-cols-2 gap-2">
+                <div>${pclCampo('pcl-pfde-' + u, 'A partir de', j.de || '', 'type="time"')}</div>
+                <div>${pclCampo('pcl-pfate-' + u, 'Até', j.ate || '', 'type="time"')}</div>
+            </div>
+            <p class="text-xs mb-1" style="color:var(--sage)">Evitar</p>
+            <div class="flex gap-1 flex-wrap mb-2">${PCL_EVITAR.map(([k, r]) => pclChip('data-pf-ev', k, r, (p.evitar || []).includes(k))).join('')}</div>
+            ${pclCampo('pcl-pfob-' + u, 'Observação', p.obs || '', 'maxlength="160" placeholder="Ex.: tem filhos pequenos, evita a noite"')}
+        </div></details>`;
+}
+function pclLerPreferencias(u) {
+    const box = document.getElementById('pcl-pf-' + u); if (!box) return null;
+    const dias = [...box.querySelectorAll('[data-pf-dia].pcl-on')].map(b => Number(b.getAttribute('data-pf-dia')));
+    const evitar = [...box.querySelectorAll('[data-pf-ev].pcl-on')].map(b => b.getAttribute('data-pf-ev'));
+    const de = document.getElementById('pcl-pfde-' + u)?.value || '', ate = document.getElementById('pcl-pfate-' + u)?.value || '';
+    const obs = (document.getElementById('pcl-pfob-' + u)?.value || '').trim();
+    const p = {};
+    if (dias.length) p.dias = dias;
+    if (de || ate) p.janelas = [{ de: de || '00:00', ate: ate || '23:59' }];
+    if (evitar.length) p.evitar = evitar;
+    if (obs) p.obs = obs;
+    return Object.keys(p).length ? p : null;
+}
+async function pclDesenharAdocao(u, l) {
+    const el = document.getElementById('pcl-ad-' + u); if (!el) return;
+    const cli = l.dados_origem && l.dados_origem.cliente_lead_id;
+    if (!cli) { el.innerHTML = `<p class="text-xs mb-2" style="color:var(--sage)">Adoção: vincule a empresa no Raiz para ver o uso.</p>`; return; }
+    const [r1, r2] = await Promise.all([
+        dbAuth.schema('gestao').rpc('fn_uso_empresa_resumo', { p_cliente_id: cli }),
+        dbAuth.schema('gestao').rpc('fn_empresas_adocao', { p_cliente_id: cli }),
+    ]);
+    const res = Array.isArray(r1.data) ? r1.data[0] : r1.data;
+    const pessoas = r2.data || [];
+    if (r1.error && r2.error) { el.innerHTML = `<p class="text-xs mb-2" style="color:var(--danger)">Adoção: ${pclEsc(r1.error.message)}</p>`; return; }
+    const ult = pessoas.map(p => p.ultimo_login).filter(Boolean).sort().pop();
+    el.innerHTML = `<div class="p-3 rounded-xl mb-3" style="background:var(--info-bg,#e8f0f5)">
+        <p class="text-xs font-bold mb-1" style="color:var(--ink)">Adoção · ${pclEsc(pclEmpresaNome(cli))}${res ? ` · ${pclEsc(res.plano_codigo || '')} ${pclEsc(res.licenca_status || '')}` : ''}</p>
+        <p class="text-xs" style="color:var(--ink)">${res ? `${Number(res.total_acoes_app_30d || 0)} ações no app e ${Number(res.total_eventos_bot_30d || 0)} no robô em 30 dias` : ''}${ult ? ` · último acesso ${pclDataHora(ult)}` : ''}</p>
+        ${pessoas.length ? `<p class="text-xs mt-1" style="color:var(--sage)">${pessoas.map(p => `${pclEsc(p.pessoa_nome)}: ${p.dias_ativos}/${p.dias_periodo} dias ativos`).join(' · ')}</p>` : ''}
+    </div>`;
+}
+async function pclDesenharReunioes(i, u, l) {
+    const el = document.getElementById('pcl-re-' + u); if (!el) return;
+    const { data, error } = await dbAuth.from('cofre_ocorrencias_controle').select('id, inicio_em, fim_em, aguardando_ate, status_execucao, evento_externo')
+        .eq('parte_id', l.parte_id).not('inicio_em', 'is', null).order('inicio_em', { ascending: false }).limit(10);
+    if (error) { el.innerHTML = `<p class="text-xs" style="color:var(--danger)">${pclEsc(error.message)}</p>`; return; }
+    if (!(data || []).length) { el.innerHTML = '<p class="text-xs" style="color:var(--sage)">Nenhuma reunião ainda.</p>'; return; }
+    el.innerHTML = data.map(o => {
+        const st = o.status_execucao === 'cancelado' ? 'Cancelada' : o.aguardando_ate ? 'Aguardando você' : 'Confirmada';
+        const link = o.evento_externo && o.evento_externo.link && !o.evento_externo.cancelado_em ? o.evento_externo.link : '';
+        return `<div class="p-2 rounded-lg border mb-1" style="border-color:var(--line)">
+            <p class="text-xs" style="color:var(--ink)"><b>${pclDataHora(o.inicio_em)}</b> · ${st}${link ? ` · <a href="${pclEsc(link)}" target="_blank" rel="noopener" style="color:var(--pine);text-decoration:underline">Entrar no Meet</a>` : ''}</p>
+            ${o.aguardando_ate && o.status_execucao !== 'cancelado' ? `<div class="flex gap-2 mt-1">
+                <button onclick="pclDecidir('${o.id}','aprovar',${i},'${u}')" class="text-xs font-bold px-2 py-1 rounded text-white" style="background:var(--pine)">Aprovar</button>
+                <button onclick="pclDecidir('${o.id}','outra_data',${i},'${u}')" class="text-xs font-bold px-2 py-1 rounded border" style="border-color:var(--line)">Outra data</button>
+                <button onclick="pclDecidir('${o.id}','recusar',${i},'${u}')" class="text-xs font-bold px-2 py-1 rounded border" style="border-color:var(--danger);color:var(--danger)">Recusar</button>
+            </div>` : ''}</div>`;
+    }).join('');
+}
+async function pclEdge(body) {
+    const { data, error } = await dbAuth.functions.invoke('agenda-google', { body });
+    if (error) { let m = error.message; try { const j = await error.context.json(); m = j.mensagem || m; } catch (_) {} return { ok: false, mensagem: m }; }
+    return data || { ok: false, mensagem: 'Sem resposta.' };
+}
+async function pclDecidir(ocId, decisao, i, u) {
+    if (decisao === 'recusar' && !confirm('Recusar o pedido? O lead recebe uma mensagem cordial.')) return;
+    const r = await pclEdge({ acao: 'decidir', ocorrencia_id: ocId, decisao });
+    alert(r.mensagem || (r.ok ? 'Feito.' : 'Não deu certo.'));
+    const l = (window.__pclLista || [])[i]; if (l) pclDesenharReunioes(i, u, l);
+}
+function pclProporAbrir(i, u) {
+    const box = document.getElementById('pcl-pr-' + u); if (!box) return;
+    if (!box.hidden) { box.hidden = true; return; }
+    const faixa = k => `<div class="grid grid-cols-2 gap-2"><div>${pclCampo(`pcl-fd${k}-${u}`, `Faixa ${k} · de`, '', 'type="date"')}</div><div>${pclCampo(`pcl-fa${k}-${u}`, 'até', '', 'type="date"')}</div></div>`;
+    box.innerHTML = `<div class="p-3 rounded-xl border-2" style="border-color:var(--brass)">
+        <p class="text-xs font-bold mb-2 flex items-center" style="color:var(--ink)">Propor reunião${gestaoInfoIcone('Até 3 faixas de dias. Sem faixa: os próximos 5 dias úteis. Os horários respeitam a sua agenda, o Google da Raiz e as preferências do lead (salve-as antes).')}</p>
+        ${faixa(1)}${faixa(2)}${faixa(3)}
+        <label class="text-xs font-bold" style="color:var(--sage)">Duração</label>
+        <select id="pcl-du-${u}" class="w-full text-sm p-2 rounded-lg border mt-1 mb-2" style="border-color:var(--line)"><option value="30">30 min</option><option value="60">1 hora</option></select>
+        <div class="flex gap-2 mb-2">
+            <button onclick="pclPropor(${i}, '${u}', false)" class="text-xs font-bold px-3 py-2 rounded-lg border-2" style="border-color:var(--pine);color:var(--pine)">Ver horários</button>
+            <button onclick="pclPropor(${i}, '${u}', true)" class="text-xs font-bold px-3 py-2 rounded-lg text-white" style="background:var(--pine)">Enviar convite</button>
+        </div>
+        <div id="pcl-prv-${u}"></div></div>`;
+    box.hidden = false;
+}
+async function pclPropor(i, u, enviar) {
+    const l = (window.__pclLista || [])[i]; if (!l) return;
+    const faixas = [1, 2, 3].map(k => ({ de: document.getElementById(`pcl-fd${k}-${u}`)?.value, ate: document.getElementById(`pcl-fa${k}-${u}`)?.value || document.getElementById(`pcl-fd${k}-${u}`)?.value }))
+        .filter(f => f.de);
+    const el = document.getElementById('pcl-prv-' + u);
+    if (el) el.innerHTML = '<p class="text-xs" style="color:var(--sage)">Calculando...</p>';
+    const r = await pclEdge({ acao: enviar ? 'propor' : 'previa', papel_id: l.id, faixas, duracao: Number(document.getElementById('pcl-du-' + u)?.value || 30) });
+    if (!el) return;
+    const lista = r.horarios_txt || [];
+    el.innerHTML = `<p class="text-xs mb-1" style="color:${r.ok ? 'var(--ink)' : 'var(--danger)'}">${pclEsc(enviar ? (r.mensagem || '') : (lista.length ? `${lista.length} horário(s) vão sair:` : 'Nenhum horário livre com essas faixas e preferências.'))}${!r.ok && !enviar ? ' ' + pclEsc(r.mensagem || '') : ''}</p>
+        ${lista.length ? `<p class="text-xs" style="color:var(--sage)">${lista.map(pclEsc).join(' · ')}</p>` : ''}`;
+    if (enviar && r.ok) setTimeout(() => pcoLeadsInit(), 1200);
 }
