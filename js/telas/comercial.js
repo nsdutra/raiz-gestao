@@ -1,6 +1,8 @@
 // ============================================================================
 // js/telas/comercial.js — Raiz Gestão
 //
+// v0.14.2 (14/11/2026 — sessão 20261114-1910-crm-reuniao-1) — a aba Leads carrega comercial-leads.js 0.3.0. Versão anterior: 0.14.1.
+//
 // v0.14.1 (14/11/2026 — sessão 20261114-1710-crm-f3-3) — a aba Leads carrega comercial-leads.js 0.2.0 (o ?v= muda para
 // o navegador não usar a cópia antiga). Versão anterior: 0.14.0.
 //
@@ -89,7 +91,7 @@ function pcoCarregarLeads() {
     const el = document.getElementById('pco-conteudo');
     if (el) el.innerHTML = `<p class="text-sm" style="color:var(--sage)">Carregando...</p>`;
     const s = document.createElement('script');
-    s.src = 'js/telas/comercial-leads.js?v=0.2.0';
+    s.src = 'js/telas/comercial-leads.js?v=0.3.0';
     s.onload = () => pcoLeadsInit();
     s.onerror = () => { if (el) el.innerHTML = `<p class="text-sm" style="color:var(--danger)">Não consegui abrir a aba Leads.</p>`; };
     document.head.appendChild(s);
