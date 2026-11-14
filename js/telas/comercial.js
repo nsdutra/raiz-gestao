@@ -1,6 +1,10 @@
 // ============================================================================
 // js/telas/comercial.js — Raiz Gestão
 //
+// v0.14.0 (14/11/2026 — demanda 09277cba F3, sessão 20261114-1535-crm-f3-2; FICHA_CRM_AGENDA_OCUPACAO_RAIZ v1.2.0 §4,
+// de acordo do Nicola 12/11 08:40) — aba nova "Leads" (primeira da fila): Hoje, lista por etapa e ficha do lead, em
+// js/telas/comercial-leads.js, carregado sob demanda nesta aba (o index.html não muda). Versão anterior: 0.13.0.
+//
 // v0.13.0 (12/11/2026 — demanda 700f5659 F1, sessão 20261112-0844-crm-f1; ficha FICHA_CRM_AGENDA_OCUPACAO_RAIZ
 // v1.2.0 aprovada pelo Nicola 12/11 08:40) — aba Bot WhatsApp: funil com os nomes do bot de hoje (Quero testar,
 // "Contaram onde gastam tempo"); "Não criou o teste" separa E-mail já cadastrado, Limite do dia e Erro do sistema
@@ -53,6 +57,7 @@
 // ============================================================================
 
 const PCO_ABAS = [
+    { id: 'leads', label: 'Leads', init: () => pcoCarregarLeads() }, // v0.14.0
     { id: 'visao', label: 'Visão Geral', init: () => pcoVisaoGeralInit() },
     { id: 'oferta', label: 'Oferta no Site', init: () => pcoOfertaInit() },
     { id: 'campanhas', label: 'Campanhas', init: () => pcoCampanhasInit() },
@@ -73,6 +78,18 @@ async function telaComercialInit() {
         <div id="pco-conteudo" class="min-w-0"></div>
     `;
     pcoMudarAba('visao');
+}
+
+// v0.14.0 — a aba Leads mora em comercial-leads.js, carregado na primeira vez que a aba abre
+function pcoCarregarLeads() {
+    if (typeof pcoLeadsInit === 'function') return pcoLeadsInit();
+    const el = document.getElementById('pco-conteudo');
+    if (el) el.innerHTML = `<p class="text-sm" style="color:var(--sage)">Carregando...</p>`;
+    const s = document.createElement('script');
+    s.src = 'js/telas/comercial-leads.js?v=0.1.0';
+    s.onload = () => pcoLeadsInit();
+    s.onerror = () => { if (el) el.innerHTML = `<p class="text-sm" style="color:var(--danger)">Não consegui abrir a aba Leads.</p>`; };
+    document.head.appendChild(s);
 }
 
 function pcoMudarAba(nome) {
