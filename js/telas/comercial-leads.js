@@ -1,6 +1,11 @@
 // ============================================================================
 // js/telas/comercial-leads.js — Raiz Gestão
 //
+// v0.5.0 (14/11/2026 — demanda 09277cba, sessão 20261114-2140-crm-reuniao-3; FICHA_REUNIAO_LEAD_GOOGLE_MEET_RAIZ v1.1.0, de acordo do
+// Nicola 14/11 21:42) — Propor reunião: tipo de texto (modelos da Edge) com o texto na tela para editar; convite em andamento pede
+// confirmação antes de mandar outro; até 4 horários. Reuniões: título, e-mails convidados, sugestões do lead com "Confirmar 1/2",
+// situação dos convites; botões travam enquanto processam (evita confirmação em dobro). Versão anterior: 0.4.0.
+//
 // v0.4.0 (14/11/2026 — demanda 09277cba, sessão 20261114-1955-crm-reuniao-2; pedidos do Nicola 14/11 19:51) — (1) a lista agrupa
 // por status da esteira com chips e contador (Hoje · cada etapa aberta · Clientes e perdidos · Todos): só o grupo escolhido
 // aparece, a tela não fica inteira aberta; (2) na Adoção, escolher uma pessoa da empresa filtra os dias ativos, o último acesso
@@ -376,19 +381,31 @@ function pclChipsGrupos(hoje, grupos, fechados, leads) {
 }
 async function pclDesenharReunioes(i, u, l) {
     const el = document.getElementById('pcl-re-' + u); if (!el) return;
-    const { data, error } = await dbAuth.from('cofre_ocorrencias_controle').select('id, inicio_em, fim_em, aguardando_ate, status_execucao, evento_externo')
-        .eq('parte_id', l.parte_id).not('inicio_em', 'is', null).order('inicio_em', { ascending: false }).limit(10);
+    const [{ data, error }, cv] = await Promise.all([
+        dbAuth.from('cofre_ocorrencias_controle').select('id, inicio_em, fim_em, aguardando_ate, status_execucao, evento_externo')
+            .eq('parte_id', l.parte_id).not('inicio_em', 'is', null).order('inicio_em', { ascending: false }).limit(10),
+        pclEdge({ acao: 'convites', papel_id: l.id }),
+    ]);
     if (error) { el.innerHTML = `<p class="text-xs" style="color:var(--danger)">${pclEsc(error.message)}</p>`; return; }
-    if (!(data || []).length) { el.innerHTML = '<p class="text-xs" style="color:var(--sage)">Nenhuma reunião ainda.</p>'; return; }
-    el.innerHTML = data.map(o => {
-        const st = o.status_execucao === 'cancelado' ? 'Cancelada' : o.aguardando_ate ? 'Aguardando você' : 'Confirmada';
-        const link = o.evento_externo && o.evento_externo.link && !o.evento_externo.cancelado_em ? o.evento_externo.link : '';
+    const convites = (cv && cv.convites) || [];
+    const linhaConv = convites.length ? `<p class="text-xs mb-2" style="color:var(--sage)">Convites: ${convites.slice(0, 3).map(c => `${pclEsc(c.quando_txt)} — ${pclEsc(c.situacao)}`).join(' · ')}</p>` : '';
+    if (!(data || []).length) { el.innerHTML = linhaConv + '<p class="text-xs" style="color:var(--sage)">Nenhuma reunião ainda.</p>'; return; }
+    const btn = (rot, js, cor) => `<button onclick="${js}" class="text-xs font-bold px-2 py-1 rounded ${cor === 'pine' ? 'text-white' : 'border'}" style="${cor === 'pine' ? 'background:var(--pine)' : cor === 'danger' ? 'border-color:var(--danger);color:var(--danger)' : 'border-color:var(--line)'}">${rot}</button>`;
+    el.innerHTML = linhaConv + data.map(o => {
+        const ev = o.evento_externo || {};
+        const st = o.status_execucao === 'cancelado' ? 'Cancelada' : o.aguardando_ate ? (ev.sugestoes ? 'Lead sugeriu horários' : 'Aguardando você') : 'Confirmada';
+        const link = ev.link && !ev.cancelado_em ? ev.link : '';
+        const pend = o.aguardando_ate && o.status_execucao !== 'cancelado';
+        const sug = pend && Array.isArray(ev.sugestoes) ? ev.sugestoes : null;
         return `<div class="p-2 rounded-lg border mb-1" style="border-color:var(--line)">
-            <p class="text-xs" style="color:var(--ink)"><b>${pclDataHora(o.inicio_em)}</b> · ${st}${link ? ` · <a href="${pclEsc(link)}" target="_blank" rel="noopener" style="color:var(--pine);text-decoration:underline">Entrar no Meet</a>` : ''}</p>
-            ${o.aguardando_ate && o.status_execucao !== 'cancelado' ? `<div class="flex gap-2 mt-1">
-                <button onclick="pclDecidir('${o.id}','aprovar',${i},'${u}')" class="text-xs font-bold px-2 py-1 rounded text-white" style="background:var(--pine)">Aprovar</button>
-                <button onclick="pclDecidir('${o.id}','outra_data',${i},'${u}')" class="text-xs font-bold px-2 py-1 rounded border" style="border-color:var(--line)">Outra data</button>
-                <button onclick="pclDecidir('${o.id}','recusar',${i},'${u}')" class="text-xs font-bold px-2 py-1 rounded border" style="border-color:var(--danger);color:var(--danger)">Recusar</button>
+            <p class="text-xs" style="color:var(--ink)"><b>${pclDataHora(o.inicio_em)}</b>${ev.titulo ? ' · ' + pclEsc(ev.titulo) : ''} · ${st}${link ? ` · <a href="${pclEsc(link)}" target="_blank" rel="noopener" style="color:var(--pine);text-decoration:underline">Entrar no Meet</a>` : ''}</p>
+            ${(ev.convidados || []).length ? `<p class="text-xs" style="color:var(--sage)">E-mails: ${ev.convidados.map(pclEsc).join(', ')}</p>` : ''}
+            ${sug ? `<p class="text-xs mt-1" style="color:var(--ink)">Sugestões: ${sug.map((x, k) => `${k + 1}) ${pclDataHora(x.inicio)}`).join(' · ')}</p>` : ''}
+            ${pend ? `<div class="flex gap-2 mt-1 flex-wrap">
+                ${sug ? sug.map((x, k) => btn('Confirmar ' + (k + 1), `pclConfirmarSugestao(this,'${o.id}',${k},${i},'${u}')`, 'pine')).join('')
+                      : btn('Aprovar', `pclDecidir(this,'${o.id}','aprovar',${i},'${u}')`, 'pine')}
+                ${btn('Novos horários', `pclDecidir(this,'${o.id}','outra_data',${i},'${u}')`)}
+                ${btn('Recusar', `pclDecidir(this,'${o.id}','recusar',${i},'${u}')`, 'danger')}
             </div>` : ''}</div>`;
     }).join('');
 }
@@ -397,35 +414,79 @@ async function pclEdge(body) {
     if (error) { let m = error.message; try { const j = await error.context.json(); m = j.mensagem || m; } catch (_) {} return { ok: false, mensagem: m }; }
     return data || { ok: false, mensagem: 'Sem resposta.' };
 }
-async function pclDecidir(ocId, decisao, i, u) {
+// v0.5.0 — trava o botão enquanto processa (dois toques criavam dois eventos no Google)
+async function pclTravado(botao, fn) {
+    if (botao && botao.disabled) return;
+    const grupo = botao ? botao.parentElement.querySelectorAll('button') : [];
+    grupo.forEach(b => { b.disabled = true; b.style.opacity = '.5'; });
+    try { return await fn(); } finally { grupo.forEach(b => { b.disabled = false; b.style.opacity = ''; }); }
+}
+async function pclDecidir(botao, ocId, decisao, i, u) {
     if (decisao === 'recusar' && !confirm('Recusar o pedido? O lead recebe uma mensagem cordial.')) return;
-    const r = await pclEdge({ acao: 'decidir', ocorrencia_id: ocId, decisao });
-    alert(r.mensagem || (r.ok ? 'Feito.' : 'Não deu certo.'));
+    await pclTravado(botao, async () => {
+        const r = await pclEdge({ acao: 'decidir', ocorrencia_id: ocId, decisao });
+        alert(r.mensagem || (r.ok ? 'Feito.' : 'Não deu certo.'));
+    });
     const l = (window.__pclLista || [])[i]; if (l) pclDesenharReunioes(i, u, l);
 }
-function pclProporAbrir(i, u) {
+async function pclConfirmarSugestao(botao, ocId, k, i, u) {
+    await pclTravado(botao, async () => {
+        const r = await pclEdge({ acao: 'confirmar_sugestao', ocorrencia_id: ocId, idx: k });
+        alert(r.mensagem || (r.ok ? 'Confirmado.' : 'Não deu certo.'));
+    });
+    const l = (window.__pclLista || [])[i]; if (l) pclDesenharReunioes(i, u, l);
+}
+let pclModelos = null;
+async function pclModelosCarregar() {
+    if (pclModelos) return pclModelos;
+    const r = await pclEdge({ acao: 'modelos' });
+    pclModelos = (r && r.modelos) || { configuracao: { rotulo: 'Configuração inicial', texto: '' } };
+    return pclModelos;
+}
+function pclTextoModelo(i, u) {
+    const l = (window.__pclLista || [])[i]; const m = (pclModelos || {})[document.getElementById('pcl-mo-' + u)?.value] || {};
+    const nome = String(l?.partes?.nome || '').split(' ')[0] || 'tudo bem';
+    const dur = document.getElementById('pcl-du-' + u)?.value === '60' ? '1 hora' : '30 min';
+    const tx = document.getElementById('pcl-tx-' + u);
+    if (tx) tx.value = String(m.texto || '').replaceAll('{nome}', nome).replaceAll('{duracao}', dur);
+}
+async function pclProporAbrir(i, u) {
     const box = document.getElementById('pcl-pr-' + u); if (!box) return;
     if (!box.hidden) { box.hidden = true; return; }
+    const modelos = await pclModelosCarregar();
     const faixa = k => `<div class="grid grid-cols-2 gap-2"><div>${pclCampo(`pcl-fd${k}-${u}`, `Faixa ${k} · de`, '', 'type="date"')}</div><div>${pclCampo(`pcl-fa${k}-${u}`, 'até', '', 'type="date"')}</div></div>`;
     box.innerHTML = `<div class="p-3 rounded-xl border-2" style="border-color:var(--brass)">
-        <p class="text-xs font-bold mb-2 flex items-center" style="color:var(--ink)">Propor reunião${gestaoInfoIcone('Até 3 faixas de dias. Sem faixa: os próximos 5 dias úteis. Os horários respeitam a sua agenda, o Google da Raiz e as preferências do lead (salve-as antes).')}</p>
+        <p class="text-xs font-bold mb-2 flex items-center" style="color:var(--ink)">Propor reunião${gestaoInfoIcone('Escolha o tipo de texto e ajuste à vontade. Até 4 horários saem das faixas de dias (sem faixa: os próximos 5 dias úteis), respeitando a sua agenda, o Google da Raiz e as preferências do lead. Se ele escolher um dos 4, a reunião já fica confirmada; se sugerir outro horário, você confirma em Reuniões.')}</p>
+        <label class="text-xs font-bold" style="color:var(--sage)">Tipo de texto</label>
+        <select id="pcl-mo-${u}" onchange="pclTextoModelo(${i}, '${u}')" class="w-full text-sm p-2 rounded-lg border mt-1 mb-2" style="border-color:var(--line)">
+            ${Object.entries(modelos).map(([k, m]) => `<option value="${k}">${pclEsc(m.rotulo || k)}</option>`).join('')}</select>
+        <label class="text-xs font-bold" style="color:var(--sage)">Texto que o lead recebe</label>
+        <textarea id="pcl-tx-${u}" rows="4" maxlength="900" class="w-full text-sm p-2 rounded-lg border mt-1 mb-1" style="border-color:var(--line)"></textarea>
+        <p class="text-xs mb-2" style="color:var(--sage)">Fora da janela de 24 h do lead, a Meta só aceita o modelo aprovado (texto padrão).</p>
         ${faixa(1)}${faixa(2)}${faixa(3)}
         <label class="text-xs font-bold" style="color:var(--sage)">Duração</label>
-        <select id="pcl-du-${u}" class="w-full text-sm p-2 rounded-lg border mt-1 mb-2" style="border-color:var(--line)"><option value="30">30 min</option><option value="60">1 hora</option></select>
+        <select id="pcl-du-${u}" onchange="pclTextoModelo(${i}, '${u}')" class="w-full text-sm p-2 rounded-lg border mt-1 mb-2" style="border-color:var(--line)"><option value="30">30 min</option><option value="60">1 hora</option></select>
         <div class="flex gap-2 mb-2">
-            <button onclick="pclPropor(${i}, '${u}', false)" class="text-xs font-bold px-3 py-2 rounded-lg border-2" style="border-color:var(--pine);color:var(--pine)">Ver horários</button>
-            <button onclick="pclPropor(${i}, '${u}', true)" class="text-xs font-bold px-3 py-2 rounded-lg text-white" style="background:var(--pine)">Enviar convite</button>
+            <button onclick="pclPropor(${i}, '${u}', false, this)" class="text-xs font-bold px-3 py-2 rounded-lg border-2" style="border-color:var(--pine);color:var(--pine)">Ver horários</button>
+            <button onclick="pclPropor(${i}, '${u}', true, this)" class="text-xs font-bold px-3 py-2 rounded-lg text-white" style="background:var(--pine)">Enviar convite</button>
         </div>
         <div id="pcl-prv-${u}"></div></div>`;
     box.hidden = false;
+    pclTextoModelo(i, u);
 }
-async function pclPropor(i, u, enviar) {
+async function pclPropor(i, u, enviar, botao) {
     const l = (window.__pclLista || [])[i]; if (!l) return;
     const faixas = [1, 2, 3].map(k => ({ de: document.getElementById(`pcl-fd${k}-${u}`)?.value, ate: document.getElementById(`pcl-fa${k}-${u}`)?.value || document.getElementById(`pcl-fd${k}-${u}`)?.value }))
         .filter(f => f.de);
     const el = document.getElementById('pcl-prv-' + u);
     if (el) el.innerHTML = '<p class="text-xs" style="color:var(--sage)">Calculando...</p>';
-    const r = await pclEdge({ acao: enviar ? 'propor' : 'previa', papel_id: l.id, faixas, duracao: Number(document.getElementById('pcl-du-' + u)?.value || 30) });
+    const corpo = { acao: enviar ? 'propor' : 'previa', papel_id: l.id, faixas, duracao: Number(document.getElementById('pcl-du-' + u)?.value || 30),
+        modelo: document.getElementById('pcl-mo-' + u)?.value, texto: document.getElementById('pcl-tx-' + u)?.value || '', forcar: false };
+    let r = await pclTravado(botao, () => pclEdge(corpo));
+    if (r && r.precisa_confirmar) { // v0.5.0 — convite em andamento
+        if (!confirm(r.mensagem)) { if (el) el.innerHTML = '<p class="text-xs" style="color:var(--sage)">Convite não enviado.</p>'; return; }
+        r = await pclTravado(botao, () => pclEdge({ ...corpo, forcar: true }));
+    }
     if (!el) return;
     const lista = r.horarios_txt || [];
     el.innerHTML = `<p class="text-xs mb-1" style="color:${r.ok ? 'var(--ink)' : 'var(--danger)'}">${pclEsc(enviar ? (r.mensagem || '') : (lista.length ? `${lista.length} horário(s) vão sair:` : 'Nenhum horário livre com essas faixas e preferências.'))}${!r.ok && !enviar ? ' ' + pclEsc(r.mensagem || '') : ''}</p>
