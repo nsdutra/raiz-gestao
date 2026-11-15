@@ -1,6 +1,11 @@
 // ============================================================================
 // js/nav.js — Raiz Gestão
 //
+// v0.12.0 (14/11/2026 — sessão 20261114-2350-crm-f4, demanda 09277cba; pedido do Nicola 14/11 23:48) — alerta verde no topo de
+// todas as telas quando há número novo no robô (primeira mensagem nas últimas 72 h) ou lead esperando resposta de horário de
+// reunião (sugestão do lead ou pedido aguardando). Dados da Edge agenda-google (ação pendencias), a cada 2 min. "Ver" abre
+// Comercial › Leads; "×" esconde até chegar novidade (marca neste navegador). Versão anterior: 0.11.4.
+//
 // v0.11.4 (13/09/2026) — SISTEMA DE DEMANDAS, Fase 1: tela "Suporte" deixa
 // de ser telaEmConstrucaoInit() e vira "Suporte & Backlog", apontando pra
 // telaSuporteInit() (js/telas/suporte.js, novo). Só a linha do menu mudou
@@ -78,6 +83,7 @@ function gestaoNavInit() {
     `).join('');
 
     gestaoAbrirTela('cockpit');
+    gestaoAlertaComercialIniciar(); // v0.12.0
 }
 
 function gestaoAbrirMais() {
@@ -245,4 +251,51 @@ function gestaoLerFiltroPeriodo(prefixo) {
         inicio: (elIni && elIni.value) ? elIni.value : null,
         fim: (elFim && elFim.value) ? elFim.value : null
     };
+}
+
+// ---------------------------------------------------------------- v0.12.0 · alerta verde do comercial
+let gestaoAlertaTimer = null;
+let gestaoAlertaUltimo = null;
+function gestaoAlertaComercialIniciar() {
+    if (gestaoAlertaTimer) return;
+    gestaoAlertaComercialAtualizar();
+    gestaoAlertaTimer = setInterval(gestaoAlertaComercialAtualizar, 120000);
+}
+function gestaoAlertaChave(p) { // o que já foi visto: números e convites
+    return [...(p.novos || []).map(n => n.ddd + n.telefone_fim + n.primeira_em), ...(p.sugestoes || []).map(x => x.convite_id), 'ag' + (p.aguardando || 0)].join('|');
+}
+async function gestaoAlertaComercialAtualizar() {
+    if (typeof dbAuth === 'undefined' || !dbAuth.functions) return;
+    let p;
+    try { const r = await dbAuth.functions.invoke('agenda-google', { body: { acao: 'pendencias' } }); p = r.data; } catch (_) { return; }
+    if (!p || !p.ok) return;
+    gestaoAlertaUltimo = p;
+    gestaoAlertaComercialDesenhar();
+}
+function gestaoAlertaComercialDesenhar() {
+    const p = gestaoAlertaUltimo; if (!p) return;
+    let el = document.getElementById('gestao-alerta-comercial');
+    if (!el) {
+        const header = document.querySelector('#area-app > header'); if (!header) return;
+        el = document.createElement('div'); el.id = 'gestao-alerta-comercial';
+        header.insertAdjacentElement('afterend', el);
+    }
+    let visto = window.__gestaoAlertaVisto || ''; try { visto = localStorage.getItem('gestao_alerta_visto') || visto; } catch (_) {}
+    const nNovos = (p.novos || []).length, nSug = (p.sugestoes || []).length, nAg = p.aguardando || 0;
+    if (!(nNovos + nSug + nAg) || visto === gestaoAlertaChave(p)) { el.innerHTML = ''; return; }
+    const partes = [];
+    if (nNovos) partes.push(`<b>${nNovos} número${nNovos > 1 ? 's' : ''} novo${nNovos > 1 ? 's' : ''} no robô</b> (${p.novos.slice(0, 3).map(n => (n.nome ? n.nome + ' · ' : '') + '(' + n.ddd + ') …' + n.telefone_fim).join(', ')}${nNovos > 3 ? '…' : ''})`);
+    if (nSug) partes.push(`<b>${nSug} lead${nSug > 1 ? 's' : ''} esperando resposta de horário</b> (${p.sugestoes.slice(0, 3).map(x => x.nome).join(', ')})`);
+    if (nAg) partes.push(`<b>${nAg} pedido${nAg > 1 ? 's' : ''} de reunião aguardando você</b>`);
+    el.innerHTML = `<div class="flex items-center gap-3 px-5 py-2.5 text-sm" style="background:#dff3e6;border-bottom:2px solid #2e9e5b;color:#14532d">
+        <span class="text-lg" aria-hidden="true">🟢</span>
+        <span class="flex-1">${partes.join(' · ')}</span>
+        <button onclick="gestaoAbrirTela('comercial')" class="text-xs font-bold px-3 py-1.5 rounded-lg text-white" style="background:#2e9e5b">Ver</button>
+        <button onclick="gestaoAlertaComercialFechar()" title="Esconder até chegar novidade" class="text-lg font-bold px-2" style="color:#14532d">×</button>
+    </div>`;
+}
+function gestaoAlertaComercialFechar() {
+    window.__gestaoAlertaVisto = gestaoAlertaChave(gestaoAlertaUltimo || {});
+    try { localStorage.setItem('gestao_alerta_visto', window.__gestaoAlertaVisto); } catch (_) {}
+    gestaoAlertaComercialDesenhar();
 }
