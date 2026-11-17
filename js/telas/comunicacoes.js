@@ -1,6 +1,13 @@
 // ============================================================================
 // js/telas/comunicacoes.js — Raiz Gestão
 //
+// v0.8.0 (16/11/2026 — demanda c87d0460, sessão 20261116-2244-comunicacoes-proativas; FICHA_ROBO_ENVIO_COMUNICACOES_RAIZ v1.2.0,
+// de acordo do Nicola 16/11 22:44) — modo Pessoas ganha a chave "Comunicações proativas" da EMPRESA (cartão ao lado do e-mail
+// automático) e da PESSOA (no bloco da pessoa), gravadas por gestao.fn_comunicacoes_proativas_definir (só master). Substitui o
+// modo restrito da Edge (secrets): desligada a empresa ou a pessoa, o robô não manda nada proativo. "Enviar agora (teste)" mostra
+// o motivo quando não envia; sai o aviso de "modo restrito".
+// Versão anterior: v0.7.0
+//
 // v0.7.0 (19/10/2026 — demanda 91a30125, sessão 20261018-2344-temas; FICHA_ROTINAS_E_ALERTAS_POR_TEMA_RAIZ v1.0.0, de acordo do
 // Nicola 18/10 23:44) — avisos da pessoa agrupados por tema (catálogo aviso_temas, tema de cada tipo em
 // alerta_tipos); tema desligado na empresa aparece apagado, sem caixa; frequência só no convite diário (único envio que ela
@@ -856,7 +863,21 @@ async function cmPessoasRenderConteudo() {
     cmEmailCfgAtual = (emailCfg && emailCfg[0]) || { dia01: 1, dia15: 15, ativo: false };
     if (eE) console.warn('[comunicacoes] Config de e-mail automático indisponível:', eE.message);
 
+    const pro = !!cmEmailCfgAtual.comunicacoes_proativas; // v0.8.0
+    const proMudou = cmEmailCfgAtual.proativas_mudado_em
+        ? `Mudado em ${new Date(cmEmailCfgAtual.proativas_mudado_em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}${cmEmailCfgAtual.proativas_mudado_por ? ' por ' + pmEsc(cmEmailCfgAtual.proativas_mudado_por) : ''}` : '';
     el.innerHTML = `
+        <div class="rounded-2xl border-2 p-3 mb-4" style="border-color:${pro ? 'var(--success)' : 'var(--line)'};background:#fff">
+            <div class="flex items-center gap-3 flex-wrap">
+                <div style="flex:1;min-width:200px">
+                    <h4 class="text-sm font-extrabold" style="color:var(--ink)">Comunicações proativas do robô</h4>
+                    <p class="text-[11px]" style="color:var(--sage)">Convite diário, alertas, avisos e cobrança ao inquilino. Desligado: o robô não manda nada por iniciativa própria a ninguém desta empresa (continua respondendo a quem escreve).</p>
+                    ${proMudou ? `<p class="text-[10px] mt-1" style="color:var(--sage)">${proMudou}</p>` : ''}
+                </div>
+                <button onclick="cmToggleProativas(null)" class="text-xs font-bold px-3 py-2 rounded-lg" style="background:${pro ? '#dcfce7' : '#fee2e2'};color:${pro ? 'var(--success)' : 'var(--danger)'}">${pro ? '🟢 Ligadas' : '🔴 Desligadas'}</button>
+            </div>
+        </div>
+
         <div class="rounded-2xl border-2 p-3 mb-4" style="border-color:var(--line);background:#fff">
             <h4 class="text-sm font-extrabold mb-2" style="color:var(--ink)">Envio automático de e-mails (extrato)</h4>
             <p class="text-[11px] mb-2" style="color:var(--sage)">⚠️ Só guarda a preferência — o disparo de verdade no dia certo depende de um agendador rodando no servidor, que ainda não existe (mesmo aviso que já existia no App).</p>
@@ -881,6 +902,7 @@ async function cmPessoasRenderConteudo() {
         </div>
 
         <div id="cm-pessoa-bloco" class="hidden">
+            <div id="cm-pessoa-proativas" class="rounded-2xl border-2 p-3 mb-4" style="border-color:var(--line);background:#fff"></div>
             <div class="rounded-2xl border-2 p-3 mb-4" style="border-color:var(--line);background:#fff">
                 <h4 class="text-sm font-extrabold mb-1" style="color:var(--ink)">Disparo manual de e-mail</h4>
                 <p id="cm-email-disparo-nome" class="text-[11px] mb-2" style="color:var(--sage)"></p>
@@ -928,6 +950,7 @@ function cmPessoaMudarSelecionada() {
         ? (p.email ? `Enviando para: ${p.email}` : '⚠️ Esta pessoa não tem e-mail cadastrado.')
         : '';
     document.getElementById('cm-email-disparo-status').textContent = '';
+    cmDesenharProativasPessoa(); // v0.8.0
     cmCarregarComunicacoesPessoa();
     cmCarregarRamosPessoa(); // v0.6.0
     const st = document.getElementById('cm-teste-status'); if (st) st.textContent = '';
@@ -965,10 +988,10 @@ async function cmEnviarConviteTeste() {
     let r = data;
     if (error && error.context && typeof error.context.json === 'function') { try { r = await error.context.json(); } catch (e) { /* segue com o erro */ } }
     if (!r) { status.textContent = 'Erro: ' + (error ? error.message : 'sem resposta'); status.style.color = 'var(--danger)'; return; }
-    if (!r.ok) { status.textContent = 'Não enviado: ' + (r.motivo || 'falha no envio'); status.style.color = 'var(--danger)'; return; }
+    if (!r.ok) { status.textContent = 'Não enviado: ' + String(r.motivo || 'falha no envio').replace(/^não enviado:\s*/i, ''); status.style.color = 'var(--danger)'; return; }
     const ramos = Array.isArray(r.ramos) ? r.ramos.join(', ') : r.ramos;
-    status.textContent = `✅ Convite enviado — ${r.total} alerta(s) (ramos: ${ramos})` + (r.desviado_modo_restrito ? ' · ⚠️ modo restrito: foi para o número de teste, não o da pessoa' : '');
-    status.style.color = r.desviado_modo_restrito ? 'var(--danger)' : 'var(--success)';
+    status.textContent = `✅ Convite enviado — ${r.total} alerta(s) (ramos: ${ramos})`;
+    status.style.color = 'var(--success)';
 }
 
 async function cmCarregarComunicacoesPessoa() {
@@ -1051,6 +1074,40 @@ async function cmSalvarConfigEmail() {
     cmEmailCfgAtual.dia01 = dia01;
     cmEmailCfgAtual.dia15 = dia15;
     status.textContent = '✓ Dias salvos.'; status.style.color = 'var(--success)';
+}
+
+// v0.8.0 — chave das comunicações proativas: pessoaId nulo = empresa
+function cmDesenharProativasPessoa() {
+    const box = document.getElementById('cm-pessoa-proativas');
+    const p = cmPessoasLista.find(x => x.pessoa_id === cmPessoaSelecionadaId);
+    if (!box || !p) return;
+    const lig = p.comunicacoes_proativas !== false;
+    const empresaLig = !!cmEmailCfgAtual.comunicacoes_proativas;
+    box.style.borderColor = lig && empresaLig ? 'var(--success)' : 'var(--line)';
+    box.innerHTML = `<div class="flex items-center gap-3 flex-wrap">
+            <div style="flex:1;min-width:200px">
+                <h4 class="text-sm font-extrabold" style="color:var(--ink)">Comunicações proativas desta pessoa</h4>
+                <p class="text-[11px]" style="color:var(--sage)">${empresaLig ? 'Vale junto com a chave da empresa (ligada).' : '⚠️ A empresa está desligada: nada é enviado, mesmo com a pessoa ligada.'}${p.whatsapp ? '' : ' Esta pessoa não tem WhatsApp cadastrado.'}</p>
+            </div>
+            <button onclick="cmToggleProativas('${p.pessoa_id}')" class="text-xs font-bold px-3 py-2 rounded-lg" style="background:${lig ? '#dcfce7' : '#fee2e2'};color:${lig ? 'var(--success)' : 'var(--danger)'}">${lig ? '🟢 Ligadas' : '🔴 Desligadas'}</button>
+        </div>`;
+}
+async function cmToggleProativas(pessoaId) {
+    const p = pessoaId ? cmPessoasLista.find(x => x.pessoa_id === pessoaId) : null;
+    const atual = pessoaId ? (p?.comunicacoes_proativas !== false) : !!cmEmailCfgAtual.comunicacoes_proativas;
+    const novo = !atual;
+    if (!pessoaId && novo) {
+        const n = cmPessoasLista.filter(x => x.whatsapp && x.comunicacoes_proativas !== false).length;
+        if (!confirm(`Ligar as comunicações proativas desta empresa? A partir do próximo envio, ${n} pessoa(s) com WhatsApp e com a chave ligada passam a receber no número real.`)) return;
+    }
+    const { error } = await dbAuth.schema('gestao').rpc('fn_comunicacoes_proativas_definir', {
+        p_cliente_id: cmPessoasClienteId, p_pessoa_id: pessoaId || null, p_ligado: novo
+    });
+    if (error) { alert('Erro: ' + error.message); return; }
+    if (pessoaId) { if (p) p.comunicacoes_proativas = novo; cmDesenharProativasPessoa(); return; }
+    const sel = cmPessoaSelecionadaId;
+    await cmPessoasRenderConteudo();
+    if (sel) { const s = document.getElementById('cm-pessoa-select'); if (s) { s.value = sel; cmPessoaMudarSelecionada(); } }
 }
 
 async function cmToggleEmailAutomatico() {
