@@ -1,5 +1,11 @@
 // ============================================================================
 // js/telas/empresas.js — Raiz Gestão
+// Versão: 0.29.0 · 23/11/2026
+//
+// v0.29.0 (23/11/2026, sessão 20261123-1348-lead-ramos, demanda 2be7ea1c; FICHA_LEAD_RAMOS_ROBO_RAIZ v1.2.0, de acordo do Nicola
+// 23/11 20:23) — Links de convite: os tipos novos do banco (robo → WhatsApp do robô com o código R-<token>; familia → landing
+// /familia/?c=<token>), gerados pelo link do lead, aparecem na lista com o endereço certo em vez do /amigos. O seletor não muda.
+// Versão anterior: v0.28.0
 //
 // v0.28.0 (11/11/2026, sessão 20261111-0820-levantamento-gestao, demanda 5bd5b826; de acordo do Nicola 11/11 08:20) — Links de
 // convite: tipo novo "Levantamento (antes da reunião)" no seletor (gestao.fn_convite_pessoal_criar aceita 'levantamento',
@@ -620,6 +626,9 @@ function edFormatarTelefone(t) {
 
 // v0.28.0 — o endereço segue o tipo do convite (o token é o mesmo formato nos dois)
 function edLinkConvite(tipo, token) {
+    // mesmos endereços da public.fn_lead_convite_gerar; unificar no banco com a "Compartilhar" (dem 8cf999ac)
+    if (tipo === 'robo') return 'https://wa.me/5511978950609?text=Oi!%20Meu%20c%C3%B3digo%20%C3%A9%20R-' + token;
+    if (tipo === 'familia') return 'https://raizpatrimonio.com.br/familia/?c=' + token;
     return tipo === 'levantamento'
         ? 'https://raizpatrimonio.com.br/levantamento/?c=' + token
         : 'https://raizpatrimonio.com.br/amigos?c=' + token;
