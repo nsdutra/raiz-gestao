@@ -1,6 +1,12 @@
 // ============================================================================
 // js/telas/saude.js — Raiz Gestão
 //
+// v0.15.0 (25/11/2026, sessão 20261125-2002-porta-ia-f2, demanda e3298a8a; FICHA_PORTA_UNICA_IA_RAIZ v1.2.0 §10, de acordo do Nicola
+// 25/11 20:02) — nova seção "Situação da IA" no topo (independe do filtro): por provedor, estado (verde/vermelho) com motivo e
+// desde quando, último ok, chamadas e falhas em 24 h, gasto estimado do mês × limite (barra) e o limite e as faixas de aviso
+// editáveis (gestao.fn_ia_saude_painel / gestao.fn_ia_limite_definir). O aviso no WhatsApp comercial sai do banco (queda, volta e
+// faixa de gasto, conferida todo dia às 08:17).
+//
 // v0.14.0 (25/09/2026) — nova seção "IA — erros agrupados (funcionalidade,
 // canal, modelo, motivo)" (demanda 307993f1), logo abaixo da tabela de
 // custo por produto/modelo: chama gestao.fn_saude_erros_agrupados() (nova,
@@ -138,6 +144,65 @@ async function sdRenderNoAr() {
 // Function capturar-indicadores (SGS/BCB). Independente do filtro de
 // empresa/pessoa/período da tela — é log operacional, não dado de cliente.
 // ----------------------------------------------------------------------------
+// v0.15.0 — Situação da IA (porta única). Valores em US$ no padrão brasileiro; datas em Brasília.
+const SD_IA_NOME = { anthropic: 'Anthropic (Claude)', gemini: 'Google (Gemini)' };
+const SD_IA_MOTIVO = { limite_conta: 'limite de gasto da conta atingido', chave: 'chave de acesso recusada' };
+function sdUsd(v) { return v == null ? '—' : 'US$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function sdQuando(iso) { return iso ? new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'; }
+async function sdRenderSituacaoIA() {
+    const el = document.getElementById('sd-ia-situacao'); if (!el) return;
+    el.innerHTML = `<p class="text-xs" style="color:var(--sage)">Carregando situação da IA…</p>`;
+    const { data, error } = await dbAuth.schema('gestao').rpc('fn_ia_saude_painel');
+    if (error) { el.innerHTML = `<p class="text-xs" style="color:var(--danger)">Erro ao carregar a situação da IA: ${pmEsc(error.message)}</p>`; return; }
+    const cards = (data || []).map(p => {
+        const fora = p.estado === 'indisponivel';
+        const lim = Number(p.limite_mensal_usd || 0);
+        const pct = lim > 0 ? Math.min(100, Math.round(Number(p.gasto_mes_usd || 0) / lim * 1000) / 10) : null;
+        const corBarra = pct == null ? 'var(--line)' : pct >= 95 ? 'var(--danger)' : pct >= 80 ? 'var(--warning)' : 'var(--success)';
+        return `
+        <div class="p-3 rounded-xl border-2" style="border-color:${fora ? 'var(--danger)' : 'var(--line)'};background:${fora ? 'var(--danger-bg)' : 'var(--paper)'}">
+            <div class="flex items-center justify-between mb-1">
+                <b class="text-xs" style="color:var(--ink)">${pmEsc(SD_IA_NOME[p.provedor] || p.provedor)}</b>
+                <span class="text-xs font-bold" style="color:${fora ? 'var(--danger)' : 'var(--success)'}">${fora ? '● Fora do ar' : '● Funcionando'}</span>
+            </div>
+            ${fora ? `<p class="text-[11px] mb-1" style="color:var(--danger)">${pmEsc(SD_IA_MOTIVO[p.motivo] || p.motivo || 'falha')} desde ${sdQuando(p.desde)}</p>` : ''}
+            <p class="text-[11px]" style="color:var(--sage)">Último ok: ${sdQuando(p.ultimo_ok)} · 24 h: ${p.chamadas_24h} chamada(s), ${p.falhas_24h} falha(s)</p>
+            <div class="mt-2">
+                <div class="flex items-center justify-between text-[11px]">
+                    <span style="color:var(--ink)">Gasto estimado do mês: <b>${sdUsd(p.gasto_mes_usd)}</b>${lim > 0 ? ` de ${sdUsd(lim)} (${String(pct).replace('.', ',')}%)` : ''}</span>
+                    ${p.aviso_gasto_pct ? `<span class="font-bold" style="color:var(--warning)">aviso de ${p.aviso_gasto_pct}% enviado</span>` : ''}
+                </div>
+                <div class="h-2 rounded-full mt-1" style="background:var(--line)"><div class="h-2 rounded-full" style="width:${pct ?? 0}%;background:${corBarra}"></div></div>
+            </div>
+            <div class="flex flex-wrap gap-2 mt-3 items-end">
+                <label class="flex flex-col gap-1"><span class="text-[10px] font-bold uppercase" style="color:var(--sage)">Limite do mês (US$)</span>
+                    <input id="sd-ia-lim-${p.provedor}" inputmode="decimal" value="${lim > 0 ? String(lim).replace('.', ',') : ''}" placeholder="ex.: 50,00" class="text-xs p-2 rounded-lg border-2" style="border-color:var(--line);width:110px"></label>
+                <label class="flex flex-col gap-1"><span class="text-[10px] font-bold uppercase" style="color:var(--sage)">Avisar em (%)</span>
+                    <input id="sd-ia-av-${p.provedor}" value="${(p.avisos_pct || [80, 95]).join(', ')}" class="text-xs p-2 rounded-lg border-2" style="border-color:var(--line);width:90px"></label>
+                <button onclick="sdIaSalvarLimite('${p.provedor}')" class="text-xs font-bold px-3 py-2 rounded-lg text-white" style="background:var(--pine)">Salvar</button>
+            </div>
+        </div>`;
+    }).join('');
+    el.innerHTML = `
+        <div class="rounded-2xl border-2 p-4" style="border-color:var(--line);background:#fff">
+            <div class="flex items-center justify-between mb-2">
+                <b class="text-sm" style="color:var(--ink)">Situação da IA</b>
+                <button onclick="sdRenderSituacaoIA()" class="text-[11px] font-bold" style="color:var(--pine)">Atualizar</button>
+            </div>
+            <div class="grid md:grid-cols-2 gap-3">${cards || '<p class="text-xs" style="color:var(--sage)">Sem provedores cadastrados.</p>'}</div>
+            <p class="text-[10px] mt-2" style="color:var(--sage)">O gasto é a estimativa do Raiz pelas chamadas registradas (pode ficar abaixo do console do provedor). Queda, volta e faixas de gasto avisam o WhatsApp comercial; o gasto é conferido todo dia às 08:17.</p>
+        </div>`;
+}
+async function sdIaSalvarLimite(provedor) {
+    const txt = (document.getElementById('sd-ia-lim-' + provedor)?.value || '').trim();
+    const limite = txt ? Number(txt.replace(/\./g, '').replace(',', '.')) : null;
+    if (txt && !(limite > 0)) { gestaoErro('Limite inválido. Use, por exemplo, 50,00.'); return; }
+    const avisos = (document.getElementById('sd-ia-av-' + provedor)?.value || '').split(/[,;\s]+/).map(n => parseInt(n, 10)).filter(n => n >= 1 && n <= 100);
+    const { error } = await dbAuth.schema('gestao').rpc('fn_ia_limite_definir', { p_provedor: provedor, p_limite_usd: limite, p_avisos: avisos.length ? avisos : [80, 95] });
+    if (error) { gestaoErro(error.message); return; }
+    sdRenderSituacaoIA();
+}
+
 async function sdRenderIndicadores() {
     const el = document.getElementById('sd-indicadores'); if (!el) return;
     el.innerHTML = `<p class="text-xs" style="color:var(--sage)">Carregando captura de indicadores…</p>`;
@@ -208,6 +273,7 @@ async function telaSaudeInit() {
             <p class="text-xs mt-0.5" style="color:var(--sage)">Filtro de empresa/pessoa/período abaixo afeta todas as informações desta tela, exceto a captura de indicadores (log operacional, não é dado de cliente).</p>
         </div>
 
+        <div id="sd-ia-situacao" class="mb-6"></div>
         <div id="sd-indicadores" class="mb-6"></div>
 
         <div class="flex flex-wrap gap-2 mb-5 items-end">
@@ -232,6 +298,7 @@ async function telaSaudeInit() {
         <div id="sd-conteudo"></div>
     `;
 
+    sdRenderSituacaoIA();
     sdRenderIndicadores();
     sdCarregar();
 }
